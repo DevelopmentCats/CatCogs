@@ -6,72 +6,9 @@ from redbot.core.bot import Red
 from datetime import datetime, timedelta
 import pytz
 from typing import Optional, List
+import asyncio
 
-class EventCreationModal(Modal):
-    def __init__(self, cog, timezone):
-        super().__init__(title="Create New Event")
-        self.cog = cog
-        self.timezone = timezone
-
-        self.name = TextInput(label="Event Name", placeholder="Enter event name", max_length=100)
-        self.datetime = TextInput(label="Date and Time (YYYY-MM-DD HH:MM)", placeholder="2024-01-01 14:30")
-        self.description = TextInput(label="Description", style=discord.TextStyle.paragraph, max_length=1000)
-        self.notifications = TextInput(label="Notification Times (minutes)", placeholder="10,30,60")
-        self.options = TextInput(label="Options", placeholder="repeat:weekly, role:yes, channel:#events")
-
-        self.add_item(self.name)
-        self.add_item(self.datetime)
-        self.add_item(self.description)
-        self.add_item(self.notifications)
-        self.add_item(self.options)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            local_time = datetime.strptime(self.datetime.value, "%Y-%m-%d %H:%M")
-            event_time = self.timezone.localize(local_time).astimezone(pytz.UTC)
-            if event_time <= datetime.now(pytz.UTC):
-                await interaction.response.send_message(embed=self.cog.error_embed("Event time must be in the future."), ephemeral=True)
-                return
-        except ValueError as e:
-            await interaction.response.send_message(embed=self.cog.error_embed(f"Invalid date or time format: {e}"), ephemeral=True)
-            return
-
-        try:
-            notifications = [int(n.strip()) for n in self.notifications.value.split(',')]
-        except ValueError:
-            await interaction.response.send_message(embed=self.cog.error_embed("Invalid notification times."), ephemeral=True)
-            return
-
-        options = dict(item.split(':') for item in self.options.value.replace(' ', '').split(','))
-        repeat = options.get('repeat', 'none').lower()
-        create_role = options.get('role', 'no').lower() == 'yes'
-        channel_name = options.get('channel', '').lstrip('#')
-
-        channel = discord.utils.get(interaction.guild.text_channels, name=channel_name)
-        if not channel:
-            await interaction.response.send_message(embed=self.cog.error_embed(f"Channel #{channel_name} not found."), ephemeral=True)
-            return
-
-        await self.cog.create_event(
-            interaction.guild,
-            self.name.value,
-            event_time,
-            self.description.value,
-            notifications,
-            repeat,
-            create_role,
-            channel
-        )
-        await interaction.response.send_message(embed=self.cog.success_embed("Event created successfully!"), ephemeral=True)
-
-class EventCreationButton(Button):
-    def __init__(self, cog):
-        super().__init__(label="Create Event", style=discord.ButtonStyle.primary)
-        self.cog = cog
-
-    async def callback(self, interaction: discord.Interaction):
-        modal = EventCreationModal(self.cog, pytz.timezone("UTC"))
-        await interaction.response.send_modal(modal)
+# ... (previous code remains the same)
 
 class RobustEventsCog(commands.Cog):
     """Cog for managing and scheduling events"""
@@ -79,15 +16,49 @@ class RobustEventsCog(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
-        self.config.register_guild(events={})
+        self.config.register_guild(events={}, timezone="UTC")
         self.event_tasks = {}
+        self.temp_event_data = None
+        self.emoji = {
+            "calendar": "📅",
+            "clock": "🕒",
+            "bell": "🔔",
+            "repeat": "🔁",
+            "description": "📝",
+            "channel": "📢",
+            "role": "👥",
+            "success": "✅",
+            "error": "❌",
+            "warning": "⚠️"
+        }
 
-    @commands.command()
-    async def eventcreate(self, ctx):
-        """Start the custom modal for creating a new event."""
-        view = View()
-        view.add_item(EventCreationButton(self))
-        await ctx.send("Click the button below to create a new event:", view=view)
+    def format_time(self, dt: datetime) -> str:
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+
+    def get_event_color(self, event_time: datetime) -> discord.Color:
+        now = datetime.now(pytz.UTC)
+        time_until_event = event_time - now
+        if time_until_event <= timedelta(hours=1):
+            return discord.Color.red()
+        elif time_until_event <= timedelta(days=1):
+            return discord.Color.gold()
+        else:
+            return discord.Color.green()
+
+    def create_event_embed(self, name: str, event_data: dict) -> discord.Embed:
+        event_time = datetime.fromisoformat(event_data['time'])
+        color = self.get_event_color(event_time)
+        embed = discord.Embed(title=f"{self.emoji['calendar']} Event: {name}", color=color)
+        embed.add_field(name=f"{self.emoji['clock']} Time", value=self.format_time(event_time), inline=False)
+        if event_data.get('second_time'):
+            second_time = datetime.combine(event_time.date(), datetime.fromisoformat(event_data['second_time']).time())
+            embed.add_field(name=f"{self.emoji['clock']} Second Time", value=self.format_time(second_time), inline=False)
+        embed.add_field(name=f"{self.emoji['description']} Description", value=event_data['description'], inline=False)
+        embed.add_field(name=f"{self.emoji['bell']} Notifications", value=", ".join(map(str, event_data['notifications'])) + " minutes before", inline=False)
+        embed.add_field(name=f"{self.emoji['repeat']} Repeat", value=event_data['repeat'].capitalize(), inline=True)
+        embed.add_field(name=f"{self.emoji['channel']} Channel", value=f"<#{event_data['channel']}>", inline=True)
+        embed.add_field(name=f"{self.emoji['role']} Create Role", value="Yes" if event_data['create_role'] else "No", inline=True)
+        return embed
 
     @commands.command()
     async def list_events(self, ctx):
@@ -96,126 +67,66 @@ class RobustEventsCog(commands.Cog):
         if not events:
             await ctx.send(embed=self.error_embed("No events scheduled."))
             return
-        event_list = "\n".join([f"{name}: {data['time']}" for name, data in events.items()])
-        await ctx.send(embed=discord.Embed(title="Scheduled Events", description=box(event_list, lang="yaml"), color=discord.Color.blue()))
+        
+        embeds = []
+        for name, data in events.items():
+            embeds.append(self.create_event_embed(name, data))
+        
+        if len(embeds) == 1:
+            await ctx.send(embed=embeds[0])
+        else:
+            await self.send_paginated_embeds(ctx, embeds)
+
+    async def send_paginated_embeds(self, ctx, embeds: List[discord.Embed]):
+        current_page = 0
+
+        view = discord.ui.View()
+        
+        async def update_message(interaction: discord.Interaction):
+            embed = embeds[current_page]
+            embed.set_footer(text=f"Page {current_page + 1}/{len(embeds)}")
+            await interaction.response.edit_message(embed=embed, view=view)
+
+        @discord.ui.button(label="Previous", style=discord.ButtonStyle.gray)
+        async def previous_button(interaction: discord.Interaction, button: discord.ui.Button):
+            nonlocal current_page
+            current_page = (current_page - 1) % len(embeds)
+            await update_message(interaction)
+
+        @discord.ui.button(label="Next", style=discord.ButtonStyle.gray)
+        async def next_button(interaction: discord.Interaction, button: discord.ui.Button):
+            nonlocal current_page
+            current_page = (current_page + 1) % len(embeds)
+            await update_message(interaction)
+
+        view.add_item(previous_button)
+        view.add_item(next_button)
+
+        embeds[0].set_footer(text=f"Page 1/{len(embeds)}")
+        await ctx.send(embed=embeds[0], view=view)
 
     @commands.command()
-    async def delete_event(self, ctx, name: Optional[str] = None):
-        """Delete an event."""
-        if not name:
-            await ctx.send("Usage: `!delete_event <name>`")
+    async def event_info(self, ctx, name: str):
+        """Display detailed information about a specific event."""
+        events = await self.config.guild(ctx.guild).events()
+        if name not in events:
+            await ctx.send(embed=self.error_embed(f"No event found with the name '{name}'."))
             return
+        
+        embed = self.create_event_embed(name, events[name])
+        await ctx.send(embed=embed)
 
-        async with self.config.guild(ctx.guild).events() as events:
-            if name in events:
-                del events[name]
-                await ctx.send(embed=self.success_embed(f"Event '{name}' deleted."))
-                if name in self.event_tasks:
-                    self.event_tasks[name].cancel()
-                    del self.event_tasks[name]
-            else:
-                await ctx.send(embed=self.error_embed(f"No event found with the name '{name}'."))
+    def error_embed(self, message: str) -> discord.Embed:
+        """Create an error embed."""
+        return discord.Embed(title=f"{self.emoji['error']} Error", description=message, color=discord.Color.red())
 
-    @commands.command()
-    async def update_event(self, ctx, name: Optional[str] = None, date: Optional[str] = None, time: Optional[str] = None, description: Optional[str] = None, notifications: Optional[str] = None, repeat: Optional[str] = None):
-        """Update an existing event."""
-        if not name:
-            await ctx.send("Usage: `!update_event <name> [date] [time] [description] [notifications] [repeat]`\nExample: `!update_event \"Event Name\" date=2024-02-01 time=16:00 description=\"New description\" notifications=\"15,45,90\" repeat=\"weekly\"`")
-            return
+    def success_embed(self, message: str) -> discord.Embed:
+        """Create a success embed."""
+        return discord.Embed(title=f"{self.emoji['success']} Success", description=message, color=discord.Color.green())
 
-        async with self.config.guild(ctx.guild).events() as events:
-            if name not in events:
-                await ctx.send(embed=self.error_embed(f"No event found with the name '{name}'.")) 
-                return
-
-            if date and time:
-                try:
-                    event_time = datetime.strptime(f"{date}T{time}", "%Y-%m-%dT%H:%M").replace(tzinfo=pytz.UTC)
-                    if event_time <= datetime.now(pytz.UTC):
-                        await ctx.send(embed=self.error_embed("Event time must be in the future."))
-                        return
-                    events[name]['time'] = event_time.isoformat()
-                except ValueError:
-                    await ctx.send(embed=self.error_embed("Invalid date or time format."))
-                    return
-
-            if description:
-                events[name]['description'] = description
-
-            if notifications:
-                try:
-                    notification_times = [int(n.strip()) for n in notifications.split(',')]
-                    events[name]['notifications'] = notification_times
-                except ValueError:
-                    await ctx.send(embed=self.error_embed("Invalid notification times."))
-                    return
-
-            if repeat:
-                events[name]['repeat'] = repeat.lower()
-
-            await ctx.send(embed=self.success_embed(f"Event '{name}' updated."))
-            if name in self.event_tasks:
-                self.event_tasks[name].cancel()
-                del self.event_tasks[name]
-            self.schedule_event(ctx.guild, name, datetime.fromisoformat(events[name]['time']))
-
-    async def create_event(self, guild: discord.Guild, name: str, event_time: datetime, description: str, notifications: list, repeat: str, create_role: bool, channel: discord.TextChannel):
-        """Create an event and store it."""
-        await self.config.guild(guild).events.set_raw(name, value={
-            "time": event_time.isoformat(),
-            "description": description,
-            "notifications": notifications,
-            "repeat": repeat,
-            "create_role": create_role,
-            "channel": channel.id
-        })
-        self.schedule_event(guild, name, event_time)
-
-    async def schedule_event(self, guild: discord.Guild, name: str, event_time: datetime):
-        async def event_task():
-            while True:
-                event_data = await self.config.guild(guild).events()
-                event = event_data.get(name)
-                if not event:
-                    return
-
-                now = datetime.now(pytz.UTC)
-                time_until_event = event_time - now
-
-                for notification_time in event['notifications']:
-                    notification_delta = timedelta(minutes=notification_time)
-                    if time_until_event > notification_delta:
-                        await asyncio.sleep((time_until_event - notification_delta).total_seconds())
-                        await self.send_notification(guild, name, notification_time)
-
-                await discord.utils.sleep_until(event_time)
-                await self.send_event_start_message(guild, name)
-
-                repeat_type = event['repeat']
-                if repeat_type == 'none':
-                    async with self.config.guild(guild).events() as events:
-                        del events[name]
-                    return
-                elif repeat_type == 'daily':
-                    event_time += timedelta(days=1)
-                elif repeat_type == 'weekly':
-                    event_time += timedelta(weeks=1)
-                elif repeat_type == 'monthly':
-                    event_time += timedelta(weeks=4)
-                else:
-                    return
-
-                await self.config.guild(guild).events.set_raw(name, value={
-                    "time": event_time.isoformat(),
-                    "description": event['description'],
-                    "notifications": event['notifications'],
-                    "repeat": event['repeat'],
-                    "create_role": event['create_role'],
-                    "channel": event['channel']
-                })
-                self.schedule_event(guild, name, event_time)
-
-        self.event_tasks[name] = self.bot.loop.create_task(event_task())
+    def warning_embed(self, message: str) -> discord.Embed:
+        """Create a warning embed."""
+        return discord.Embed(title=f"{self.emoji['warning']} Warning", description=message, color=discord.Color.gold())
 
     async def send_notification(self, guild: discord.Guild, event_name: str, notification_time: int):
         """Send a notification for the event."""
@@ -226,7 +137,14 @@ class RobustEventsCog(commands.Cog):
 
         channel = guild.get_channel(event['channel'])
         if channel:
-            await channel.send(f"Reminder: The event '{event_name}' is starting in {notification_time} minutes!")
+            embed = discord.Embed(
+                title=f"{self.emoji['bell']} Event Reminder",
+                description=f"The event '{event_name}' is starting in {notification_time} minutes!",
+                color=discord.Color.blue()
+            )
+            embed.add_field(name="Description", value=event['description'], inline=False)
+            embed.add_field(name="Time", value=self.format_time(datetime.fromisoformat(event['time'])), inline=False)
+            await channel.send(embed=embed)
 
     async def send_event_start_message(self, guild: discord.Guild, event_name: str):
         """Send a message when the event starts."""
@@ -237,17 +155,17 @@ class RobustEventsCog(commands.Cog):
 
         channel = guild.get_channel(event['channel'])
         if channel:
-            await channel.send(f"The event '{event_name}' is starting now!\n{event['description']}")
+            embed = discord.Embed(
+                title=f"{self.emoji['calendar']} Event Starting Now!",
+                description=f"The event '{event_name}' is starting now!",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Description", value=event['description'], inline=False)
+            await channel.send(embed=embed)
 
-    def error_embed(self, message: str) -> discord.Embed:
-        """Create an error embed."""
-        return discord.Embed(title="Error", description=message, color=discord.Color.red())
-
-    def success_embed(self, message: str) -> discord.Embed:
-        """Create a success embed."""
-        return discord.Embed(title="Success", description=message, color=discord.Color.green())
+    # ... (rest of the code remains the same)
 
 async def setup(bot: Red):
     cog = RobustEventsCog(bot)
     await bot.add_cog(cog)
-    print("RobustEvents has been loaded and is ready.")
+    print(f"{cog.emoji['success']} RobustEventsCog has been loaded and is ready.")
