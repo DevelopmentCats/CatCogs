@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord.ui import Modal, TextInput, Button, View, Select
+from discord.ui import Modal, TextInput, Button, View
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 from datetime import datetime, timedelta
@@ -8,7 +8,7 @@ import pytz
 from typing import Optional, List
 
 class EventCreationModal(Modal):
-    def __init__(self, cog, timezone, channels: List[discord.SelectOption]):
+    def __init__(self, cog, timezone):
         super().__init__(title="Create New Event")
         self.cog = cog
         self.timezone = timezone
@@ -17,16 +17,13 @@ class EventCreationModal(Modal):
         self.datetime = TextInput(label="Date and Time (YYYY-MM-DD HH:MM)", placeholder="2024-01-01 14:30")
         self.description = TextInput(label="Description", style=discord.TextStyle.paragraph, max_length=1000)
         self.notifications = TextInput(label="Notification Times (minutes before, comma-separated)", placeholder="10,30,60")
-        self.options = TextInput(label="Options (repeat:none/daily/weekly/monthly, role:yes/no)", placeholder="repeat:weekly, role:yes")
+        self.options = TextInput(label="Options (repeat:none/daily/weekly/monthly, role:yes/no, channel:#channel-name)", placeholder="repeat:weekly, role:yes, channel:#general")
 
         self.add_item(self.name)
         self.add_item(self.datetime)
         self.add_item(self.description)
         self.add_item(self.notifications)
         self.add_item(self.options)
-
-        self.channel_select = Select(placeholder="Select a channel...", options=channels)
-        self.add_item(self.channel_select)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
@@ -48,11 +45,11 @@ class EventCreationModal(Modal):
         options = dict(item.split(':') for item in self.options.value.replace(' ', '').split(','))
         repeat = options.get('repeat', 'none').lower()
         create_role = options.get('role', 'no').lower() == 'yes'
+        channel_name = options.get('channel', '').lstrip('#')
 
-        channel_id = int(self.channel_select.values[0])
-        channel = interaction.guild.get_channel(channel_id)
+        channel = discord.utils.get(interaction.guild.text_channels, name=channel_name)
         if not channel:
-            await interaction.response.send_message(embed=self.cog.error_embed("Selected channel not found."), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(f"Channel #{channel_name} not found."), ephemeral=True)
             return
 
         await self.cog.create_event(
@@ -73,9 +70,7 @@ class EventCreationButton(Button):
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
-        channels = [discord.SelectOption(label=channel.name, value=str(channel.id)) for channel in interaction.guild.text_channels]
-        modal = EventCreationModal(self.cog, pytz.timezone("UTC"), channels)
-        await interaction.response.send_message("Opening event creation modal...", ephemeral=True)
+        modal = EventCreationModal(self.cog, pytz.timezone("UTC"))
         await interaction.response.send_modal(modal)
 
 class RobustEventsCog(commands.Cog):
@@ -255,4 +250,4 @@ class RobustEventsCog(commands.Cog):
 async def setup(bot: Red):
     cog = RobustEventsCog(bot)
     await bot.add_cog(cog)
-    print("RobustEvents has been loaded and is ready.")
+    print("RobustEventsCog has been loaded and is ready.")
