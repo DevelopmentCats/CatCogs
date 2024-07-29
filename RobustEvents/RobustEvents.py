@@ -9,10 +9,11 @@ from typing import Optional, List
 import asyncio
 
 class BasicEventModal(Modal):
-    def __init__(self, cog, timezone: pytz.timezone):
+    def __init__(self, cog, timezone: pytz.timezone, original_message: discord.Message):
         super().__init__(title="Create New Event - Basic Info")
         self.cog = cog
         self.timezone = timezone
+        self.original_message = original_message
 
         self.name = TextInput(label="Event Name", placeholder="Enter event name", max_length=100)
         self.datetime1 = TextInput(label="First Date and Time (YYYY-MM-DD HH:MM)", placeholder="2024-01-01 14:30")
@@ -45,6 +46,12 @@ class BasicEventModal(Modal):
             await interaction.response.send_message(embed=self.cog.error_embed(f"Invalid date or time format: {e}"), ephemeral=True)
             return
 
+        # Check for existing events
+        async with self.cog.config.guild(interaction.guild).events() as events:
+            if self.name.value in events:
+                await interaction.response.send_message(embed=self.cog.error_embed("An event with this name already exists."), ephemeral=True)
+                return
+
         # Store basic info temporarily
         self.cog.temp_event_data = {
             "basic": {
@@ -56,14 +63,15 @@ class BasicEventModal(Modal):
         }
 
         # Send a message with a button to open the advanced options
-        view = AdvancedOptionsView(self.cog, self.timezone)
+        view = AdvancedOptionsView(self.cog, self.timezone, self.original_message)
         await interaction.response.send_message("Basic information saved. Click the button below to set advanced options:", view=view, ephemeral=True)
 
 class AdvancedEventModal(Modal):
-    def __init__(self, cog, timezone: pytz.timezone):
+    def __init__(self, cog, timezone: pytz.timezone, original_message: discord.Message):
         super().__init__(title="Create New Event - Advanced Options")
         self.cog = cog
         self.timezone = timezone
+        self.original_message = original_message
 
         self.notifications = TextInput(label="Notification Times (minutes)", placeholder="10,30,60")
         self.repeat = TextInput(label="Repeat (none/daily/weekly/monthly)", placeholder="none")
@@ -98,6 +106,12 @@ class AdvancedEventModal(Modal):
             await interaction.response.send_message(embed=self.cog.error_embed(f"Channel #{channel_name} not found."), ephemeral=True)
             return
 
+        # Check for existing events
+        async with self.cog.config.guild(interaction.guild).events() as events:
+            if self.cog.temp_event_data['basic']['name'] in events:
+                await interaction.response.send_message(embed=self.cog.error_embed("An event with this name already exists."), ephemeral=True)
+                return
+
         # Update temp_event_data with advanced info
         self.cog.temp_event_data["advanced"] = {
             "notifications": notifications,
@@ -110,15 +124,19 @@ class AdvancedEventModal(Modal):
         await self.cog.create_event_from_temp_data(interaction.guild)
         await interaction.response.send_message(embed=self.cog.success_embed("Event created successfully!"), ephemeral=True)
 
+        # Delete the original message with the button
+        await self.original_message.delete()
+
 class AdvancedOptionsView(View):
-    def __init__(self, cog, timezone: pytz.timezone):
+    def __init__(self, cog, timezone: pytz.timezone, original_message: discord.Message):
         super().__init__()
         self.cog = cog
         self.timezone = timezone
+        self.original_message = original_message
 
     @discord.ui.button(label="Set Advanced Options", style=discord.ButtonStyle.primary)
     async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        advanced_modal = AdvancedEventModal(self.cog, self.timezone)
+        advanced_modal = AdvancedEventModal(self.cog, self.timezone, self.original_message)
         await interaction.response.send_modal(advanced_modal)
         self.stop()  # Stop the view after opening the modal
 
@@ -127,10 +145,11 @@ class EventCreationView(discord.ui.View):
         super().__init__()
         self.cog = cog
         self.timezone = timezone
+        self.message = None  # Will be set after the message is sent
 
     @discord.ui.button(label="Create Event", style=discord.ButtonStyle.primary)
     async def create_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        basic_modal = BasicEventModal(self.cog, self.timezone)
+        basic_modal = BasicEventModal(self.cog, self.timezone, self.message)
         await interaction.response.send_modal(basic_modal)
 
 class RobustEventsCog(commands.Cog):
@@ -150,7 +169,8 @@ class RobustEventsCog(commands.Cog):
         guild_timezone = await self.config.guild(ctx.guild).timezone()
         timezone = pytz.timezone(guild_timezone) if guild_timezone else pytz.UTC
         view = EventCreationView(self, timezone)
-        await ctx.send("Click the button below to create a new event:", view=view)
+        message = await ctx.send("Click the button below to create a new event:", view=view)
+        view.message = message  # Store the message in the view
 
     @commands.command()
     async def list_events(self, ctx):
@@ -246,9 +266,9 @@ class RobustEventsCog(commands.Cog):
         async with self.config.guild(guild).events() as events:
             events[name] = event_data
 
-        self.schedule_event(guild, name, event_time1)
+        await self.schedule_event(guild, name, event_time1)
         if event_time2:
-            self.schedule_event(guild, name, event_time2)
+            await self.schedule_event(guild, name, event_time2)
 
     async def schedule_event(self, guild: discord.Guild, name: str, event_time: datetime):
         async def event_task():
