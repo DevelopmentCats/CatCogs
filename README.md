@@ -18,8 +18,8 @@ Welcome to CatCogs, a collection of custom cogs for the [Red-DiscordBot](https:/
 ```py
 [p]load downloader
 [p]repo add catcogs https://github.com/DevelopmentCats/CatCogs
-[p]cog install catcogs events
-[p]load events
+[p]cog install catcogs RobustEvents
+[p]load RobustEvents
 ```
 
 ## Available Cogs
