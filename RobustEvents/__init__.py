@@ -1,5 +1,5 @@
-from .events import EventsCog
+from .events import RobustEvents
 
 async def setup(bot):
-    cog = EventsCog(bot)
+    cog = RobustEvents(bot)
     await bot.add_cog(cog)
