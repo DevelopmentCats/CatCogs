@@ -122,6 +122,17 @@ class AdvancedOptionsView(View):
         await interaction.response.send_modal(advanced_modal)
         self.stop()  # Stop the view after opening the modal
 
+class EventCreationView(discord.ui.View):
+    def __init__(self, cog, timezone: pytz.timezone):
+        super().__init__()
+        self.cog = cog
+        self.timezone = timezone
+
+    @discord.ui.button(label="Create Event", style=discord.ButtonStyle.primary)
+    async def create_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        basic_modal = BasicEventModal(self.cog, self.timezone)
+        await interaction.response.send_modal(basic_modal)
+
 class RobustEventsCog(commands.Cog):
     """Cog for managing and scheduling events"""
 
@@ -138,9 +149,8 @@ class RobustEventsCog(commands.Cog):
         """Start the custom modal for creating a new event."""
         guild_timezone = await self.config.guild(ctx.guild).timezone()
         timezone = pytz.timezone(guild_timezone) if guild_timezone else pytz.UTC
-        basic_modal = BasicEventModal(self, timezone)
-        await ctx.send("Please fill out the basic event information:", view=None)
-        await ctx.send_modal(basic_modal)
+        view = EventCreationView(self, timezone)
+        await ctx.send("Click the button below to create a new event:", view=view)
 
     @commands.command()
     async def list_events(self, ctx):
