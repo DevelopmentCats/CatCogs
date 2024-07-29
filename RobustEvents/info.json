@@ -1,1 +1,68 @@
+{
+  "name": "RobustEvents",
+  "description": "A cog for managing and scheduling events with notifications and role creation.",
+  "author": "CatCogs",
+  "version": "1.0.0",
+  "commands": [
+    {
+      "name": "create_event",
+      "description": "Create a new event.",
+      "usage": "!create_event <name> <YYYY-MM-DDTHH:MM> <description> <notifications> <repeat> <create_role>",
+      "examples": [
+        "!create_event \"Event Name\" 2024-01-01T14:30 \"Description\" \"10,30,60\" \"daily\" \"yes\""
+      ]
+    },
+    {
+      "name": "list_events",
+      "description": "List all scheduled events.",
+      "usage": "!list_events"
+    },
+    {
+      "name": "delete_event",
+      "description": "Delete an event.",
+      "usage": "!delete_event <name>",
+      "examples": [
+        "!delete_event \"Event Name\""
+      ]
+    },
+    {
+      "name": "update_event",
+      "description": "Update an existing event.",
+      "usage": "!update_event <name> [date] [time] [description] [notifications] [repeat]",
+      "examples": [
+        "!update_event \"Event Name\" date=2024-02-01 time=16:00 description=\"New description\" notifications=\"15,45,90\" repeat=\"weekly\""
+      ]
+    },
+    {
+      "name": "createevent",
+      "description": "Start the custom modal for creating a new event.",
+      "usage": "!createevent"
+    },
+    {
+      "name": "signup_event",
+      "description": "Post an embed for users to sign up for event notifications.",
+      "usage": "!signup_event <role>",
+      "examples": [
+        "!signup_event @EventRole"
+      ]
+    }
+  ],
+  "listeners": [
+    {
+      "event": "on_ready",
+      "description": "Schedule events when the bot is ready."
+    }
+  ],
+  "dependencies": [
+    "discord.py",
+    "pytz",
+    "redbot"
+  ],
+  "config": {
+    "identifier": 1234567890,
+    "default": {
+      "events": {}
+    }
+  }
+}
 
