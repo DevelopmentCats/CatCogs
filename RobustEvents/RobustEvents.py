@@ -59,17 +59,6 @@ class BasicEventModal(Modal):
         view = AdvancedOptionsView(self.cog, self.timezone)
         await interaction.response.send_message("Basic information saved. Click the button below to set advanced options:", view=view, ephemeral=True)
 
-class AdvancedOptionsView(View):
-    def __init__(self, cog, timezone: pytz.timezone):
-        super().__init__()
-        self.cog = cog
-        self.timezone = timezone
-
-    @discord.ui.button(label="Set Advanced Options", style=discord.ButtonStyle.primary)
-    async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        advanced_modal = AdvancedEventModal(self.cog, self.timezone)
-        await interaction.response.send_modal(advanced_modal)
-
 class AdvancedEventModal(Modal):
     def __init__(self, cog, timezone: pytz.timezone):
         super().__init__(title="Create New Event - Advanced Options")
@@ -78,12 +67,12 @@ class AdvancedEventModal(Modal):
 
         self.notifications = TextInput(label="Notification Times (minutes)", placeholder="10,30,60")
         self.repeat = TextInput(label="Repeat (none/daily/weekly/monthly)", placeholder="none")
-        self.create_role = TextInput(label="Create Role? (yes/no)", placeholder="no")
+        self.role_name = TextInput(label="Event Role Name (leave blank for no role)", required=False)
         self.channel = TextInput(label="Channel", placeholder="#events")
 
         self.add_item(self.notifications)
         self.add_item(self.repeat)
-        self.add_item(self.create_role)
+        self.add_item(self.role_name)
         self.add_item(self.channel)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -98,7 +87,7 @@ class AdvancedEventModal(Modal):
             await interaction.response.send_message(embed=self.cog.error_embed("Invalid repeat option."), ephemeral=True)
             return
 
-        create_role = self.create_role.value.lower() == 'yes'
+        role_name = self.role_name.value.strip() if self.role_name.value else None
         channel_name = self.channel.value.lstrip('#')
 
         channel = discord.utils.get(interaction.guild.text_channels, name=channel_name)
@@ -110,13 +99,24 @@ class AdvancedEventModal(Modal):
         self.cog.temp_event_data["advanced"] = {
             "notifications": notifications,
             "repeat": repeat,
-            "create_role": create_role,
+            "role_name": role_name,
             "channel": channel
         }
 
         # Show the event creation button
         view = EventCreationView(self.cog, self.timezone)
         await interaction.response.send_message("Please click the 'Create Event' button to create the event.", view=view, ephemeral=True)
+
+class AdvancedOptionsView(View):
+    def __init__(self, cog, timezone: pytz.timezone):
+        super().__init__()
+        self.cog = cog
+        self.timezone = timezone
+
+    @discord.ui.button(label="Set Advanced Options", style=discord.ButtonStyle.primary)
+    async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        advanced_modal = AdvancedEventModal(self.cog, self.timezone)
+        await interaction.response.send_modal(advanced_modal)
 
 class EventCreationView(View):
     def __init__(self, cog, timezone: pytz.timezone):
@@ -133,7 +133,7 @@ class EventCreationView(View):
         self.basic_info_filled = True
         await self.update_buttons(interaction)
 
-    @discord.ui.button(label="Advanced Options", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Advanced Options", style=discord.ButtonStyle.secondary, disabled=True)
     async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.basic_info_filled:
             await interaction.response.send_message("Please fill out the Basic Info first.", ephemeral=True)
@@ -155,6 +155,7 @@ class EventCreationView(View):
         self.stop()
 
     async def update_buttons(self, interaction: discord.Interaction):
+        self.advanced_options_button.disabled = not self.basic_info_filled
         self.create_event_button.disabled = not (self.basic_info_filled and self.advanced_info_filled)
         await interaction.message.edit(view=self)
 
@@ -169,6 +170,7 @@ class RobustEventsCog(commands.Cog):
         self.temp_event_data = None  # Add this line to store temporary event data
 
     @commands.command()
+    @commands.has_permissions(manage_events=True)
     async def eventcreate(self, ctx):
         """Start the custom modal for creating a new event."""
         guild_timezone = await self.config.guild(ctx.guild).timezone()
@@ -246,17 +248,30 @@ class RobustEventsCog(commands.Cog):
                 del self.event_tasks[name]
             self.schedule_event(ctx.guild, name, datetime.fromisoformat(events[name]['time1']))
 
-    async def create_event(self, guild: discord.Guild, name: str, event_time1: datetime, description: str, notifications: List[int], repeat: str, create_role: bool, channel: discord.TextChannel, event_time2: Optional[datetime] = None):
+    async def create_event(self, guild: discord.Guild, name: str, event_time1: datetime, description: str, notifications: List[int], repeat: str, role_name: Optional[str], channel: discord.TextChannel, event_time2: Optional[datetime] = None):
         """Create an event and store it."""
-        await self.config.guild(guild).events.set_raw(name, value={
+        event_role = None
+        if role_name:
+            try:
+                event_role = await guild.create_role(name=role_name, mentionable=True)
+            except discord.Forbidden:
+                # Log the error or notify the user that the bot couldn't create the role
+                print(f"Error: Bot doesn't have permission to create roles in guild {guild.name}")
+
+        event_data = {
             "time1": event_time1.isoformat(),
             "description": description,
             "notifications": notifications,
             "repeat": repeat,
-            "create_role": create_role,
+            "role_name": role_name,
+            "role_id": event_role.id if event_role else None,
             "channel": channel.id,
             "time2": event_time2.isoformat() if event_time2 else None
-        })
+        }
+
+        async with self.config.guild(guild).events() as events:
+            events[name] = event_data
+
         self.schedule_event(guild, name, event_time1)
         if event_time2:
             self.schedule_event(guild, name, event_time2)
@@ -300,7 +315,8 @@ class RobustEventsCog(commands.Cog):
                     "description": event['description'],
                     "notifications": event['notifications'],
                     "repeat": event['repeat'],
-                    "create_role": event['create_role'],
+                    "role_name": event['role_name'],
+                    "role_id": event['role_id'],
                     "channel": event['channel'],
                     "time2": event.get('time2')
                 })
@@ -350,7 +366,7 @@ class RobustEventsCog(commands.Cog):
             basic_info["description"],
             advanced_info["notifications"],
             advanced_info["repeat"],
-            advanced_info["create_role"],
+            advanced_info["role_name"],
             advanced_info["channel"],
             basic_info["time2"]
         )
