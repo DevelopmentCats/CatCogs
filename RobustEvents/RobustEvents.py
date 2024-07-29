@@ -14,27 +14,23 @@ class EventCreationModal(Modal):
         self.timezone = timezone
 
         self.name = TextInput(label="Event Name", placeholder="Enter event name", max_length=100)
-        self.date = TextInput(label="Date (YYYY-MM-DD)", placeholder="2024-01-01")
-        self.time = TextInput(label="Time (HH:MM)", placeholder="14:30")
+        self.datetime = TextInput(label="Date and Time (YYYY-MM-DD HH:MM)", placeholder="2024-01-01 14:30")
         self.description = TextInput(label="Description", style=discord.TextStyle.paragraph, max_length=1000)
         self.notifications = TextInput(label="Notification Times (minutes before, comma-separated)", placeholder="10,30,60")
-        self.repeat = TextInput(label="Repeat (none, daily, weekly, monthly)", placeholder="none")
-        self.create_role = TextInput(label="Create Role? (yes/no)", placeholder="yes or no", max_length=3)
+        self.options = TextInput(label="Options (repeat:none/daily/weekly/monthly, role:yes/no)", placeholder="repeat:weekly, role:yes")
 
         self.add_item(self.name)
-        self.add_item(self.date)
-        self.add_item(self.time)
+        self.add_item(self.datetime)
         self.add_item(self.description)
         self.add_item(self.notifications)
-        self.add_item(self.repeat)
-        self.add_item(self.create_role)
+        self.add_item(self.options)
 
         self.channel_select = Select(placeholder="Select a channel...", options=channels)
         self.add_item(self.channel_select)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            local_time = datetime.strptime(f"{self.date.value} {self.time.value}", "%Y-%m-%d %H:%M")
+            local_time = datetime.strptime(self.datetime.value, "%Y-%m-%d %H:%M")
             event_time = self.timezone.localize(local_time).astimezone(pytz.UTC)
             if event_time <= datetime.now(pytz.UTC):
                 await interaction.response.send_message(embed=self.cog.error_embed("Event time must be in the future."), ephemeral=True)
@@ -49,6 +45,10 @@ class EventCreationModal(Modal):
             await interaction.response.send_message(embed=self.cog.error_embed("Invalid notification times."), ephemeral=True)
             return
 
+        options = dict(item.split(':') for item in self.options.value.replace(' ', '').split(','))
+        repeat = options.get('repeat', 'none').lower()
+        create_role = options.get('role', 'no').lower() == 'yes'
+
         channel_id = int(self.channel_select.values[0])
         channel = interaction.guild.get_channel(channel_id)
         if not channel:
@@ -61,8 +61,8 @@ class EventCreationModal(Modal):
             event_time,
             self.description.value,
             notifications,
-            self.repeat.value.lower(),
-            self.create_role.value.lower() == "yes",
+            repeat,
+            create_role,
             channel
         )
         await interaction.response.send_message(embed=self.cog.success_embed("Event created successfully!"), ephemeral=True)
@@ -255,4 +255,4 @@ class RobustEventsCog(commands.Cog):
 async def setup(bot: Red):
     cog = RobustEventsCog(bot)
     await bot.add_cog(cog)
-    print("RobustEventsCog has been loaded and is ready.")
+    print("RobustEvents has been loaded and is ready.")
