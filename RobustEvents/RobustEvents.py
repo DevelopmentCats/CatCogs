@@ -6,7 +6,7 @@ import pytz
 import discord
 from discord.ext import commands
 from discord.ui import Modal, TextInput, Button, View
-from redbot.core import Config
+from redbot.core import Config, commands
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box
 
@@ -38,8 +38,8 @@ class EventCreationModal(Modal):
             if event_time <= datetime.now(pytz.UTC):
                 await interaction.response.send_message(embed=self.cog.error_embed("Event time must be in the future."), ephemeral=True)
                 return
-        except ValueError:
-            await interaction.response.send_message(embed=self.cog.error_embed("Invalid date or time format."), ephemeral=True)
+        except ValueError as e:
+            await interaction.response.send_message(embed=self.cog.error_embed(f"Invalid date or time format: {e}"), ephemeral=True)
             return
 
         try:
@@ -82,19 +82,20 @@ class RobustEventsCog(commands.Cog):
         self.event_tasks = {}
 
     @commands.command()
-    async def create_event(self, ctx, name: Optional[str] = None, event_time: Optional[str] = None, description: Optional[str] = None, notifications: Optional[str] = None, repeat: Optional[str] = None, create_role: Optional[str] = None):
+    async def create_event(self, ctx, name: Optional[str] = None, event_time: Optional[str] = None, description: Optional[str] = None, notifications: Optional[str] = None, repeat: Optional[str] = None, create_role: Optional[str] = None, timezone: Optional[str] = "UTC"):
         """Command to create a new event."""
         if not (name and event_time and description and notifications and repeat and create_role):
-            await ctx.send("Usage: `!create_event <name> <YYYY-MM-DDTHH:MM> <description> <notifications> <repeat> <create_role>`\nExample: `!create_event \"Event Name\" 2024-01-01T14:30 \"Description\" \"10,30,60\" \"daily\" \"yes\"`")
+            await ctx.send("Usage: `!create_event <name> <YYYY-MM-DDTHH:MM> <description> <notifications> <repeat> <create_role> [timezone]`\nExample: `!create_event \"Event Name\" 2024-01-01T14:30 \"Description\" \"10,30,60\" \"daily\" \"yes\" [timezone]`")
             return
 
         try:
-            event_time = datetime.strptime(event_time, "%Y-%m-%dT%H:%M").replace(tzinfo=pytz.UTC)
-            if event_time <= datetime.now(pytz.UTC):
+            tz = pytz.timezone(timezone)
+            event_time = datetime.strptime(event_time, "%Y-%m-%dT%H:%M").replace(tzinfo=tz)
+            if event_time <= datetime.now(tz):
                 await ctx.send(embed=self.error_embed("Event time must be in the future."))
                 return
-        except ValueError:
-            await ctx.send(embed=self.error_embed("Invalid date or time format."))
+        except (ValueError, pytz.UnknownTimeZoneError) as e:
+            await ctx.send(embed=self.error_embed(f"Invalid date, time, or timezone format: {e}"))
             return
 
         try:
@@ -129,7 +130,7 @@ class RobustEventsCog(commands.Cog):
     async def delete_event(self, ctx, name: Optional[str] = None):
         """Delete an event."""
         if not name:
-            await ctx.send("Usage: `!delete_event <name>`\nExample: `!delete_event \"Event Name\"`")
+            await ctx.send("Usage: `!delete_event <name>`")
             return
 
         async with self.config.guild(ctx.guild).events() as events:
@@ -190,7 +191,7 @@ class RobustEventsCog(commands.Cog):
         """Start the custom modal for creating a new event."""
         timezone = pytz.timezone("UTC")  # Adjust this to use the appropriate timezone
         await ctx.send("Opening event creation modal...", delete_after=5)
-        await ctx.interaction.response.send_modal(EventCreationModal(self, timezone))
+        await ctx.send_modal(EventCreationModal(self, timezone))
 
     @commands.command()
     async def signup_event(self, ctx, role: discord.Role):
@@ -241,9 +242,12 @@ class RobustEventsCog(commands.Cog):
                 elif repeat_type == 'weekly':
                     event_time += timedelta(weeks=1)
                 elif repeat_type == 'monthly':
-                    event_time = event_time.replace(month=event_time.month % 12 + 1)
-                    if event_time.month == 1:
-                        event_time = event_time.replace(year=event_time.year + 1)
+                    try:
+                        event_time = event_time.replace(month=event_time.month % 12 + 1)
+                        if event_time.month == 1:
+                            event_time = event_time.replace(year=event_time.year + 1)
+                    except ValueError:
+                        event_time = event_time.replace(day=1, month=(event_time.month % 12) + 1)
 
                 async with self.config.guild(guild).events() as events:
                     events[name]['time'] = event_time.isoformat()
@@ -275,3 +279,4 @@ class RobustEventsCog(commands.Cog):
 async def setup(bot: Red):
     cog = RobustEventsCog(bot)
     await bot.add_cog(cog)
+    print("RobustEventsCog has been loaded and is ready.")
