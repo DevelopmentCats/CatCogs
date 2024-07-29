@@ -56,23 +56,25 @@ class BasicEventModal(Modal):
         }
 
         # Send a message with a button to open the advanced options
-        view = AdvancedOptionsView(self.cog)
+        view = AdvancedOptionsView(self.cog, self.timezone)
         await interaction.response.send_message("Basic information saved. Click the button below to set advanced options:", view=view, ephemeral=True)
 
 class AdvancedOptionsView(View):
-    def __init__(self, cog):
+    def __init__(self, cog, timezone: pytz.timezone):
         super().__init__()
         self.cog = cog
+        self.timezone = timezone
 
     @discord.ui.button(label="Set Advanced Options", style=discord.ButtonStyle.primary)
     async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        advanced_modal = AdvancedEventModal(self.cog)
+        advanced_modal = AdvancedEventModal(self.cog, self.timezone)
         await interaction.response.send_modal(advanced_modal)
 
 class AdvancedEventModal(Modal):
-    def __init__(self, cog):
+    def __init__(self, cog, timezone: pytz.timezone):
         super().__init__(title="Create New Event - Advanced Options")
         self.cog = cog
+        self.timezone = timezone
 
         self.notifications = TextInput(label="Notification Times (minutes)", placeholder="10,30,60")
         self.repeat = TextInput(label="Repeat (none/daily/weekly/monthly)", placeholder="none")
@@ -113,7 +115,8 @@ class AdvancedEventModal(Modal):
         }
 
         # Show the event creation button
-        await interaction.response.send_message("Please click the 'Create Event' button to create the event.", view=EventCreationView(self.cog))
+        view = EventCreationView(self.cog, self.timezone)
+        await interaction.response.send_message("Please click the 'Create Event' button to create the event.", view=view, ephemeral=True)
 
 class EventCreationView(View):
     def __init__(self, cog, timezone: pytz.timezone):
@@ -135,7 +138,7 @@ class EventCreationView(View):
         if not self.basic_info_filled:
             await interaction.response.send_message("Please fill out the Basic Info first.", ephemeral=True)
             return
-        modal = AdvancedEventModal(self.cog)
+        modal = AdvancedEventModal(self.cog, self.timezone)
         await interaction.response.send_modal(modal)
         self.advanced_info_filled = True
         await self.update_buttons(interaction)
