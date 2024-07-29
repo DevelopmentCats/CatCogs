@@ -55,7 +55,17 @@ class BasicEventModal(Modal):
             }
         }
 
-        # Show the advanced options modal
+        # Send a message with a button to open the advanced options
+        view = AdvancedOptionsView(self.cog)
+        await interaction.response.send_message("Basic information saved. Click the button below to set advanced options:", view=view, ephemeral=True)
+
+class AdvancedOptionsView(View):
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    @discord.ui.button(label="Set Advanced Options", style=discord.ButtonStyle.primary)
+    async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         advanced_modal = AdvancedEventModal(self.cog)
         await interaction.response.send_modal(advanced_modal)
 
