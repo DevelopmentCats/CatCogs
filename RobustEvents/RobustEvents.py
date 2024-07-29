@@ -214,25 +214,33 @@ class RobustEventsCog(commands.Cog):
                 elif repeat_type == 'weekly':
                     event_time += timedelta(weeks=1)
                 elif repeat_type == 'monthly':
-                    event_time += timedelta(weeks=4)
+                    event_time += timedelta(weeks=4)  # Approximate a month
                 else:
-                    break
+                    return
 
-                await self.schedule_event(guild, name, event_time)
+                # Reschedule the event
+                await self.config.guild(guild).events.set_raw(name, value={
+                    "time": event_time.isoformat(),
+                    "description": event['description'],
+                    "notifications": event['notifications'],
+                    "repeat": event['repeat'],
+                    "create_role": event['create_role'],
+                    "channel": event['channel']
+                })
+                self.schedule_event(guild, name, event_time)
 
         self.event_tasks[name] = self.bot.loop.create_task(event_task())
 
     async def send_notification(self, guild: discord.Guild, event_name: str, notification_time: int):
-        """Send a notification message to the specified channel."""
+        """Send a notification for the event."""
         event_data = await self.config.guild(guild).events()
         event = event_data.get(event_name)
         if not event:
             return
 
-        channel_id = event.get('channel')
-        channel = guild.get_channel(channel_id)
+        channel = guild.get_channel(event['channel'])
         if channel:
-            await channel.send(f"Reminder: {event_name} is coming up in {notification_time} minutes!")
+            await channel.send(f"Reminder: The event '{event_name}' is starting in {notification_time} minutes!")
 
     async def send_event_start_message(self, guild: discord.Guild, event_name: str):
         """Send a message when the event starts."""
@@ -241,15 +249,16 @@ class RobustEventsCog(commands.Cog):
         if not event:
             return
 
-        channel_id = event.get('channel')
-        channel = guild.get_channel(channel_id)
+        channel = guild.get_channel(event['channel'])
         if channel:
-            await channel.send(f"The event '{event_name}' has started!")
+            await channel.send(f"The event '{event_name}' is starting now!\n{event['description']}")
 
     def error_embed(self, message: str) -> discord.Embed:
+        """Create an error embed."""
         return discord.Embed(title="Error", description=message, color=discord.Color.red())
 
     def success_embed(self, message: str) -> discord.Embed:
+        """Create a success embed."""
         return discord.Embed(title="Success", description=message, color=discord.Color.green())
 
 async def setup(bot: Red):
