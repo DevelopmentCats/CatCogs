@@ -21,7 +21,6 @@ class EventCreationModal(Modal):
         self.repeat = TextInput(label="Repeat (none, daily, weekly, monthly)", placeholder="none")
         self.create_role = TextInput(label="Create Role? (yes/no)", placeholder="yes or no", max_length=3)
 
-        # Add items to the modal
         self.add_item(self.name)
         self.add_item(self.date)
         self.add_item(self.time)
@@ -30,7 +29,6 @@ class EventCreationModal(Modal):
         self.add_item(self.repeat)
         self.add_item(self.create_role)
 
-        # Channel selection dropdown
         self.channel_select = Select(placeholder="Select a channel...", options=channels)
         self.add_item(self.channel_select)
 
@@ -51,7 +49,6 @@ class EventCreationModal(Modal):
             await interaction.response.send_message(embed=self.cog.error_embed("Invalid notification times."), ephemeral=True)
             return
 
-        # Handle channel selection
         channel_id = int(self.channel_select.values[0])
         channel = interaction.guild.get_channel(channel_id)
         if not channel:
@@ -190,20 +187,15 @@ class RobustEventsCog(commands.Cog):
                 now = datetime.now(pytz.UTC)
                 time_until_event = event_time - now
 
-                # Schedule notifications
                 for notification_time in event['notifications']:
                     notification_delta = timedelta(minutes=notification_time)
                     if time_until_event > notification_delta:
                         await asyncio.sleep((time_until_event - notification_delta).total_seconds())
                         await self.send_notification(guild, name, notification_time)
 
-                # Wait for the event time
                 await discord.utils.sleep_until(event_time)
-
-                # Send event start message
                 await self.send_event_start_message(guild, name)
 
-                # Handle repeating events
                 repeat_type = event['repeat']
                 if repeat_type == 'none':
                     async with self.config.guild(guild).events() as events:
@@ -214,11 +206,10 @@ class RobustEventsCog(commands.Cog):
                 elif repeat_type == 'weekly':
                     event_time += timedelta(weeks=1)
                 elif repeat_type == 'monthly':
-                    event_time += timedelta(weeks=4)  # Approximate a month
+                    event_time += timedelta(weeks=4)
                 else:
                     return
 
-                # Reschedule the event
                 await self.config.guild(guild).events.set_raw(name, value={
                     "time": event_time.isoformat(),
                     "description": event['description'],
