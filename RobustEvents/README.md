@@ -4,6 +4,8 @@
 [![Red-DiscordBot](https://img.shields.io/badge/Red--DiscordBot-V3-red.svg)](https://github.com/Cog-Creators/Red-DiscordBot)
 [![Discord.py](https://img.shields.io/badge/Discord.py-rewrite-blue.svg)](https://github.com/Rapptz/discord.py/tree/rewrite)
 [![License](https://img.shields.io/badge/License-MIT-blue)](https://github.com/DevelopmentCats/CatCogs/blob/main/LICENSE)
+[![GitHub Repo stars](https://img.shields.io/github/stars/DevelopmentCats/CatCogs?style=plastic&color=%23696969)](https://github.com/DevelopmentCats/CatCogs/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/DevelopmentCats/CatCogs?style=plastic&color=%23696969)](https://github.com/DevelopmentCats/CatCogs/forks)
 
 ## About
 
