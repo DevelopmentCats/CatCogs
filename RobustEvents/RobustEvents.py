@@ -152,6 +152,29 @@ class EventCreationView(discord.ui.View):
         basic_modal = BasicEventModal(self.cog, self.timezone, self.message)
         await interaction.response.send_modal(basic_modal)
 
+class EventInfoView(discord.ui.View):
+    def __init__(self, cog, event_name: str, role_id: int):
+        super().__init__()
+        self.cog = cog
+        self.event_name = event_name
+        self.role_id = role_id
+
+    @discord.ui.button(label="Join Event", style=discord.ButtonStyle.primary)
+    async def join_event(self, interaction: discord.Interaction, button: discord.ui.Button):
+        role = interaction.guild.get_role(self.role_id)
+        if role is None:
+            await interaction.response.send_message("Error: Event role not found.", ephemeral=True)
+            return
+        
+        if role in interaction.user.roles:
+            await interaction.response.send_message("You're already signed up for this event!", ephemeral=True)
+        else:
+            try:
+                await interaction.user.add_roles(role)
+                await interaction.response.send_message(f"You've been added to the {self.event_name} event!", ephemeral=True)
+            except discord.Forbidden:
+                await interaction.response.send_message("I don't have permission to assign roles.", ephemeral=True)
+
 class RobustEventsCog(commands.Cog):
     """Cog for managing and scheduling events"""
 
@@ -162,19 +185,25 @@ class RobustEventsCog(commands.Cog):
         self.event_tasks = {}
         self.temp_event_data = None  # Add this line to store temporary event data
 
-    @commands.command()
+    @commands.command(name="eventcreate")
     @commands.has_permissions(manage_events=True)
-    async def eventcreate(self, ctx):
-        """Start the custom modal for creating a new event."""
+    async def event_create(self, ctx):
+        """Start the custom modal for creating a new event.
+
+        Usage: [p]eventcreate
+        """
         guild_timezone = await self.config.guild(ctx.guild).timezone()
         timezone = pytz.timezone(guild_timezone) if guild_timezone else pytz.UTC
         view = EventCreationView(self, timezone)
         message = await ctx.send("Click the button below to create a new event:", view=view)
         view.message = message  # Store the message in the view
 
-    @commands.command()
-    async def list_events(self, ctx):
-        """List all scheduled events."""
+    @commands.command(name="eventlist")
+    async def event_list(self, ctx):
+        """List all scheduled events.
+
+        Usage: [p]eventlist
+        """
         events = await self.config.guild(ctx.guild).events()
         if not events:
             await ctx.send(embed=self.error_embed("No events scheduled."))
@@ -182,11 +211,14 @@ class RobustEventsCog(commands.Cog):
         event_list = "\n".join([f"{name}: {data['time1']}" for name, data in events.items()])
         await ctx.send(embed=discord.Embed(title="Scheduled Events", description=event_list, color=discord.Color.blue()))
 
-    @commands.command()
-    async def delete_event(self, ctx, name: Optional[str] = None):
-        """Delete an event."""
+    @commands.command(name="eventdelete")
+    async def event_delete(self, ctx, name: Optional[str] = None):
+        """Delete an event.
+
+        Usage: [p]eventdelete <name>
+        """
         if not name:
-            await ctx.send("Usage: `!delete_event <name>`")
+            await ctx.send("Usage: `[p]eventdelete <name>`")
             return
 
         async with self.config.guild(ctx.guild).events() as events:
@@ -199,11 +231,15 @@ class RobustEventsCog(commands.Cog):
             else:
                 await ctx.send(embed=self.error_embed(f"No event found with the name '{name}'."))
 
-    @commands.command()
-    async def update_event(self, ctx, name: Optional[str] = None, date: Optional[str] = None, time: Optional[str] = None, description: Optional[str] = None, notifications: Optional[str] = None, repeat: Optional[str] = None):
-        """Update an existing event."""
+    @commands.command(name="eventupdate")
+    async def event_update(self, ctx, name: Optional[str] = None, date: Optional[str] = None, time: Optional[str] = None, description: Optional[str] = None, notifications: Optional[str] = None, repeat: Optional[str] = None):
+        """Update an existing event.
+
+        Usage: [p]eventupdate <name> [date] [time] [description] [notifications] [repeat]
+        Example: [p]eventupdate "Event Name" date=2024-02-01 time=16:00 description="New description" notifications="15,45,90" repeat="weekly"
+        """
         if not name:
-            await ctx.send("Usage: `!update_event <name> [date] [time] [description] [notifications] [repeat]`\nExample: `!update_event \"Event Name\" date=2024-02-01 time=16:00 description=\"New description\" notifications=\"15,45,90\" repeat=\"weekly\"`")
+            await ctx.send("Usage: `[p]eventupdate <name> [date] [time] [description] [notifications] [repeat]`\nExample: `[p]eventupdate \"Event Name\" date=2024-02-01 time=16:00 description=\"New description\" notifications=\"15,45,90\" repeat=\"weekly\"`")
             return
 
         async with self.config.guild(ctx.guild).events() as events:
@@ -369,15 +405,47 @@ class RobustEventsCog(commands.Cog):
         # Clear temporary data
         self.temp_event_data = None
 
-    @commands.command()
+    @commands.command(name="settimezone")
     async def set_timezone(self, ctx, timezone_str: str):
-        """Set the timezone for the guild."""
+        """Set the timezone for the guild.
+
+        Usage: [p]settimezone <timezone>
+        """
         try:
             timezone = pytz.timezone(timezone_str)
             await self.config.guild(ctx.guild).timezone.set(timezone_str)
             await ctx.send(embed=self.success_embed(f"Timezone set to {timezone_str}"))
         except pytz.exceptions.UnknownTimeZoneError:
             await ctx.send(embed=self.error_embed(f"Unknown timezone: {timezone_str}. Please use a valid timezone from the IANA Time Zone Database."))
+
+    @commands.command(name="eventinfo")
+    async def event_info(self, ctx, *, event_name: str):
+        """Display information about a specific event.
+
+        Usage: [p]eventinfo <event_name>
+        """
+        events = await self.config.guild(ctx.guild).events()
+        event = events.get(event_name)
+        
+        if not event:
+            await ctx.send(embed=self.error_embed(f"No event found with the name '{event_name}'."))
+            return
+
+        embed = discord.Embed(title=event_name, description=event['description'], color=discord.Color.blue())
+        embed.add_field(name="Start Time", value=f"<t:{int(datetime.fromisoformat(event['time1']).timestamp())}:F>", inline=False)
+        
+        if event.get('time2'):
+            embed.add_field(name="End Time", value=f"<t:{int(datetime.fromisoformat(event['time2']).timestamp())}:F>", inline=False)
+        
+        embed.add_field(name="Repeat", value=event['repeat'].capitalize(), inline=True)
+        embed.add_field(name="Notifications", value=", ".join(f"{n} minutes" for n in event['notifications']), inline=True)
+        
+        channel = ctx.guild.get_channel(event['channel'])
+        if channel:
+            embed.add_field(name="Channel", value=channel.mention, inline=True)
+
+        view = EventInfoView(self, event_name, event['role_id'])
+        await ctx.send(embed=embed, view=view)
 
 async def setup(bot: Red):
     cog = RobustEventsCog(bot)
