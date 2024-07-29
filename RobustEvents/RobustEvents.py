@@ -272,6 +272,7 @@ class RobustEventsCog(commands.Cog):
 
     async def schedule_event(self, guild: discord.Guild, name: str, event_time: datetime):
         async def event_task():
+            nonlocal event_time  # Add this line to use the outer event_time
             while True:
                 event_data = await self.config.guild(guild).events()
                 event = event_data.get(name)
