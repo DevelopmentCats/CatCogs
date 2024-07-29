@@ -67,7 +67,7 @@ class AdvancedEventModal(Modal):
 
         self.notifications = TextInput(label="Notification Times (minutes)", placeholder="10,30,60")
         self.repeat = TextInput(label="Repeat (none/daily/weekly/monthly)", placeholder="none")
-        self.role_name = TextInput(label="Event Role Name (leave blank for no role)", required=False)
+        self.role_name = TextInput(label="Event Role Name", placeholder="Event Attendees")  # Made mandatory
         self.channel = TextInput(label="Channel", placeholder="#events")
 
         self.add_item(self.notifications)
@@ -87,9 +87,12 @@ class AdvancedEventModal(Modal):
             await interaction.response.send_message(embed=self.cog.error_embed("Invalid repeat option."), ephemeral=True)
             return
 
-        role_name = self.role_name.value.strip() if self.role_name.value else None
-        channel_name = self.channel.value.lstrip('#')
+        role_name = self.role_name.value.strip()
+        if not role_name:
+            await interaction.response.send_message(embed=self.cog.error_embed("Event role name is required."), ephemeral=True)
+            return
 
+        channel_name = self.channel.value.lstrip('#')
         channel = discord.utils.get(interaction.guild.text_channels, name=channel_name)
         if not channel:
             await interaction.response.send_message(embed=self.cog.error_embed(f"Channel #{channel_name} not found."), ephemeral=True)
@@ -103,9 +106,9 @@ class AdvancedEventModal(Modal):
             "channel": channel
         }
 
-        # Show the event creation button
-        view = EventCreationView(self.cog, self.timezone)
-        await interaction.response.send_message("Please click the 'Create Event' button to create the event.", view=view, ephemeral=True)
+        # Create the event directly
+        await self.cog.create_event_from_temp_data(interaction.guild)
+        await interaction.response.send_message(embed=self.cog.success_embed("Event created successfully!"), ephemeral=True)
 
 class AdvancedOptionsView(View):
     def __init__(self, cog, timezone: pytz.timezone):
@@ -117,47 +120,7 @@ class AdvancedOptionsView(View):
     async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         advanced_modal = AdvancedEventModal(self.cog, self.timezone)
         await interaction.response.send_modal(advanced_modal)
-
-class EventCreationView(View):
-    def __init__(self, cog, timezone: pytz.timezone):
-        super().__init__()
-        self.cog = cog
-        self.timezone = timezone
-        self.basic_info_filled = False
-        self.advanced_info_filled = False
-
-    @discord.ui.button(label="Basic Info", style=discord.ButtonStyle.primary)
-    async def basic_info_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = BasicEventModal(self.cog, self.timezone)
-        await interaction.response.send_modal(modal)
-        self.basic_info_filled = True
-        await self.update_buttons(interaction)
-
-    @discord.ui.button(label="Advanced Options", style=discord.ButtonStyle.secondary, disabled=True)
-    async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.basic_info_filled:
-            await interaction.response.send_message("Please fill out the Basic Info first.", ephemeral=True)
-            return
-        modal = AdvancedEventModal(self.cog, self.timezone)
-        await interaction.response.send_modal(modal)
-        self.advanced_info_filled = True
-        await self.update_buttons(interaction)
-
-    @discord.ui.button(label="Create Event", style=discord.ButtonStyle.success, disabled=True)
-    async def create_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not (self.basic_info_filled and self.advanced_info_filled):
-            await interaction.response.send_message("Please fill out both Basic Info and Advanced Options first.", ephemeral=True)
-            return
-        
-        # Create the event using the stored temporary data
-        await self.cog.create_event_from_temp_data(interaction.guild)
-        await interaction.response.send_message(embed=self.cog.success_embed("Event created successfully!"), ephemeral=True)
-        self.stop()
-
-    async def update_buttons(self, interaction: discord.Interaction):
-        self.advanced_options_button.disabled = not self.basic_info_filled
-        self.create_event_button.disabled = not (self.basic_info_filled and self.advanced_info_filled)
-        await interaction.message.edit(view=self)
+        self.stop()  # Stop the view after opening the modal
 
 class RobustEventsCog(commands.Cog):
     """Cog for managing and scheduling events"""
@@ -175,8 +138,9 @@ class RobustEventsCog(commands.Cog):
         """Start the custom modal for creating a new event."""
         guild_timezone = await self.config.guild(ctx.guild).timezone()
         timezone = pytz.timezone(guild_timezone) if guild_timezone else pytz.UTC
-        view = EventCreationView(self, timezone)
-        await ctx.send("Use the buttons below to create a new event:", view=view)
+        basic_modal = BasicEventModal(self, timezone)
+        await ctx.send("Please fill out the basic event information:", view=None)
+        await ctx.send_modal(basic_modal)
 
     @commands.command()
     async def list_events(self, ctx):
