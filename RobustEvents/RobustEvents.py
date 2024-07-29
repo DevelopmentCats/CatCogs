@@ -1,18 +1,18 @@
 import discord
 from discord.ext import commands
-from discord.ui import Modal, TextInput, Button, View
+from discord.ui import Modal, TextInput, Button, View, Select
 from redbot.core import Config, commands
 from redbot.core.bot import Red
-from redbot.core.utils.chat_formatting import box
 from datetime import datetime, timedelta
 import pytz
-import asyncio
+from typing import Optional
 
 class EventCreationModal(Modal):
-    def __init__(self, cog):
+    def __init__(self, cog, timezone):
         super().__init__(title="Create New Event")
         self.cog = cog
-        
+        self.timezone = timezone
+
         self.name = TextInput(label="Event Name", placeholder="Enter event name", max_length=100)
         self.date = TextInput(label="Date (YYYY-MM-DD)", placeholder="2024-01-01")
         self.time = TextInput(label="Time (HH:MM)", placeholder="14:30")
@@ -29,10 +29,14 @@ class EventCreationModal(Modal):
         self.add_item(self.repeat)
         self.add_item(self.create_role)
 
+        # Channel selection dropdown
+        self.channel_select = Select(placeholder="Select a channel...")
+        self.add_item(self.channel_select)
+
     async def on_submit(self, interaction: discord.Interaction):
         try:
             local_time = datetime.strptime(f"{self.date.value} {self.time.value}", "%Y-%m-%d %H:%M")
-            event_time = self.cog.default_timezone.localize(local_time).astimezone(pytz.UTC)
+            event_time = self.timezone.localize(local_time).astimezone(pytz.UTC)
             if event_time <= datetime.now(pytz.UTC):
                 await interaction.response.send_message(embed=self.cog.error_embed("Event time must be in the future."), ephemeral=True)
                 return
@@ -46,6 +50,13 @@ class EventCreationModal(Modal):
             await interaction.response.send_message(embed=self.cog.error_embed("Invalid notification times."), ephemeral=True)
             return
 
+        # Handle channel selection
+        channel_id = int(self.channel_select.values[0])
+        channel = interaction.guild.get_channel(channel_id)
+        if not channel:
+            await interaction.response.send_message(embed=self.cog.error_embed("Selected channel not found."), ephemeral=True)
+            return
+
         await self.cog.create_event(
             interaction.guild,
             self.name.value,
@@ -54,17 +65,20 @@ class EventCreationModal(Modal):
             notifications,
             self.repeat.value.lower(),
             self.create_role.value.lower() == "yes",
+            channel
         )
         await interaction.response.send_message(embed=self.cog.success_embed("Event created successfully!"), ephemeral=True)
 
 class EventCreationButton(Button):
     def __init__(self, cog):
-        super().__init__(label="Create Event", style=discord.ButtonStyle.primary, custom_id="create_event_button")
+        super().__init__(label="Create Event", style=discord.ButtonStyle.primary)
         self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
+        channels = [discord.SelectOption(label=channel.name, value=str(channel.id)) for channel in interaction.guild.text_channels]
+        modal = EventCreationModal(self.cog, pytz.timezone("UTC"))
+        modal.channel_select.options = channels
         await interaction.response.send_message("Opening event creation modal...", ephemeral=True)
-        modal = EventCreationModal(self.cog)
         await interaction.response.send_modal(modal)
 
 class RobustEventsCog(commands.Cog):
@@ -75,17 +89,16 @@ class RobustEventsCog(commands.Cog):
         self.config = Config.get_conf(self, identifier=1234567890)
         self.config.register_guild(events={})
         self.event_tasks = {}
-        self.default_timezone = pytz.UTC  # Change this to your preferred default timezone
 
-    @commands.command(name="eventcreate")
-    async def eventcreate(self, ctx: commands.Context):
-        """Send a message with a button to start the event creation process."""
+    @commands.command()
+    async def eventcreate(self, ctx):
+        """Start the custom modal for creating a new event."""
         view = View()
         view.add_item(EventCreationButton(self))
-        await ctx.send("Click the button below to start creating an event.", view=view)
+        await ctx.send("Click the button below to create a new event:", view=view)
 
-    @commands.command(name="list_events")
-    async def list_events(self, ctx: commands.Context):
+    @commands.command()
+    async def list_events(self, ctx):
         """List all scheduled events."""
         events = await self.config.guild(ctx.guild).events()
         if not events:
@@ -94,8 +107,8 @@ class RobustEventsCog(commands.Cog):
         event_list = "\n".join([f"{name}: {data['time']}" for name, data in events.items()])
         await ctx.send(embed=discord.Embed(title="Scheduled Events", description=box(event_list, lang="yaml"), color=discord.Color.blue()))
 
-    @commands.command(name="delete_event")
-    async def delete_event(self, ctx: commands.Context, name: str = None):
+    @commands.command()
+    async def delete_event(self, ctx, name: Optional[str] = None):
         """Delete an event."""
         if not name:
             await ctx.send("Usage: `!delete_event <name>`")
@@ -111,8 +124,8 @@ class RobustEventsCog(commands.Cog):
             else:
                 await ctx.send(embed=self.error_embed(f"No event found with the name '{name}'."))
 
-    @commands.command(name="update_event")
-    async def update_event(self, ctx: commands.Context, name: str = None, date: str = None, time: str = None, description: str = None, notifications: str = None, repeat: str = None):
+    @commands.command()
+    async def update_event(self, ctx, name: Optional[str] = None, date: Optional[str] = None, time: Optional[str] = None, description: Optional[str] = None, notifications: Optional[str] = None, repeat: Optional[str] = None):
         """Update an existing event."""
         if not name:
             await ctx.send("Usage: `!update_event <name> [date] [time] [description] [notifications] [repeat]`\nExample: `!update_event \"Event Name\" date=2024-02-01 time=16:00 description=\"New description\" notifications=\"15,45,90\" repeat=\"weekly\"`")
@@ -154,17 +167,17 @@ class RobustEventsCog(commands.Cog):
                 del self.event_tasks[name]
             self.schedule_event(ctx.guild, name, datetime.fromisoformat(events[name]['time']))
 
-    async def create_event(self, guild: discord.Guild, name: str, event_time: datetime, description: str, notifications: list, repeat: str, create_role: bool):
-        """Create a new event and store it."""
+    async def create_event(self, guild: discord.Guild, name: str, event_time: datetime, description: str, notifications: list, repeat: str, create_role: bool, channel: discord.TextChannel):
+        """Create an event and store it."""
         await self.config.guild(guild).events.set_raw(name, value={
             "time": event_time.isoformat(),
             "description": description,
             "notifications": notifications,
-            "repeat": repeat.lower(),
-            "create_role": create_role
+            "repeat": repeat,
+            "create_role": create_role,
+            "channel": channel.id
         })
         self.schedule_event(guild, name, event_time)
-        await self.bot.get_channel(your_channel_id).send(embed=self.success_embed(f"Event '{name}' created for {event_time}."))
 
     async def schedule_event(self, guild: discord.Guild, name: str, event_time: datetime):
         async def event_task():
@@ -201,43 +214,43 @@ class RobustEventsCog(commands.Cog):
                 elif repeat_type == 'weekly':
                     event_time += timedelta(weeks=1)
                 elif repeat_type == 'monthly':
-                    try:
-                        event_time = event_time.replace(month=event_time.month % 12 + 1)
-                        if event_time.month == 1:
-                            event_time = event_time.replace(year=event_time.year + 1)
-                    except ValueError:
-                        event_time += timedelta(days=31)
+                    event_time += timedelta(weeks=4)
                 else:
-                    async with self.config.guild(guild).events() as events:
-                        del events[name]
-                    return
+                    break
 
-                self.schedule_event(guild, name, event_time)
+                await self.schedule_event(guild, name, event_time)
 
-        self.event_tasks[name] = asyncio.create_task(event_task())
+        self.event_tasks[name] = self.bot.loop.create_task(event_task())
 
     async def send_notification(self, guild: discord.Guild, event_name: str, notification_time: int):
-        channel = self.bot.get_channel(your_channel_id)  # Replace with your channel ID
-        await channel.send(embed=discord.Embed(title=f"Reminder: {event_name}", description=f"The event '{event_name}' is starting in {notification_time} minutes.", color=discord.Color.orange()))
+        """Send a notification message to the specified channel."""
+        event_data = await self.config.guild(guild).events()
+        event = event_data.get(event_name)
+        if not event:
+            return
+
+        channel_id = event.get('channel')
+        channel = guild.get_channel(channel_id)
+        if channel:
+            await channel.send(f"Reminder: {event_name} is coming up in {notification_time} minutes!")
 
     async def send_event_start_message(self, guild: discord.Guild, event_name: str):
-        channel = self.bot.get_channel(your_channel_id)  # Replace with your channel ID
-        await channel.send(embed=discord.Embed(title=f"Event Started: {event_name}", description=f"The event '{event_name}' has just started.", color=discord.Color.green()))
+        """Send a message when the event starts."""
+        event_data = await self.config.guild(guild).events()
+        event = event_data.get(event_name)
+        if not event:
+            return
 
-    def success_embed(self, message: str) -> discord.Embed:
-        return discord.Embed(description=message, color=discord.Color.green())
+        channel_id = event.get('channel')
+        channel = guild.get_channel(channel_id)
+        if channel:
+            await channel.send(f"The event '{event_name}' has started!")
 
     def error_embed(self, message: str) -> discord.Embed:
-        return discord.Embed(description=message, color=discord.Color.red())
+        return discord.Embed(title="Error", description=message, color=discord.Color.red())
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        """Schedule events when the bot is ready."""
-        for guild in self.bot.guilds:
-            events = await self.config.guild(guild).events()
-            for name, data in events.items():
-                event_time = datetime.fromisoformat(data['time'])
-                self.schedule_event(guild, name, event_time)
+    def success_embed(self, message: str) -> discord.Embed:
+        return discord.Embed(title="Success", description=message, color=discord.Color.green())
 
 async def setup(bot: Red):
     cog = RobustEventsCog(bot)
