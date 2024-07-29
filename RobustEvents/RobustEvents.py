@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord.ui import Modal, TextInput, Button, View, Select
+from discord.ui import Modal, TextInput, View
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 from datetime import datetime, timedelta
@@ -171,7 +171,7 @@ class RobustEventsCog(commands.Cog):
             await ctx.send(embed=self.error_embed("No events scheduled."))
             return
         event_list = "\n".join([f"{name}: {data['time1']}" for name, data in events.items()])
-        await ctx.send(embed=discord.Embed(title="Scheduled Events", description=box(event_list, lang="yaml"), color=discord.Color.blue()))
+        await ctx.send(embed=discord.Embed(title="Scheduled Events", description=event_list, color=discord.Color.blue()))
 
     @commands.command()
     async def delete_event(self, ctx, name: Optional[str] = None):
