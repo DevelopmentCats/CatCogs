@@ -170,7 +170,7 @@ class RobustEventsCog(commands.Cog):
         if not events:
             await ctx.send(embed=self.error_embed("No events scheduled."))
             return
-        event_list = "\n".join([f"{name}: {data['time']}" for name, data in events.items()])
+        event_list = "\n".join([f"{name}: {data['time1']}" for name, data in events.items()])
         await ctx.send(embed=discord.Embed(title="Scheduled Events", description=box(event_list, lang="yaml"), color=discord.Color.blue()))
 
     @commands.command()
@@ -208,7 +208,7 @@ class RobustEventsCog(commands.Cog):
                     if event_time <= datetime.now(pytz.UTC):
                         await ctx.send(embed=self.error_embed("Event time must be in the future."))
                         return
-                    events[name]['time'] = event_time.isoformat()
+                    events[name]['time1'] = event_time.isoformat()
                 except ValueError:
                     await ctx.send(embed=self.error_embed("Invalid date or time format."))
                     return
@@ -231,7 +231,7 @@ class RobustEventsCog(commands.Cog):
             if name in self.event_tasks:
                 self.event_tasks[name].cancel()
                 del self.event_tasks[name]
-            self.schedule_event(ctx.guild, name, datetime.fromisoformat(events[name]['time']))
+            self.schedule_event(ctx.guild, name, datetime.fromisoformat(events[name]['time1']))
 
     async def create_event(self, guild: discord.Guild, name: str, event_time1: datetime, description: str, notifications: List[int], repeat: str, create_role: bool, channel: discord.TextChannel, event_time2: Optional[datetime] = None):
         """Create an event and store it."""
@@ -358,4 +358,4 @@ class RobustEventsCog(commands.Cog):
 async def setup(bot: Red):
     cog = RobustEventsCog(bot)
     await bot.add_cog(cog)
-    print("RobustEvents has been loaded and is ready.")
+    print("RobustEventsCog has been loaded and is ready.")
