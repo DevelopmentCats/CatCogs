@@ -5,10 +5,10 @@ from redbot.core import Config, commands
 from redbot.core.bot import Red
 from datetime import datetime, timedelta
 import pytz
-from typing import Optional
+from typing import Optional, List
 
 class EventCreationModal(Modal):
-    def __init__(self, cog, timezone):
+    def __init__(self, cog, timezone, channels: List[discord.SelectOption]):
         super().__init__(title="Create New Event")
         self.cog = cog
         self.timezone = timezone
@@ -20,7 +20,8 @@ class EventCreationModal(Modal):
         self.notifications = TextInput(label="Notification Times (minutes before, comma-separated)", placeholder="10,30,60")
         self.repeat = TextInput(label="Repeat (none, daily, weekly, monthly)", placeholder="none")
         self.create_role = TextInput(label="Create Role? (yes/no)", placeholder="yes or no", max_length=3)
-        
+
+        # Add items to the modal
         self.add_item(self.name)
         self.add_item(self.date)
         self.add_item(self.time)
@@ -30,7 +31,7 @@ class EventCreationModal(Modal):
         self.add_item(self.create_role)
 
         # Channel selection dropdown
-        self.channel_select = Select(placeholder="Select a channel...")
+        self.channel_select = Select(placeholder="Select a channel...", options=channels)
         self.add_item(self.channel_select)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -76,8 +77,7 @@ class EventCreationButton(Button):
 
     async def callback(self, interaction: discord.Interaction):
         channels = [discord.SelectOption(label=channel.name, value=str(channel.id)) for channel in interaction.guild.text_channels]
-        modal = EventCreationModal(self.cog, pytz.timezone("UTC"))
-        modal.channel_select.options = channels
+        modal = EventCreationModal(self.cog, pytz.timezone("UTC"), channels)
         await interaction.response.send_message("Opening event creation modal...", ephemeral=True)
         await interaction.response.send_modal(modal)
 
