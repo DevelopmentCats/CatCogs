@@ -274,4 +274,4 @@ class RobustEventsCog(commands.Cog):
 
 async def setup(bot: Red):
     cog = RobustEventsCog(bot)
-    bot.add_cog(cog)
+    await bot.add_cog(cog)
