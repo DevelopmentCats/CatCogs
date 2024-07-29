@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord.ui import Modal, TextInput, Button, View
+from discord.ui import Modal, TextInput, Button, View, Select
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 from datetime import datetime, timedelta
@@ -16,8 +16,8 @@ class EventCreationModal(Modal):
         self.name = TextInput(label="Event Name", placeholder="Enter event name", max_length=100)
         self.datetime = TextInput(label="Date and Time (YYYY-MM-DD HH:MM)", placeholder="2024-01-01 14:30")
         self.description = TextInput(label="Description", style=discord.TextStyle.paragraph, max_length=1000)
-        self.notifications = TextInput(label="Notification Times (minutes before, comma-separated)", placeholder="10,30,60")
-        self.options = TextInput(label="Options (repeat:none/daily/weekly/monthly, role:yes/no, channel:#channel-name)", placeholder="repeat:weekly, role:yes, channel:#general")
+        self.notifications = TextInput(label="Notification Times (minutes)", placeholder="10,30,60")
+        self.options = TextInput(label="Options", placeholder="repeat:weekly, role:yes, channel:#events")
 
         self.add_item(self.name)
         self.add_item(self.datetime)
@@ -250,4 +250,4 @@ class RobustEventsCog(commands.Cog):
 async def setup(bot: Red):
     cog = RobustEventsCog(bot)
     await bot.add_cog(cog)
-    print("RobustEventsCog has been loaded and is ready.")
+    print("RobustEvents has been loaded and is ready.")
