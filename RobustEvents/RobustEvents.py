@@ -72,6 +72,9 @@ class BasicEventModal(Modal):
         view = AdvancedOptionsView(self.cog, self.timezone, self.original_message)
         await interaction.response.send_message("Basic information saved. Click the button below to set advanced options:", view=view, ephemeral=True)
 
+        # Set the temp_event_data
+        self.cog.temp_event_data = {'basic': {'name': self.name.value}}
+
 class AdvancedEventModal(Modal):
     def __init__(self, cog, timezone: pytz.timezone, original_message: discord.Message):
         super().__init__(title="Create New Event - Advanced Options")
@@ -114,23 +117,26 @@ class AdvancedEventModal(Modal):
 
         # Check for existing events
         async with self.cog.config.guild(interaction.guild).events() as events:
-            if self.cog.temp_event_data['basic']['name'] in events:
+            if self.cog.temp_event_data and self.cog.temp_event_data['basic']['name'] in events:
                 await interaction.response.send_message(embed=self.cog.error_embed("An event with this name already exists."), ephemeral=True)
                 return
 
         # Update the event with advanced options
-        event_name = self.cog.temp_event_data['basic']['name']
-        await self.cog.update_event(interaction.guild, event_name, {
-            "notifications": notifications,
-            "repeat": repeat,
-            "role_name": role_name,
-            "channel": channel.id
-        })
+        if self.cog.temp_event_data:
+            event_name = self.cog.temp_event_data['basic']['name']
+            await self.cog.update_event(interaction.guild, event_name, {
+                "notifications": notifications,
+                "repeat": repeat,
+                "role_name": role_name,
+                "channel": channel.id
+            })
 
-        await interaction.response.send_message(embed=self.cog.success_embed("Event created successfully!"), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.success_embed("Event created successfully!"), ephemeral=True)
 
-        # Delete the original message with the button
-        await self.original_message.delete()
+            # Delete the original message with the button
+            await self.original_message.delete()
+        else:
+            await interaction.response.send_message(embed=self.cog.error_embed("Error: Event data not found."), ephemeral=True)
 
 class AdvancedOptionsView(View):
     def __init__(self, cog, timezone: pytz.timezone, original_message: discord.Message):
@@ -238,7 +244,7 @@ class RobustEventsCog(commands.Cog):
 
     async def load_personal_reminders(self):
         for guild in self.bot.guilds:
-            async for member_id, member_data in self.config.all_members(guild):
+            async for member_id, member_data in await self.config.all_members(guild):
                 for event_name, reminder_time in member_data.get('personal_reminders', {}).items():
                     await self.schedule_personal_reminder(guild.id, member_id, event_name, datetime.fromisoformat(reminder_time))
 
