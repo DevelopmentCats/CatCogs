@@ -403,6 +403,7 @@ class RobustEventsCog(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command(name="eventdelete")
+    @commands.has_permissions(manage_events=True)
     async def event_delete(self, ctx, name: Optional[str] = None):
         """Delete an event.
 
@@ -423,6 +424,7 @@ class RobustEventsCog(commands.Cog):
                 await ctx.send(embed=self.error_embed(f"No event found with the name '{name}'."))
 
     @commands.command(name="eventupdate")
+    @commands.has_permissions(manage_events=True)
     async def event_update(self, ctx, name: Optional[str] = None, date: Optional[str] = None, time: Optional[str] = None, description: Optional[str] = None, notifications: Optional[str] = None, repeat: Optional[str] = None):
         """Update an existing event.
 
@@ -538,6 +540,7 @@ class RobustEventsCog(commands.Cog):
         del self.event_cache[guild.id][name]
 
     @commands.command(name="settimezone")
+    @commands.has_permissions(manage_events=True)
     async def set_timezone(self, ctx, timezone_str: str):
         """Set the timezone for the guild.
 
@@ -678,6 +681,47 @@ class RobustEventsCog(commands.Cog):
     def success_embed(self, message: str) -> discord.Embed:
         """Create a success embed."""
         return discord.Embed(title="✅ Success", description=message, color=discord.Color.green())
+
+    @commands.command(name="eventhelp", aliases=["event"])
+    async def event_help(self, ctx):
+        """Display categorized help information for all event-related commands."""
+        embed = discord.Embed(
+            title="📅 Event Management System Help",
+            description="Here's a list of all available event-related commands:",
+            color=discord.Color.blue()
+        )
+
+        management_commands = [
+            ("eventcreate", "Start the process of creating a new event using an interactive modal."),
+            ("eventdelete <name>", "Delete a specific event by its name."),
+            ("eventupdate <name> [options]", "Update details of an existing event."),
+            ("settimezone <timezone>", "Set the timezone for the guild (e.g., 'US/Pacific', 'Europe/London')."),
+            ("eventedit <name>", "Edit an existing event using an interactive modal."),
+            ("eventcancel <name>", "Cancel an event and notify all participants."),
+        ]
+
+        event_commands = [
+            ("eventlist", "Display a list of all scheduled events."),
+            ("eventinfo <name>", "Display detailed information about a specific event."),
+            ("eventremind <name>", "Set a personal reminder for an event."),
+        ]
+
+        embed.add_field(name="🛠️ Management Commands", value="Commands for creating and managing events (requires Manage Events permission):", inline=False)
+        for command, description in management_commands:
+            embed.add_field(name=f"`[p]{command}`", value=description, inline=False)
+
+        embed.add_field(name="\u200b", value="\u200b", inline=False)  # Empty field for spacing
+
+        embed.add_field(name="🎫 Event Participation Commands", value="Commands for event participants:", inline=False)
+        for command, description in event_commands:
+            embed.add_field(name=f"`[p]{command}`", value=description, inline=False)
+
+        embed.add_field(name="\u200b", value="\u200b", inline=False)  # Empty field for spacing
+
+        embed.add_field(name="ℹ️ Help Command", value="`[p]eventhelp` or `[p]event`: Display this help message with all available commands.", inline=False)
+
+        embed.set_footer(text="Replace [p] with your server's command prefix.")
+        await ctx.send(embed=embed)
 
 class ReminderSelectView(discord.ui.View):
     def __init__(self, cog, user_id: int, event_name: str, event_time: datetime):
