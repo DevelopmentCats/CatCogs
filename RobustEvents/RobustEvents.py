@@ -49,31 +49,17 @@ class BasicEventModal(Modal):
             await interaction.response.send_message(embed=self.cog.error_embed(f"Invalid time format: {e}"), ephemeral=True)
             return
 
-        # Check for existing events
-        async with self.cog.config.guild(interaction.guild).events() as events:
-            if self.name.value in events:
-                await interaction.response.send_message(embed=self.cog.error_embed("An event with this name already exists."), ephemeral=True)
-                return
-
-        # Update this part to use the new create_event method
-        await self.cog.create_event(
-            interaction.guild,
-            self.name.value,
-            event_time1,
-            self.description.value,
-            [],  # Empty notifications list, will be filled in AdvancedEventModal
-            "none",  # Default repeat value
-            None,  # Role name will be set in AdvancedEventModal
-            None,  # Channel will be set in AdvancedEventModal
-            event_time2
-        )
+        # Store the basic event information temporarily
+        self.cog.temp_event_data = {
+            'name': self.name.value,
+            'time1': event_time1.isoformat(),
+            'time2': event_time2.isoformat() if event_time2 else None,
+            'description': self.description.value,
+        }
 
         # Send a message with a button to open the advanced options
         view = AdvancedOptionsView(self.cog, self.timezone, self.original_message)
         await interaction.response.send_message("Basic information saved. Click the button below to set advanced options:", view=view, ephemeral=True)
-
-        # Set the temp_event_data
-        self.cog.temp_event_data = {'basic': {'name': self.name.value}}
 
 class AdvancedEventModal(Modal):
     def __init__(self, cog, timezone: pytz.timezone, original_message: discord.Message):
@@ -115,28 +101,32 @@ class AdvancedEventModal(Modal):
             await interaction.response.send_message(embed=self.cog.error_embed(f"Channel #{channel_name} not found."), ephemeral=True)
             return
 
-        # Check for existing events
-        async with self.cog.config.guild(interaction.guild).events() as events:
-            if self.cog.temp_event_data and self.cog.temp_event_data['basic']['name'] in events:
-                await interaction.response.send_message(embed=self.cog.error_embed("An event with this name already exists."), ephemeral=True)
-                return
-
-        # Update the event with advanced options
-        if self.cog.temp_event_data:
-            event_name = self.cog.temp_event_data['basic']['name']
-            await self.cog.update_event(interaction.guild, event_name, {
-                "notifications": notifications,
-                "repeat": repeat,
-                "role_name": role_name,
-                "channel": channel.id
-            })
-
-            await interaction.response.send_message(embed=self.cog.success_embed("Event created successfully!"), ephemeral=True)
-
-            # Delete the original message with the button
-            await self.original_message.delete()
-        else:
+        # Get the basic event data
+        basic_data = self.cog.temp_event_data
+        if not basic_data:
             await interaction.response.send_message(embed=self.cog.error_embed("Error: Event data not found."), ephemeral=True)
+            return
+
+        # Create the event with all the information
+        await self.cog.create_event(
+            interaction.guild,
+            basic_data['name'],
+            datetime.fromisoformat(basic_data['time1']),
+            basic_data['description'],
+            notifications,
+            repeat,
+            role_name,
+            channel,
+            datetime.fromisoformat(basic_data['time2']) if basic_data['time2'] else None
+        )
+
+        await interaction.response.send_message(embed=self.cog.success_embed("Event created successfully!"), ephemeral=True)
+
+        # Clear the temporary event data
+        self.cog.temp_event_data = None
+
+        # Delete the original message with the button
+        await self.original_message.delete()
 
 class AdvancedOptionsView(View):
     def __init__(self, cog, timezone: pytz.timezone, original_message: discord.Message):
@@ -689,6 +679,101 @@ class ReminderSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         await self.callback_function(interaction, int(self.values[0]))
 
+class BasicEventEditModal(discord.ui.Modal, title="Edit Event - Basic Info"):
+    def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+        self.event_name = event_name
+        self.event_data = event_data
+
+        self.new_name = discord.ui.TextInput(
+            label="Event Name",
+            default=event_name,
+            required=True
+        )
+        self.new_datetime = discord.ui.TextInput(
+            label="Date and Time (YYYY-MM-DD HH:MM)",
+            default=datetime.fromisoformat(event_data['time1']).strftime("%Y-%m-%d %H:%M"),
+            required=True
+        )
+        self.new_description = discord.ui.TextInput(
+            label="Description",
+            style=discord.TextStyle.paragraph,
+            default=event_data['description'],
+            required=True
+        )
+
+        self.add_item(self.new_name)
+        self.add_item(self.new_datetime)
+        self.add_item(self.new_description)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        new_data = {}
+        new_data['name'] = self.new_name.value
+
+        try:
+            new_time = datetime.strptime(self.new_datetime.value, "%Y-%m-%d %H:%M").replace(tzinfo=pytz.UTC)
+            new_data['time1'] = new_time.isoformat()
+        except ValueError:
+            await interaction.response.send_message("Invalid date format. Please use YYYY-MM-DD HH:MM", ephemeral=True)
+            return
+
+        new_data['description'] = self.new_description.value
+
+        # Store the basic event information temporarily
+        self.cog.temp_edit_data = new_data
+
+        # Send a message with a button to open the advanced options
+        view = AdvancedEditOptionsView(self.cog, self.guild, self.event_name, self.event_data)
+        await interaction.response.send_message("Basic information updated. Click the button below to edit advanced options:", view=view, ephemeral=True)
+
+class AdvancedEventEditModal(discord.ui.Modal, title="Edit Event - Advanced Options"):
+    def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
+        super().__init__()
+        self.cog = cog
+        self.guild = guild
+        self.event_name = event_name
+        self.event_data = event_data
+
+        self.new_notifications = discord.ui.TextInput(
+            label="Notification Times (minutes)",
+            default=",".join(map(str, event_data['notifications'])),
+            required=True
+        )
+        self.new_repeat = discord.ui.TextInput(
+            label="Repeat (none/daily/weekly/monthly)",
+            default=event_data['repeat'],
+            required=True
+        )
+
+        self.add_item(self.new_notifications)
+        self.add_item(self.new_repeat)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        new_data = self.cog.temp_edit_data
+
+        try:
+            new_notifications = [int(n.strip()) for n in self.new_notifications.value.split(',')]
+            new_data['notifications'] = new_notifications
+        except ValueError:
+            await interaction.response.send_message("Invalid notification format. Please use comma-separated numbers.", ephemeral=True)
+            return
+
+        if self.new_repeat.value not in ['none', 'daily', 'weekly', 'monthly']:
+            await interaction.response.send_message("Invalid repeat option. Please use none, daily, weekly, or monthly.", ephemeral=True)
+            return
+        new_data['repeat'] = self.new_repeat.value
+
+        success = await self.cog.update_event(self.guild, self.event_name, new_data)
+        if success:
+            await interaction.response.send_message(embed=self.cog.success_embed(f"Event '{self.event_name}' has been updated successfully."), ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=self.cog.error_embed(f"Failed to update event '{self.event_name}'."), ephemeral=True)
+
+        # Clear the temporary edit data
+        self.cog.temp_edit_data = None
+
 class EventEditView(discord.ui.View):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
         super().__init__()
@@ -699,10 +784,10 @@ class EventEditView(discord.ui.View):
 
     @discord.ui.button(label="Edit Event", style=discord.ButtonStyle.primary, emoji="✏️")
     async def edit_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = EventEditModal(self.cog, self.guild, self.event_name, self.event_data)
+        modal = BasicEventEditModal(self.cog, self.guild, self.event_name, self.event_data)
         await interaction.response.send_modal(modal)
 
-class EventEditModal(discord.ui.Modal, title="Edit Event"):
+class AdvancedEditOptionsView(discord.ui.View):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
         super().__init__()
         self.cog = cog
@@ -710,42 +795,10 @@ class EventEditModal(discord.ui.Modal, title="Edit Event"):
         self.event_name = event_name
         self.event_data = event_data
 
-        self.new_name = discord.ui.TextInput(label="New Event Name", placeholder="Leave blank to keep current name", required=False)
-        self.new_datetime = discord.ui.TextInput(label="New Date and Time (YYYY-MM-DD HH:MM)", placeholder="Leave blank to keep current time", required=False)
-        self.new_description = discord.ui.TextInput(label="New Description", style=discord.TextStyle.paragraph, placeholder="Leave blank to keep current description", required=False)
-        self.new_notifications = discord.ui.TextInput(label="New Notification Times (minutes)", placeholder="e.g., 10,30,60", required=False)
-
-        self.add_item(self.new_name)
-        self.add_item(self.new_datetime)
-        self.add_item(self.new_description)
-        self.add_item(self.new_notifications)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        new_data = {}
-        if self.new_name.value:
-            new_data['name'] = self.new_name.value
-        if self.new_datetime.value:
-            try:
-                new_time = datetime.strptime(self.new_datetime.value, "%Y-%m-%d %H:%M").replace(tzinfo=pytz.UTC)
-                new_data['time1'] = new_time.isoformat()
-            except ValueError:
-                await interaction.response.send_message("Invalid date format. Please use YYYY-MM-DD HH:MM", ephemeral=True)
-                return
-        if self.new_description.value:
-            new_data['description'] = self.new_description.value
-        if self.new_notifications.value:
-            try:
-                new_notifications = [int(n.strip()) for n in self.new_notifications.value.split(',')]
-                new_data['notifications'] = new_notifications
-            except ValueError:
-                await interaction.response.send_message("Invalid notification format. Please use comma-separated numbers.", ephemeral=True)
-                return
-
-        success = await self.cog.update_event(self.guild, self.event_name, new_data)
-        if success:
-            await interaction.response.send_message(embed=self.cog.success_embed(f"Event '{self.event_name}' has been updated successfully."), ephemeral=True)
-        else:
-            await interaction.response.send_message(embed=self.cog.error_embed(f"Failed to update event '{self.event_name}'."), ephemeral=True)
+    @discord.ui.button(label="Edit Advanced Options", style=discord.ButtonStyle.primary, emoji="⚙️")
+    async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = AdvancedEventEditModal(self.cog, self.guild, self.event_name, self.event_data)
+        await interaction.response.send_modal(modal)
 
 class ConfirmCancelView(discord.ui.View):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
