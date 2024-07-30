@@ -236,7 +236,8 @@ class RobustEventsCog(commands.Cog):
 
     async def load_personal_reminders(self):
         for guild in self.bot.guilds:
-            async for member_id, member_data in self.config.all_members(guild):
+            all_members = await self.config.all_members(guild)
+            for member_id, member_data in all_members.items():
                 for event_name, reminder_time in member_data.get('personal_reminders', {}).items():
                     await self.schedule_personal_reminder(guild.id, member_id, event_name, datetime.fromisoformat(reminder_time))
 
