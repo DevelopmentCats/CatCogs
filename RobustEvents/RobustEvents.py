@@ -685,6 +685,9 @@ class RobustEventsCog(commands.Cog):
     @commands.command(name="eventhelp", aliases=["event"])
     async def event_help(self, ctx):
         """Display categorized help information for all event-related commands."""
+        # Get the bot's command prefix for this guild
+        prefix = ctx.clean_prefix
+
         embed = discord.Embed(
             title="📅 Event Management System Help",
             description="Here's a list of all available event-related commands:",
@@ -708,19 +711,19 @@ class RobustEventsCog(commands.Cog):
 
         embed.add_field(name="🛠️ Management Commands", value="Commands for creating and managing events (requires Manage Events permission):", inline=False)
         for command, description in management_commands:
-            embed.add_field(name=f"`[p]{command}`", value=description, inline=False)
+            embed.add_field(name=f"`{prefix}{command}`", value=description, inline=False)
 
         embed.add_field(name="\u200b", value="\u200b", inline=False)  # Empty field for spacing
 
         embed.add_field(name="🎫 Event Participation Commands", value="Commands for event participants:", inline=False)
         for command, description in event_commands:
-            embed.add_field(name=f"`[p]{command}`", value=description, inline=False)
+            embed.add_field(name=f"`{prefix}{command}`", value=description, inline=False)
 
         embed.add_field(name="\u200b", value="\u200b", inline=False)  # Empty field for spacing
 
-        embed.add_field(name="ℹ️ Help Command", value="`[p]eventhelp` or `[p]event`: Display this help message with all available commands.", inline=False)
+        embed.add_field(name="ℹ️ Help Command", value=f"`{prefix}eventhelp` or `{prefix}event`: Display this help message with all available commands.", inline=False)
 
-        embed.set_footer(text="Replace [p] with your server's command prefix.")
+        embed.set_footer(text=f"Current prefix: {prefix}")
         await ctx.send(embed=embed)
 
 class ReminderSelectView(discord.ui.View):
