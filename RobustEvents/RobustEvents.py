@@ -163,7 +163,7 @@ class EventInfoView(discord.ui.View):
         self.event_name = event_name
         self.role_id = role_id
 
-    @discord.ui.button(label="Join Event", style=discord.ButtonStyle.primary, emoji="✅")
+    @discord.ui.button(label="Join Event", style=discord.ButtonStyle.primary, emoji="✅", custom_id="join_event")
     async def join_event(self, interaction: discord.Interaction, button: discord.ui.Button):
         role = interaction.guild.get_role(self.role_id)
         if role is None:
@@ -201,6 +201,7 @@ class RobustEventsCog(commands.Cog):
         self.logger = logging.getLogger('red.RobustEvents')
         self.bot.loop.create_task(self.initialize_events())
         self.cleanup_expired_events.start()
+        self.bot.add_view(EventInfoView(self, "", 0))  # Add this line
 
     def cog_unload(self):
         self.cleanup_expired_events.cancel()
@@ -236,8 +237,7 @@ class RobustEventsCog(commands.Cog):
 
     async def load_personal_reminders(self):
         for guild in self.bot.guilds:
-            all_members = await self.config.all_members(guild)
-            for member_id, member_data in all_members.items():
+            async for member_id, member_data in self.config.all_members(guild):
                 for event_name, reminder_time in member_data.get('personal_reminders', {}).items():
                     await self.schedule_personal_reminder(guild.id, member_id, event_name, datetime.fromisoformat(reminder_time))
 
@@ -523,9 +523,7 @@ class RobustEventsCog(commands.Cog):
         embed.set_footer(text=f"Event starts {time_until}")
 
         view = EventInfoView(self, event_name, event['role_id'])
-        message = await ctx.send(embed=embed, view=view)
-        
-        self.bot.add_view(view, message_id=message.id)
+        await ctx.send(embed=embed, view=view)
 
     @commands.command(name="eventremind")
     async def event_remind(self, ctx, *, event_name: str):
