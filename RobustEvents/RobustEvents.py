@@ -339,14 +339,20 @@ class RobustEventsCog(commands.Cog):
 
     async def queue_notification(self, guild: discord.Guild, event_name: str, notification_time: int, event_time: datetime):
         queue_key = f"{guild.id}:{event_name}:{notification_time}"
+        
+        # Check if a notification is already being processed
+        if queue_key in self.notification_queue and self.notification_queue[queue_key]:
+            # A notification is already queued or being sent, so we'll skip this one
+            return
+
         notification_event = asyncio.Event()
-        self.notification_queue[queue_key].append(notification_event)
+        self.notification_queue[queue_key] = [notification_event]
         
-        if len(self.notification_queue[queue_key]) == 1:
+        try:
             await self.send_notification(guild, event_name, notification_time, event_time)
-        
-        await notification_event.wait()
-        self.notification_queue[queue_key].remove(notification_event)
+        finally:
+            # Clear the queue for this notification
+            self.notification_queue[queue_key].clear()
 
     async def send_notification(self, guild: discord.Guild, event_name: str, notification_time: int, event_time: datetime):
         event = self.event_cache[guild.id].get(event_name)
@@ -370,10 +376,6 @@ class RobustEventsCog(commands.Cog):
             message = await channel.send(embed=embed)
             
             self.bot.loop.create_task(self.delete_message_after(message, delay=1800))  # 1800 seconds = 30 minutes
-
-        queue_key = f"{guild.id}:{event_name}:{notification_time}"
-        for notification_event in self.notification_queue[queue_key]:
-            notification_event.set()
 
     async def delete_message_after(self, message: discord.Message, delay: int):
         await asyncio.sleep(delay)
