@@ -678,10 +678,10 @@ class ReminderSelect(discord.ui.Select):
             discord.SelectOption(label="2 hours", value="120", emoji="⏰"),
         ]
         super().__init__(placeholder="Select reminder time", options=options)
-        self.callback = callback
+        self.callback_function = callback
 
     async def callback(self, interaction: discord.Interaction):
-        await self.callback(interaction, int(self.values[0]))
+        await self.callback_function(interaction, int(self.values[0]))
 
 class EventEditView(discord.ui.View):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
@@ -696,35 +696,40 @@ class EventEditView(discord.ui.View):
         modal = EventEditModal(self.cog, self.guild, self.event_name, self.event_data)
         await interaction.response.send_modal(modal)
 
-class EventEditModal(discord.ui.Modal):
+class EventEditModal(discord.ui.Modal, title="Edit Event"):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
-        super().__init__(title=f"Edit Event: {event_name}")
+        super().__init__()
         self.cog = cog
         self.guild = guild
         self.event_name = event_name
         self.event_data = event_data
 
-        self.add_item(discord.ui.InputText(label="New Event Name", placeholder="Leave blank to keep current name", required=False))
-        self.add_item(discord.ui.InputText(label="New Date and Time (YYYY-MM-DD HH:MM)", placeholder="Leave blank to keep current time", required=False))
-        self.add_item(discord.ui.InputText(label="New Description", style=discord.InputTextStyle.long, placeholder="Leave blank to keep current description", required=False))
-        self.add_item(discord.ui.InputText(label="New Notification Times (minutes)", placeholder="e.g., 10,30,60", required=False))
+        self.new_name = discord.ui.TextInput(label="New Event Name", placeholder="Leave blank to keep current name", required=False)
+        self.new_datetime = discord.ui.TextInput(label="New Date and Time (YYYY-MM-DD HH:MM)", placeholder="Leave blank to keep current time", required=False)
+        self.new_description = discord.ui.TextInput(label="New Description", style=discord.TextStyle.paragraph, placeholder="Leave blank to keep current description", required=False)
+        self.new_notifications = discord.ui.TextInput(label="New Notification Times (minutes)", placeholder="e.g., 10,30,60", required=False)
 
-    async def callback(self, interaction: discord.Interaction):
+        self.add_item(self.new_name)
+        self.add_item(self.new_datetime)
+        self.add_item(self.new_description)
+        self.add_item(self.new_notifications)
+
+    async def on_submit(self, interaction: discord.Interaction):
         new_data = {}
-        if self.children[0].value:
-            new_data['name'] = self.children[0].value
-        if self.children[1].value:
+        if self.new_name.value:
+            new_data['name'] = self.new_name.value
+        if self.new_datetime.value:
             try:
-                new_time = datetime.strptime(self.children[1].value, "%Y-%m-%d %H:%M").replace(tzinfo=pytz.UTC)
+                new_time = datetime.strptime(self.new_datetime.value, "%Y-%m-%d %H:%M").replace(tzinfo=pytz.UTC)
                 new_data['time1'] = new_time.isoformat()
             except ValueError:
                 await interaction.response.send_message("Invalid date format. Please use YYYY-MM-DD HH:MM", ephemeral=True)
                 return
-        if self.children[2].value:
-            new_data['description'] = self.children[2].value
-        if self.children[3].value:
+        if self.new_description.value:
+            new_data['description'] = self.new_description.value
+        if self.new_notifications.value:
             try:
-                new_notifications = [int(n.strip()) for n in self.children[3].value.split(',')]
+                new_notifications = [int(n.strip()) for n in self.new_notifications.value.split(',')]
                 new_data['notifications'] = new_notifications
             except ValueError:
                 await interaction.response.send_message("Invalid notification format. Please use comma-separated numbers.", ephemeral=True)
