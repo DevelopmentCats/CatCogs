@@ -316,14 +316,39 @@ class RobustEventsCog(commands.Cog):
             self.logger.error(f"Error in personal reminder loop for user {user_id}, event {event_name}: {e}")
 
     async def send_notification(self, guild: discord.Guild, event_name: str, notification_time: int):
-        """Send a notification for the event."""
+        """Send a notification for the event and delete it after 30 minutes."""
         event = self.event_cache[guild.id].get(event_name)
         if not event:
             return
 
         channel = guild.get_channel(event['channel'])
         if channel:
-            await channel.send(f"Reminder: The event '{event_name}' is starting in {notification_time} minutes!")
+            role = guild.get_role(event['role_id']) if event['role_id'] else None
+            role_mention = role.mention if role else "@everyone"
+            
+            embed = discord.Embed(
+                title=f"🔔 Event Reminder: {event_name}",
+                description=f"{role_mention}\n\nThe event '{event_name}' is starting in {notification_time} minutes!",
+                color=discord.Color.blue()
+            )
+            embed.add_field(name="Description", value=event['description'], inline=False)
+            embed.add_field(name="Start Time", value=f"<t:{int(datetime.fromisoformat(event['time1']).timestamp())}:F>", inline=False)
+            embed.set_footer(text="This message will be automatically deleted in 30 minutes.")
+            
+            message = await channel.send(embed=embed)
+            
+            # Schedule the message to be deleted after 30 minutes
+            await self.delete_message_after(message, delay=1800)  # 1800 seconds = 30 minutes
+
+    async def delete_message_after(self, message: discord.Message, delay: int):
+        """Delete a message after a specified delay."""
+        await asyncio.sleep(delay)
+        try:
+            await message.delete()
+        except discord.NotFound:
+            pass  # Message was already deleted
+        except discord.Forbidden:
+            self.logger.warning(f"Bot doesn't have permission to delete message in channel {message.channel.id}")
 
     async def send_event_start_message(self, guild: discord.Guild, event_name: str):
         """Send a message when the event starts."""
@@ -333,7 +358,17 @@ class RobustEventsCog(commands.Cog):
 
         channel = guild.get_channel(event['channel'])
         if channel:
-            await channel.send(f"The event '{event_name}' is starting now!\n{event['description']}")
+            role = guild.get_role(event['role_id']) if event['role_id'] else None
+            role_mention = role.mention if role else "@everyone"
+            
+            embed = discord.Embed(
+                title=f"🎉 Event Starting Now: {event_name}",
+                description=f"{role_mention}\n\nThe event '{event_name}' is starting now!",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Description", value=event['description'], inline=False)
+            
+            await channel.send(embed=embed)
 
     @commands.command(name="eventcreate")
     @commands.has_permissions(manage_events=True)
