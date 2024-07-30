@@ -727,6 +727,43 @@ class RobustEventsCog(commands.Cog):
             events = await self.config.guild(guild).events()
             self.event_cache[guild.id] = events
 
+    @commands.command(name="eventpurge")
+    @commands.has_permissions(administrator=True)
+    async def event_purge(self, ctx):
+        """Purge all event data. Use with caution!"""
+        view = ConfirmPurgeView(self)
+        embed = discord.Embed(
+            title="⚠️ Purge All Event Data",
+            description="Are you sure you want to purge all event data? This action cannot be undone!",
+            color=discord.Color.red()
+        )
+        embed.add_field(name="Warning", value="This should only be used when updates to the cog break compatibility with current events.")
+        await ctx.send(embed=embed, view=view)
+
+    async def purge_all_data(self):
+        # Clear config
+        await self.config.clear_all()
+        
+        # Clear event cache
+        self.event_cache.clear()
+        
+        # Cancel all event tasks
+        for task in self.event_tasks.values():
+            task.cancel()
+        self.event_tasks.clear()
+        
+        # Cancel all personal reminder tasks
+        for task in self.personal_reminder_tasks.values():
+            task.cancel()
+        self.personal_reminder_tasks.clear()
+        
+        # Clear notification queue
+        self.notification_queue.clear()
+        
+        # Clear temporary data
+        self.temp_event_data = None
+        self.temp_edit_data = None
+
 class ReminderSelectView(discord.ui.View):
     def __init__(self, cog, user_id: int, event_id: str, event_time: datetime):
         super().__init__()
@@ -761,6 +798,30 @@ class ReminderSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         await self.callback_function(interaction, int(self.values[0]))
+
+class ConfirmPurgeView(discord.ui.View):
+    def __init__(self, cog):
+        super().__init__()
+        self.cog = cog
+
+    @discord.ui.button(label="Confirm Purge", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def confirm_purge(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.cog.purge_all_data()
+        embed = discord.Embed(
+            title="✅ Data Purged",
+            description="All event data has been purged successfully.",
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="🚫")
+    async def cancel_purge(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(
+            title="❌ Purge Cancelled",
+            description="The purge operation has been cancelled. No data was deleted.",
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed)
 
 class BasicEventEditModal(discord.ui.Modal, title="Edit Event - Basic Info"):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
