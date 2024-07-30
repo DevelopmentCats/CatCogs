@@ -1,5 +1,4 @@
-
-# Events Cog
+# Welcome to CatCogs
 
 [![Red-DiscordBot](https://img.shields.io/badge/Red--DiscordBot-V3-red.svg)](https://github.com/Cog-Creators/Red-DiscordBot)
 [![Discord.py](https://img.shields.io/badge/Discord.py-rewrite-blue.svg)](https://github.com/Rapptz/discord.py/tree/rewrite)
@@ -9,105 +8,94 @@
 
 ## About
 
-The Events Cog is a robust tool designed for the [Red-DiscordBot](https://github.com/Cog-Creators/Red-DiscordBot). It allows server administrators to create, manage, and notify users about upcoming events with ease. This cog includes features like event creation, reminders, notifications, and management tools to keep your community informed and engaged.
-
-## Features
-
-- **Create Events:** Easily create new events with a name, date, time, and description.
-- **Set Reminders:** Configure reminders to notify users before the event starts.
-- **Notifications:** Automatically notify users about upcoming events.
-- **Manage Events:** Edit or delete existing events as needed.
-- **Role Creation:** Optionally create roles for specific events.
+Welcome to CatCogs, a collection of custom cogs for the [Red-DiscordBot](https://github.com/Cog-Creators/Red-DiscordBot/). These cogs are designed to add new features and enhance your Discord server experience.
 
 ## Installation
 
-To install the Events Cog, follow these steps:
-
-1. Ensure you have the downloader cog loaded.
-2. Add the CatCogs repository:
-    ```py
-    [p]repo add catcogs https://github.com/DevelopmentCats/CatCogs
-    ```
-3. Install the Events Cog:
-    ```py
-    [p]cog install catcogs events
-    ```
-4. Load the Events Cog:
-    ```py
-    [p]load events
-    ```
-
-## Usage
-
-### Creating an Event
-
-Use the following command to create a new event:
+> Ensure you have the downloader cog loaded.
 
 ```py
-[p]event create
+[p]load downloader
+[p]repo add catcogs https://github.com/DevelopmentCats/CatCogs
+[p]cog install catcogs RobustEvents
+[p]load RobustEvents
 ```
 
-You will be prompted to enter the event name, date, time, and description.
+## Available Cogs
 
-### Setting a Reminder
+Currently, the following cog is available in this repository:
 
-Set a reminder for an event with the following command:
+### RobustEvents
 
-```py
-[p]event reminder <event_id> <time_before_event>
-```
+**Version:** 1.0.0
 
-Example:
+**Description:** Schedule and manage events in your Discord server with ease. Create events, set reminders, and notify users about upcoming activities.
 
-```py
-[p]event reminder 1 1h
-```
+#### Features:
+- **Create New Events:** Use a modal to enter event details including name, date, time, description, notifications, repeat options, role name, and channel.
+- **List Events:** Display a list of all scheduled events with their details.
+- **Edit Events:** Update existing events using a modal with new details.
+- **Delete Events:** Remove events from the schedule.
+- **Cancel Events:** Cancel events and notify participants.
+- **Set Reminders:** Users can set personal reminders for events.
+- **Notification System:** Automatic notifications for upcoming events.
+- **Repeating Events:** Support for daily, weekly, and monthly repeating events.
+- **Time Zone Support:** Events respect the server's set time zone.
+- **Role Management:** Automatically create and manage roles for event participants.
 
-This sets a reminder for event ID 1, one hour before the event starts.
+#### Usage:
 
-### Notifying Users
+- **Create Event:**
+  ```py
+  [p]eventcreate
+  ```
+  Opens a modal to input basic event information and advanced options.
 
-Notify users about an upcoming event with:
+- **List Events:**
+  ```py
+  [p]eventlist
+  ```
+  Displays all scheduled events in the server.
 
-```py
-[p]event notify <event_id>
-```
+- **Edit Event:**
+  ```py
+  [p]eventedit <event_name>
+  ```
+  Opens a modal to edit the details of the specified event.
 
-### Managing Events
+- **Delete Event:**
+  ```py
+  [p]eventdelete <event_name>
+  ```
+  Deletes the specified event from the schedule.
 
-To edit an event:
+- **Cancel Event:**
+  ```py
+  [p]eventcancel <event_name>
+  ```
+  Cancels the specified event and notifies participants.
 
-```py
-[p]event edit <event_id>
-```
+- **Set Reminder:**
+  ```py
+  [p]eventremind <event_name>
+  ```
+  Opens a view for the user to set a personal reminder for the specified event.
 
-To delete an event:
+- **Set Time Zone:**
+  ```py
+  [p]settimezone <timezone>
+  ```
+  Sets the server's time zone for scheduling events.
 
-```py
-[p]event delete <event_id>
-```
-
-### Creating Roles for Events
-
-When creating an event, you can specify if a role should be created for the event. This can be useful for managing permissions and notifications specific to the event.
-
-## Commands
-
-Here is a list of available commands and their descriptions:
-
-- **Event Creation:** `event create` - Create a new event.
-- **Set Reminder:** `event reminder <event_id> <time_before_event>` - Set a reminder for an event.
-- **Notify Users:** `event notify <event_id>` - Notify users about an upcoming event.
-- **Edit Event:** `event edit <event_id>` - Edit an existing event.
-- **Delete Event:** `event delete <event_id>` - Delete an existing event.
-
-## Contributing
-
-Feel free to contribute to this project by submitting issues or pull requests. Your feedback and contributions are greatly appreciated!
+For detailed documentation and command usage, refer to the [Events Cog Documentation](https://github.com/DevelopmentCats/CatCogs/wiki/RobustEvents-Cog).
 
 ## Credits
 
-Thank you to everyone in the official [Red server](https://discord.gg/red) for always being supportive and helpful.
+Thank you to everyone in the official [Red server](https://discord.gg/red) for always being nice and helpful.
+
+---
+
+Feel free to contribute to this repository by submitting issues or pull requests. Your feedback and contributions are greatly appreciated!
 
 ---
 
