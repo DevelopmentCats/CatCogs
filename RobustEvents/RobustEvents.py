@@ -193,6 +193,62 @@ class EventInfoView(discord.ui.View):
         view = ReminderSelectView(self.cog, interaction.user.id, self.event_id, event_time)
         await interaction.response.send_message("Select when you'd like to be reminded:", view=view, ephemeral=True)
 
+class EventReminderView(discord.ui.View):
+    def __init__(self, cog, guild_id: int, event_id: str):
+        super().__init__(timeout=None)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.event_id = event_id
+
+    @discord.ui.button(label="View Event Details", style=discord.ButtonStyle.primary, emoji="📅")
+    async def view_event_details(self, interaction: discord.Interaction, button: discord.ui.Button):
+        event = self.cog.guild_events[self.guild_id].get(self.event_id)
+        if not event:
+            await interaction.response.send_message("This event no longer exists.", ephemeral=True)
+            return
+
+        embed = await self.cog.create_event_info_embed(interaction.guild, self.event_id, event)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(label="Snooze Reminder", style=discord.ButtonStyle.secondary, emoji="⏰")
+    async def snooze_reminder(self, interaction: discord.Interaction, button: discord.ui.Button):
+        event = self.cog.guild_events[self.guild_id].get(self.event_id)
+        if not event:
+            await interaction.response.send_message("This event no longer exists.", ephemeral=True)
+            return
+
+        guild_tz = await self.cog.get_guild_timezone(interaction.guild)
+        event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
+        now = datetime.now(guild_tz)
+
+        if event_time <= now:
+            await interaction.response.send_message("This event has already started or passed.", ephemeral=True)
+            return
+
+        snooze_options = [
+            discord.SelectOption(label="5 minutes", value="5"),
+            discord.SelectOption(label="15 minutes", value="15"),
+            discord.SelectOption(label="30 minutes", value="30"),
+            discord.SelectOption(label="1 hour", value="60")
+        ]
+
+        select = discord.ui.Select(placeholder="Select snooze duration", options=snooze_options)
+
+        async def snooze_callback(interaction: discord.Interaction):
+            minutes = int(select.values[0])
+            new_reminder_time = now + timedelta(minutes=minutes)
+            if new_reminder_time >= event_time:
+                await interaction.response.send_message("Cannot snooze past the event start time.", ephemeral=True)
+                return
+
+            await self.cog.set_personal_reminder(self.guild_id, interaction.user.id, self.event_id, new_reminder_time)
+            await interaction.response.send_message(f"Reminder snoozed for {minutes} minutes.", ephemeral=True)
+
+        select.callback = snooze_callback
+        view = discord.ui.View()
+        view.add_item(select)
+        await interaction.response.send_message("Choose how long to snooze the reminder:", view=view, ephemeral=True)
+
 class RobustEventsCog(commands.Cog):
     """Cog for managing and scheduling events"""
 
@@ -218,14 +274,22 @@ class RobustEventsCog(commands.Cog):
         self.guild_timezone_cache = {}
         self.guild_events = defaultdict(dict)
         self.temp_event_data = defaultdict(dict)
+        self.event_info_messages = {}
+        self.update_event_embeds.start()
+        self.config.register_guild(event_info_messages={})
+        self.event_info_messages = {}
+        self.bot.loop.create_task(self.initialize_event_info_messages())
+        self.cleanup_event_info_messages.start()
 
     def cog_unload(self):
         self.cleanup_expired_events.cancel()
         self.sync_event_cache.cancel()
+        self.update_event_embeds.cancel()
         for task in self.event_tasks.values():
             task.cancel()
         for task in self.personal_reminder_tasks.values():
             task.cancel()
+        self.cleanup_event_info_messages.cancel()
 
     @tasks.loop(hours=24)
     async def cleanup_expired_events(self):
@@ -310,6 +374,9 @@ class RobustEventsCog(commands.Cog):
 
                 await self.update_event_times(guild, event_id)
 
+                # After updating event times, trigger an update of the event info embed
+                await self.update_event_times(guild, event_id)
+
             except asyncio.CancelledError:
                 return
             except Exception as e:
@@ -377,6 +444,18 @@ class RobustEventsCog(commands.Cog):
         async with self.config.guild(guild).events() as events:
             events[event_id] = event
         self.guild_events[guild.id][event_id] = event
+
+        # After updating the event times, update the event info embed
+        if event_id in self.event_info_messages:
+            channel_id, message_id = self.event_info_messages[event_id]
+            channel = guild.get_channel(channel_id)
+            if channel:
+                try:
+                    message = await channel.fetch_message(message_id)
+                    new_embed = await self.create_event_info_embed(guild, event_id, event)
+                    await message.edit(embed=new_embed)
+                except (discord.NotFound, discord.Forbidden):
+                    del self.event_info_messages[event_id]
 
     async def queue_notification(self, guild: discord.Guild, event_id: str, notification_time: int, event_time: datetime):
         guild_tz = await self.get_guild_timezone(guild)
@@ -527,6 +606,9 @@ class RobustEventsCog(commands.Cog):
                     notification_event.set()
                 del self.notification_queue[key]
 
+        # Remove the event info message reference when deleting an event
+        await self.remove_event_info_message(guild.id, event_id)
+
         return True
 
     @commands.command(name="eventupdate")
@@ -627,7 +709,17 @@ class RobustEventsCog(commands.Cog):
             await ctx.send(embed=self.error_embed(f"Event data not found for '{event_name}'."))
             return
 
-        guild_tz = await self.get_guild_timezone(ctx.guild)
+        embed = await self.create_event_info_embed(ctx.guild, event_id, event)
+        message = await ctx.send(embed=embed)
+        
+        # Store the message ID for future updates
+        if ctx.guild.id not in self.event_info_messages:
+            self.event_info_messages[ctx.guild.id] = {}
+        self.event_info_messages[ctx.guild.id][event_id] = (ctx.channel.id, message.id)
+        await self.config.guild(ctx.guild).event_info_messages.set(self.event_info_messages[ctx.guild.id])
+
+    async def create_event_info_embed(self, guild: discord.Guild, event_id: str, event: dict):
+        guild_tz = await self.get_guild_timezone(guild)
         time1 = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
         time2 = datetime.fromisoformat(event['time2']).astimezone(guild_tz) if event.get('time2') else None
 
@@ -646,13 +738,7 @@ class RobustEventsCog(commands.Cog):
         now = datetime.now(guild_tz)
         time_until = time1 - now
         if time_until.total_seconds() > 0:
-            days, remainder = divmod(time_until.total_seconds(), 86400)
-            hours, remainder = divmod(remainder, 3600)
-            minutes, _ = divmod(remainder, 60)
-            countdown = f"⏳ Starts in: "
-            if days > 0:
-                countdown += f"{int(days)}d "
-            countdown += f"{int(hours)}h {int(minutes)}m"
+            countdown = f"⏳ Starts <t:{int(time1.timestamp())}:R>"
             embed.add_field(name="Countdown", value=countdown, inline=True)
 
         # Repeat information
@@ -663,12 +749,12 @@ class RobustEventsCog(commands.Cog):
         embed.add_field(name="Repeat", value=repeat_value, inline=True)
 
         # Channel information
-        channel = ctx.guild.get_channel(event['channel'])
+        channel = guild.get_channel(event['channel'])
         channel_value = f"📢 {channel.mention}" if channel else "Channel not found"
         embed.add_field(name="Channel", value=channel_value, inline=True)
 
         # Role information
-        role = ctx.guild.get_role(event['role_id'])
+        role = guild.get_role(event['role_id'])
         role_value = f"👥 {role.mention}" if role else "No specific role"
         embed.add_field(name="Event Role", value=role_value, inline=True)
 
@@ -685,8 +771,7 @@ class RobustEventsCog(commands.Cog):
         # Footer with event ID
         embed.set_footer(text=f"Event ID: {event_id}")
 
-        view = EventInfoView(self, event_id, event['role_id'])
-        await ctx.send(embed=embed, view=view)
+        return embed
 
     async def set_personal_reminder(self, guild_id: int, user_id: int, event_id: str, reminder_time: datetime):
         async with self.config.member_from_ids(guild_id, user_id).personal_reminders() as reminders:
@@ -777,15 +862,13 @@ class RobustEventsCog(commands.Cog):
             events = await self.config.guild(guild).events()
             self.guild_events[guild.id] = events
 
-    @commands.command(name="eventpurge")
-    @commands.has_permissions(administrator=True)
+    @commands.    @commands.has_permissions(administrator=True)
     async def event_purge(self, ctx):
         """Purge all event data. Use with caution!"""
         view = ConfirmPurgeView(self)
         embed = discord.Embed(
             title="⚠️ Purge All Event Data",
-            description="Are you sure you want to purge all event data? This action cannot be undone!",
-            color=discord.Color.red()
+            description="Are you sure you want            color=discord.Color.red()
         )
         embed.add_field(name="Warning", value="This should only be used when updates to the cog break compatibility with current events.")
         await ctx.send(embed=embed, view=view)
@@ -802,6 +885,40 @@ class RobustEventsCog(commands.Cog):
             timezone_str = await self.config.guild(guild).timezone()
             self.guild_timezone_cache[guild.id] = pytz.timezone(timezone_str)
         return self.guild_timezone_cache[guild.id]
+
+    @tasks.loop(minutes=5)
+    async def update_event_embeds(self):
+        for guild in self.bot.guilds:
+            guild_tz = await self.get_guild_timezone(guild)
+            now = datetime.now(guild_tz)
+            for event_id, event in self.guild_events[guild.id].items():
+                if event_id in self.event_info_messages:
+                    channel_id, message_id = self.event_info_messages[event_id]
+                    channel = guild.get_channel(channel_id)
+                    if channel:
+                        try:
+                            message = await channel.fetch_message(message_id)
+                            new_embed = await self.create_event_info_embed(guild, event_id, event)
+                            await message.edit(embed=new_embed)
+                        except (discord.NotFound, discord.Forbidden):
+                            del self.event_info_messages[event_id]
+
+    async def initialize_event_info_messages(self):
+        await self.bot.wait_until_ready()
+        for guild in self.bot.guilds:
+            self.event_info_messages[guild.id] = await self.config.guild(guild).event_info_messages()
+
+    async def remove_event_info_message(self, guild_id: int, event_id: str):
+        if guild_id in self.event_info_messages and event_id in self.event_info_messages[guild_id]:
+            del self.event_info_messages[guild_id][event_id]
+            await self.config.guild_from_id(guild_id).event_info_messages.set(self.event_info_messages[guild_id])
+
+    @tasks.loop(hours=24)
+    async def cleanup_event_info_messages(self):
+        for guild in self.bot.guilds:
+            for event_id in list(self.event_info_messages.get(guild.id, {}).keys()):
+                if event_id not in self.guild_events[guild.id]:
+                    await self.remove_event_info_message(guild.id, event_id)
 
 class ReminderSelectView(discord.ui.View):
     def __init__(self, cog, user_id: int, event_id: str, event_time: datetime):
@@ -832,6 +949,12 @@ class ReminderSelect(discord.ui.Select):
             discord.SelectOption(label="30 minutes", value="30", emoji="⏱️"),
             discord.SelectOption(label="1 hour", value="60", emoji="⏰"),
             discord.SelectOption(label="2 hours", value="120", emoji="⏰"),
+        ]
+        super().__init__(placeholder="Select reminder time", min_values=1, max_values=1, options=options)
+        self.callback = callback
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.callback(interaction, int(self.values[0]))
         ]
         super().__init__(placeholder="Select reminder time", options=options)
         self.callback_function = callback
