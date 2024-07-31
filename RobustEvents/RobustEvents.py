@@ -790,7 +790,9 @@ class RobustEventsCog(commands.Cog):
             return
 
         embed = await self.create_event_info_embed(ctx.guild, event_id, event)
-        message = await ctx.send(embed=embed)
+        role_id = event.get('role_id')
+        view = EventInfoView(self, event_id, role_id)
+        message = await ctx.send(embed=embed, view=view)
         
         # Store the message ID for future updates
         if ctx.guild.id not in self.event_info_messages:
