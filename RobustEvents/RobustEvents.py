@@ -15,6 +15,13 @@ import calendar
 import uuid
 from enum import Enum
 
+class RepeatType(Enum):
+    NONE = 'none'
+    DAILY = 'daily'
+    WEEKLY = 'weekly'
+    MONTHLY = 'monthly'
+    YEARLY = 'yearly'
+
 class BasicEventModal(Modal):
     def __init__(self, cog, guild: discord.Guild, original_message: discord.Message):
         super().__init__(title="Create New Event - Basic Info")
@@ -174,17 +181,11 @@ class EventInfoView(discord.ui.View):
             except discord.Forbidden:
                 await interaction.response.send_message("I don't have permission to assign roles.", ephemeral=True)
 
-class RepeatType(Enum):
-    NONE = 'none'
-    DAILY = 'daily'
-    WEEKLY = 'weekly'
-    MONTHLY = 'monthly'
-    YEARLY = 'yearly'
-
 class RobustEventsCog(commands.Cog):
     """Cog for managing and scheduling events"""
 
     def __init__(self, bot: Red):
+        super().__init__()
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         default_guild = {
@@ -245,7 +246,8 @@ class RobustEventsCog(commands.Cog):
 
     async def load_personal_reminders(self):
         for guild in self.bot.guilds:
-            async for member_id, member_data in self.config.all_members(guild):
+            members = await self.config.all_members(guild)
+            for member_id, member_data in members.items():
                 for event_id, reminder_time in member_data.get('personal_reminders', {}).items():
                     await self.schedule_personal_reminder(guild.id, member_id, event_id, datetime.fromisoformat(reminder_time))
 
