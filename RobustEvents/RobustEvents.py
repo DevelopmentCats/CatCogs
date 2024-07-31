@@ -333,14 +333,18 @@ class RobustEventsCog(commands.Cog):
 
     async def schedule_event(self, guild: discord.Guild, event_id: str):
         if event_id in self.event_tasks:
+            self.logger.debug(f"Cancelling existing event task for event {event_id} in guild {guild.id}")
             self.event_tasks[event_id].cancel()
         self.event_tasks[event_id] = self.bot.loop.create_task(self.event_loop(guild, event_id))
+        self.logger.debug(f"Scheduled event task for event {event_id} in guild {guild.id}")
 
     async def schedule_personal_reminder(self, guild_id: int, user_id: int, event_id: str, reminder_time: datetime):
         task_key = f"{guild_id}:{user_id}:{event_id}"
         if task_key in self.personal_reminder_tasks:
+            self.logger.debug(f"Cancelling existing personal reminder task for event {event_id} for user {user_id} in guild {guild_id}")
             self.personal_reminder_tasks[task_key].cancel()
         self.personal_reminder_tasks[task_key] = self.bot.loop.create_task(self.personal_reminder_loop(guild_id, user_id, event_id, reminder_time))
+        self.logger.debug(f"Scheduled personal reminder task for event {event_id} for user {user_id} in guild {guild_id}")
 
     async def event_loop(self, guild: discord.Guild, event_id: str):
         while True:
@@ -470,12 +474,14 @@ class RobustEventsCog(commands.Cog):
             return
 
         notification_event = asyncio.Event()
-        self.notification_queue[queue_key] = [notification_event]
+        self.notification_queue[queue_key].append(notification_event)
         
         try:
             await self.send_notification(guild, event_id, notification_time, event_time)
         finally:
-            self.notification_queue[queue_key].clear()
+            self.notification_queue[queue_key].remove(notification_event)
+            if not self.notification_queue[queue_key]:
+                del self.notification_queue[queue_key]
 
     async def send_notification(self, guild: discord.Guild, event_id: str, notification_time: int, event_time: datetime):
         guild_tz = await self.get_guild_timezone(guild)
@@ -638,7 +644,6 @@ class RobustEventsCog(commands.Cog):
                     notification_event.set()
                 del self.notification_queue[key]
 
-        # Remove the event info message reference when deleting an event
         await self.remove_event_info_message(guild.id, event_id)
 
         return True
