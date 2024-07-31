@@ -524,6 +524,62 @@ class RobustEventsCog(commands.Cog):
             
             await channel.send(embed=embed)
 
+    async def personal_reminder_loop(self, guild_id: int, user_id: int, event_id: str, reminder_time: datetime):
+        await discord.utils.sleep_until(reminder_time)
+
+        guild = self.bot.get_guild(guild_id)
+        if not guild:
+            self.logger.error(f"Guild {guild_id} not found for personal reminder.")
+            return
+
+        event = self.guild_events[guild_id].get(event_id)
+        if not event:
+            self.logger.error(f"Event {event_id} not found for personal reminder in guild {guild_id}.")
+            return
+
+        user = guild.get_member(user_id)
+        if not user:
+            self.logger.error(f"User {user_id} not found in guild {guild_id} for personal reminder.")
+            return
+
+        guild_tz = await self.get_guild_timezone(guild)
+        event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
+        
+        embed = discord.Embed(
+            title=f"🔔 Event Reminder: {event['name']}",
+            description=f"This is your personal reminder for the upcoming event.",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="Event Time", value=f"<t:{int(event_time.timestamp())}:F>", inline=False)
+        embed.add_field(name="Description", value=event['description'], inline=False)
+        
+        if event['channel']:
+            channel = guild.get_channel(event['channel'])
+            if channel:
+                embed.add_field(name="Channel", value=channel.mention, inline=True)
+        
+        time_until_event = event_time - datetime.now(guild_tz)
+        embed.add_field(name="Time Until Event", value=humanize.naturaldelta(time_until_event), inline=True)
+
+        view = EventReminderView(self, guild_id, event_id)
+        
+        try:
+            await user.send(embed=embed, view=view)
+            self.logger.info(f"Sent personal reminder to user {user_id} for event {event_id} in guild {guild_id}.")
+        except discord.Forbidden:
+            self.logger.warning(f"Unable to send DM to user {user_id} for event reminder in guild {guild_id}.")
+            # Optionally, you could try to notify the user in a guild channel here
+        except Exception as e:
+            self.logger.error(f"Error sending personal reminder to user {user_id} for event {event_id} in guild {guild_id}: {e}")
+
+        # Remove the reminder from the config after it's sent
+        async with self.config.member_from_ids(guild_id, user_id).personal_reminders() as reminders:
+            reminders.pop(event_id, None)
+
+        # Remove the task from the task list
+        task_key = f"{guild_id}:{user_id}:{event_id}"
+        self.personal_reminder_tasks.pop(task_key, None)
+
     @commands.command(name="eventcreate")
     @commands.has_permissions(manage_events=True)
     async def event_create(self, ctx):
@@ -565,9 +621,9 @@ class RobustEventsCog(commands.Cog):
         if event_id:
             success = await self.delete_event(ctx.guild, event_id)
             if success:
-                await ctx.send(embed=self.success_embed(f"Event '{event_name}' deleted."))
+                await ctx.send(embed(self.success_embed(f"Event '{event_name}' deleted."))
             else:
-                await ctx.send(embed=self.error_embed(f"Failed to delete event '{event_name}'."))
+                await ctx.send(embed(self.error_embed(f"Failed to delete event '{event_name}'."))
 
     async def delete_event(self, guild: discord.Guild, event_id: str):
         async with self.config.guild(guild).events() as events:
@@ -671,7 +727,7 @@ class RobustEventsCog(commands.Cog):
         if not role_name:
             return None
         existing_role = discord.utils.get(guild.roles, name=role_name)
-        if existing_role:
+        if (existing_role):
             return existing_role
         try:
             return await guild.create_role(name=role_name, mentionable=True)
@@ -701,12 +757,12 @@ class RobustEventsCog(commands.Cog):
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if not event_id:
-            await ctx.send(embed=self.error_embed(f"No event found with the name '{event_name}'."))
+            await ctx.send(embed(self.error_embed(f"No event found with the name '{event_name}'.")))
             return
 
         event = self.guild_events[ctx.guild.id].get(event_id)
         if not event:
-            await ctx.send(embed=self.error_embed(f"Event data not found for '{event_name}'."))
+            await ctx.send(embed(self.error_embed(f"Event data not found for '{event_name}'.")))
             return
 
         embed = await self.create_event_info_embed(ctx.guild, event_id, event)
@@ -949,12 +1005,6 @@ class ReminderSelect(discord.ui.Select):
             discord.SelectOption(label="30 minutes", value="30", emoji="⏱️"),
             discord.SelectOption(label="1 hour", value="60", emoji="⏰"),
             discord.SelectOption(label="2 hours", value="120", emoji="⏰"),
-        ]
-        super().__init__(placeholder="Select reminder time", min_values=1, max_values=1, options=options)
-        self.callback = callback
-
-    async def callback(self, interaction: discord.Interaction):
-        await self.callback(interaction, int(self.values[0]))
         ]
         super().__init__(placeholder="Select reminder time", options=options)
         self.callback_function = callback
