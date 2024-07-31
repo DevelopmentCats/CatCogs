@@ -656,6 +656,10 @@ class RobustEventsCog(commands.Cog):
         
         if not event_id:
             await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.").format(event_name=event_name)))
+        else:
+            event = self.guild_events[ctx.guild.id][event_id]
+            view = EventEditView(self, ctx.guild, event_id, event)
+            await ctx.send(embed=self.success_embed(_("Click the button below to edit the event '{event_name}'.").format(event_name=event_name)), view=view)
 
     async def create_event(self, guild: discord.Guild, name: str, event_time1: datetime, description: str, notifications: List[int], repeat: str, role_name: Optional[str], channel: Optional[discord.TextChannel], event_time2: Optional[datetime] = None) -> str:
         guild_tz = await self.get_guild_timezone(guild)
@@ -838,6 +842,10 @@ class RobustEventsCog(commands.Cog):
         
         if not event_id:
             await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.").format(event_name=event_name)))
+        else:
+            event = self.guild_events[ctx.guild.id][event_id]
+            view = EventEditView(self, ctx.guild, event_name, event)
+            await ctx.send(embed=self.success_embed(_("Click the button below to edit the event '{event_name}'.").format(event_name=event_name)), view=view)
 
     @commands.guild_only()
     @commands.command(name="eventcancel")
