@@ -275,19 +275,24 @@ class RobustEventsCog(commands.Cog):
         self.notification_queue: Dict[str, List[asyncio.Event]] = defaultdict(list)
         self.last_notification_time: Dict[str, datetime] = {}  # Track last notification time
         self.logger = logging.getLogger('red.RobustEvents')
-        self.bot.loop.create_task(self.initialize_events())
-        self.cleanup_expired_events.start()
-        self.sync_event_cache.start()
+        
         self.guild_timezone_cache = {}
         self.guild_events = defaultdict(dict)
         self.temp_event_data = defaultdict(dict)
         self.temp_edit_data = defaultdict(dict)
         self.event_info_messages = {}
+
+        self.bot.loop.create_task(self.initialize_cog())
+
+        self.cleanup_expired_events.start()
+        self.sync_event_cache.start()
         self.update_event_embeds.start()
-        self.config.register_guild(event_info_messages={})
-        self.event_info_messages = {}
-        self.bot.loop.create_task(self.initialize_event_info_messages())
         self.cleanup_event_info_messages.start()
+
+    async def initialize_cog(self):
+        await self.bot.wait_until_ready()
+        await self.initialize_events()
+        await self.initialize_event_info_messages()
 
     def cog_unload(self):
         self.cleanup_expired_events.cancel()
@@ -298,6 +303,11 @@ class RobustEventsCog(commands.Cog):
         for task in self.personal_reminder_tasks.values():
             task.cancel()
         self.cleanup_event_info_messages.cancel()
+        self.temp_event_data.clear()
+        self.temp_edit_data.clear()
+        self.notification_queue.clear()
+        self.last_notification_time.clear()
+        self.event_info_messages.clear()
 
     @tasks.loop(hours=24)
     async def cleanup_expired_events(self):
@@ -338,7 +348,7 @@ class RobustEventsCog(commands.Cog):
         if event_id in self.event_tasks:
             self.logger.debug(f"Cancelling existing event task for event {event_id} in guild {guild.id}")
             self.event_tasks[event_id].cancel()
-        self.event_tasks[event_id] = self.bot.loop.create_task(self.event_loop(guild, event_id))
+        self.event_tasks[event_id] = asyncio.create_task(self.event_loop(guild, event_id))
         self.logger.debug(f"Scheduled event task for event {event_id} in guild {guild.id}")
 
     async def schedule_personal_reminder(self, guild_id: int, user_id: int, event_id: str, reminder_time: datetime):
