@@ -12,7 +12,7 @@ import humanize
 import pytz
 from discord.ext import commands, tasks
 from discord.ui import Modal, TextInput, View
-from redbot.core import Config, Commands
+from redbot.core import Config, commands
 from redbot.core.bot import Red
 
 class RepeatType(Enum):
