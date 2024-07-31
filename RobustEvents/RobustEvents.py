@@ -14,6 +14,9 @@ from discord.ext import commands, tasks
 from discord.ui import Modal, TextInput, View
 from redbot.core import Config, commands
 from redbot.core.bot import Red
+from redbot.core.i18n import Translator, cog_i18n
+
+_ = Translator("RobustEvents", __file__)
 
 class RepeatType(Enum):
     NONE = 'none'
@@ -24,15 +27,15 @@ class RepeatType(Enum):
 
 class BasicEventModal(Modal):
     def __init__(self, cog, guild: discord.Guild, original_message: discord.Message):
-        super().__init__(title="Create New Event - Basic Info")
+        super().__init__(title=_("Create New Event - Basic Info"))
         self.cog = cog
         self.guild = guild
         self.original_message = original_message
 
-        self.name = TextInput(label="Event Name", placeholder="Enter event name", max_length=100)
-        self.datetime1 = TextInput(label="First Time (HH:MM)", placeholder="14:30")
-        self.datetime2 = TextInput(label="Second Time (Optional, HH:MM)", placeholder="18:30", required=False)
-        self.description = TextInput(label="Description", style=discord.TextStyle.paragraph, max_length=1000)
+        self.name = TextInput(label=_("Event Name"), placeholder=_("Enter event name"), max_length=100)
+        self.datetime1 = TextInput(label=_("First Time (HH:MM)"), placeholder=_("14:30"))
+        self.datetime2 = TextInput(label=_("Second Time (Optional, HH:MM)"), placeholder=_("18:30"), required=False)
+        self.description = TextInput(label=_("Description"), style=discord.TextStyle.paragraph, max_length=1000)
 
         self.add_item(self.name)
         self.add_item(self.datetime1)
@@ -71,19 +74,19 @@ class BasicEventModal(Modal):
         }
 
         view = AdvancedOptionsView(self.cog, self.original_message)
-        await interaction.response.send_message("Basic information saved. Click the button below to set advanced options:", view=view, ephemeral=True)
+        await interaction.response.send_message(_("Basic information saved. Click the button below to set advanced options:"), view=view, ephemeral=True)
 
 class AdvancedEventModal(Modal):
     def __init__(self, cog, guild: discord.Guild, original_message: discord.Message):
-        super().__init__(title="Create New Event - Advanced Options")
+        super().__init__(title=_("Create New Event - Advanced Options"))
         self.cog = cog
         self.guild = guild
         self.original_message = original_message
 
-        self.notifications = TextInput(label="Notification Times (minutes)", placeholder="10,30,60")
-        self.repeat = TextInput(label="Repeat (none/daily/weekly/monthly/yearly)", placeholder="none")
-        self.role_name = TextInput(label="Event Role Name", placeholder="Event Attendees")
-        self.channel = TextInput(label="Channel", placeholder="#events")
+        self.notifications = TextInput(label=_("Notification Times (minutes)"), placeholder=_("10,30,60"))
+        self.repeat = TextInput(label=_("Repeat (none/daily/weekly/monthly/yearly)"), placeholder=_("none"))
+        self.role_name = TextInput(label=_("Event Role Name"), placeholder=_("Event Attendees"))
+        self.channel = TextInput(label=_("Channel"), placeholder=_("#events"))
 
         self.add_item(self.notifications)
         self.add_item(self.repeat)
@@ -94,28 +97,28 @@ class AdvancedEventModal(Modal):
         try:
             notifications = [int(n.strip()) for n in self.notifications.value.split(',')]
         except ValueError:
-            await interaction.response.send_message(embed=self.cog.error_embed("Invalid notification times."), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Invalid notification times.")), ephemeral=True)
             return
 
         repeat = self.repeat.value.lower()
         if repeat not in RepeatType._value2member_map_:
-            await interaction.response.send_message(embed=self.cog.error_embed("Invalid repeat option."), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Invalid repeat option.")), ephemeral=True)
             return
 
         role_name = self.role_name.value.strip()
         if not role_name:
-            await interaction.response.send_message(embed=self.cog.error_embed("Event role name is required."), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Event role name is required.")), ephemeral=True)
             return
 
         channel_name = self.channel.value.lstrip('#')
         channel = discord.utils.get(self.guild.text_channels, name=channel_name)
         if not channel:
-            await interaction.response.send_message(embed=self.cog.error_embed(f"Channel #{channel_name} not found."), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Channel #{channel_name} not found.").format(channel_name=channel_name)), ephemeral=True)
             return
 
         basic_data = self.cog.temp_event_data.pop(interaction.user.id, None)
         if not basic_data:
-            await interaction.response.send_message(embed=self.cog.error_embed("Error: Event data not found."), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Error: Event data not found.")), ephemeral=True)
             return
 
         event_id = await self.cog.create_event(
@@ -130,7 +133,7 @@ class AdvancedEventModal(Modal):
             datetime.fromisoformat(basic_data['time2']) if basic_data['time2'] else None
         )
 
-        await interaction.response.send_message(embed=self.cog.success_embed(f"Event created successfully! Event ID: {event_id}"), ephemeral=True)
+        await interaction.response.send_message(embed=self.cog.success_embed(_("Event created successfully! Event ID: {event_id}").format(event_id=event_id)), ephemeral=True)
 
         await self.original_message.delete()
 
@@ -140,7 +143,7 @@ class AdvancedOptionsView(View):
         self.cog = cog
         self.original_message = original_message
 
-    @discord.ui.button(label="Set Advanced Options", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label=_("Set Advanced Options"), style=discord.ButtonStyle.primary)
     async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         advanced_modal = AdvancedEventModal(self.cog, interaction.guild, self.original_message)
         await interaction.response.send_modal(advanced_modal)
@@ -153,7 +156,7 @@ class EventCreationView(discord.ui.View):
         self.guild = guild
         self.message = None
 
-    @discord.ui.button(label="Create Event", style=discord.ButtonStyle.primary, emoji="➕")
+    @discord.ui.button(label=_("Create Event"), style=discord.ButtonStyle.primary, emoji="➕")
     async def create_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         basic_modal = BasicEventModal(self.cog, self.guild, self.message)
         await interaction.response.send_modal(basic_modal)
@@ -165,33 +168,33 @@ class EventInfoView(discord.ui.View):
         self.event_id = event_id
         self.role_id = role_id
 
-    @discord.ui.button(label="Join Event", style=discord.ButtonStyle.primary, emoji="✅")
+    @discord.ui.button(label=_("Join Event"), style=discord.ButtonStyle.primary, emoji="✅")
     async def join_event(self, interaction: discord.Interaction, button: discord.ui.Button):
         role = interaction.guild.get_role(self.role_id)
         if role is None:
-            await interaction.response.send_message("Error: Event role not found.", ephemeral=True)
+            await interaction.response.send_message(_("Error: Event role not found."), ephemeral=True)
             return
         
         if role in interaction.user.roles:
-            await interaction.response.send_message("You're already signed up for this event!", ephemeral=True)
+            await interaction.response.send_message(_("You're already signed up for this event!"), ephemeral=True)
         else:
             try:
                 await interaction.user.add_roles(role)
-                await interaction.response.send_message("You've been added to the event!", ephemeral=True)
+                await interaction.response.send_message(_("You've been added to the event!"), ephemeral=True)
             except discord.Forbidden:
-                await interaction.response.send_message("I don't have permission to assign roles.", ephemeral=True)
+                await interaction.response.send_message(_("I don't have permission to assign roles."), ephemeral=True)
 
-    @discord.ui.button(label="Set Reminder", style=discord.ButtonStyle.secondary, emoji="⏰")
+    @discord.ui.button(label=_("Set Reminder"), style=discord.ButtonStyle.secondary, emoji="⏰")
     async def set_reminder(self, interaction: discord.Interaction, button: discord.ui.Button):
         event = self.cog.guild_events[interaction.guild.id].get(self.event_id)
         if not event:
-            await interaction.response.send_message("Error: Event not found.", ephemeral=True)
+            await interaction.response.send_message(_("Error: Event not found."), ephemeral=True)
             return
 
         guild_tz = await self.cog.get_guild_timezone(interaction.guild)
         event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
         view = ReminderSelectView(self.cog, interaction.user.id, self.event_id, event_time)
-        await interaction.response.send_message("Select when you'd like to be reminded:", view=view, ephemeral=True)
+        await interaction.response.send_message(_("Select when you'd like to be reminded:"), view=view, ephemeral=True)
 
 class EventReminderView(discord.ui.View):
     def __init__(self, cog, guild_id: int, event_id: str):
@@ -200,21 +203,21 @@ class EventReminderView(discord.ui.View):
         self.guild_id = guild_id
         self.event_id = event_id
 
-    @discord.ui.button(label="View Event Details", style=discord.ButtonStyle.primary, emoji="📅")
+    @discord.ui.button(label=_("View Event Details"), style=discord.ButtonStyle.primary, emoji="📅")
     async def view_event_details(self, interaction: discord.Interaction, button: discord.ui.Button):
         event = self.cog.guild_events[self.guild_id].get(self.event_id)
         if not event:
-            await interaction.response.send_message("This event no longer exists.", ephemeral=True)
+            await interaction.response.send_message(_("This event no longer exists."), ephemeral=True)
             return
 
         embed = await self.cog.create_event_info_embed(interaction.guild, self.event_id, event)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Snooze Reminder", style=discord.ButtonStyle.secondary, emoji="⏰")
+    @discord.ui.button(label=_("Snooze Reminder"), style=discord.ButtonStyle.secondary, emoji="⏰")
     async def snooze_reminder(self, interaction: discord.Interaction, button: discord.ui.Button):
         event = self.cog.guild_events[self.guild_id].get(self.event_id)
         if not event:
-            await interaction.response.send_message("This event no longer exists.", ephemeral=True)
+            await interaction.response.send_message(_("This event no longer exists."), ephemeral=True)
             return
 
         guild_tz = await self.cog.get_guild_timezone(interaction.guild)
@@ -222,33 +225,34 @@ class EventReminderView(discord.ui.View):
         now = datetime.now(guild_tz)
 
         if event_time <= now:
-            await interaction.response.send_message("This event has already started or passed.", ephemeral=True)
+            await interaction.response.send_message(_("This event has already started or passed."), ephemeral=True)
             return
 
         snooze_options = [
-            discord.SelectOption(label="5 minutes", value="5"),
-            discord.SelectOption(label="15 minutes", value="15"),
-            discord.SelectOption(label="30 minutes", value="30"),
-            discord.SelectOption(label="1 hour", value="60")
+            discord.SelectOption(label=_("5 minutes"), value="5"),
+            discord.SelectOption(label=_("15 minutes"), value="15"),
+            discord.SelectOption(label=_("30 minutes"), value="30"),
+            discord.SelectOption(label=_("1 hour"), value="60")
         ]
 
-        select = discord.ui.Select(placeholder="Select snooze duration", options=snooze_options)
+        select = discord.ui.Select(placeholder=_("Select snooze duration"), options=snooze_options)
 
         async def snooze_callback(interaction: discord.Interaction):
             minutes = int(select.values[0])
             new_reminder_time = now + timedelta(minutes=minutes)
             if new_reminder_time >= event_time:
-                await interaction.response.send_message("Cannot snooze past the event start time.", ephemeral=True)
+                await interaction.response.send_message(_("Cannot snooze past the event start time."), ephemeral=True)
                 return
 
             await self.cog.set_personal_reminder(self.guild_id, interaction.user.id, self.event_id, new_reminder_time)
-            await interaction.response.send_message(f"Reminder snoozed for {minutes} minutes.", ephemeral=True)
+            await interaction.response.send_message(_("Reminder snoozed for {minutes} minutes.").format(minutes=minutes), ephemeral=True)
 
         select.callback = snooze_callback
         view = discord.ui.View()
         view.add_item(select)
-        await interaction.response.send_message("Choose how long to snooze the reminder:", view=view, ephemeral=True)
+        await interaction.response.send_message(_("Choose how long to snooze the reminder:"), view=view, ephemeral=True)
 
+@cog_i18n(_)
 class RobustEventsCog(commands.Cog):
     """Cog for managing and scheduling events"""
 
@@ -484,17 +488,20 @@ class RobustEventsCog(commands.Cog):
             role_mention = role.mention if role else "@everyone"
             
             embed = discord.Embed(
-                title=f"🔔 Event Reminder: {event['name']}",
-                description=f"{role_mention}\n\nThe event '{event['name']}' is starting in {notification_time} minutes!",
+                title=f"🔔 {role_mention} Event Reminder: {event['name']}",
+                description=_("The event '{event_name}' is starting in {minutes} minutes!").format(event_name=event['name'], minutes=notification_time),
                 color=discord.Color.blue()
             )
-            embed.add_field(name="Description", value=event['description'], inline=False)
-            embed.add_field(name="Start Time", value=f"<t:{int(event_time.astimezone(guild_tz).timestamp())}:F>", inline=False)
-            embed.set_footer(text="This message will be automatically deleted in 30 minutes.")
+            embed.add_field(name=_("Description"), value=event['description'], inline=False)
+            embed.add_field(name=_("Start Time"), value=f"<t:{int(event_time.astimezone(guild_tz).timestamp())}:F>", inline=False)
+            embed.set_footer(text=_("This message will be automatically deleted in 30 minutes."))
             
-            message = await channel.send(embed=embed)
-            
-            self.bot.loop.create_task(self.delete_message_after(message, delay=1800))
+            try:
+                message = await channel.send(embed=embed)
+                self.bot.loop.create_task(self.delete_message_after(message, delay=1800))
+            except discord.HTTPException as e:
+                self.logger.error(f"Failed to send notification message: {e}")
+                await channel.send(_("An error occurred while sending the notification message. Please try again later."))
 
     async def delete_message_after(self, message: discord.Message, delay: int):
         await asyncio.sleep(delay)
@@ -515,90 +522,51 @@ class RobustEventsCog(commands.Cog):
             role_mention = role.mention if role else "@everyone"
             
             embed = discord.Embed(
-                title=f"🎉 Event Starting Now: {event['name']}",
-                description=f"{role_mention}\n\nThe event '{event['name']}' is starting now!",
+                title=f"🎉 {role_mention} Event Starting Now: {event['name']}",
+                description=_("The event '{event_name}' is starting now!").format(event_name=event['name']),
                 color=discord.Color.green()
             )
-            embed.add_field(name="Description", value=event['description'], inline=False)
-            embed.add_field(name="Start Time", value=f"<t:{int(event_time.astimezone(guild_tz).timestamp())}:F>", inline=False)
+            embed.add_field(name=_("Description"), value=event['description'], inline=False)
+            embed.add_field(name=_("Start Time"), value=f"<t:{int(event_time.astimezone(guild_tz).timestamp())}:F>", inline=False)
             
-            await channel.send(embed=embed)
+            try:
+                await channel.send(embed=embed)
+            except discord.HTTPException as e:
+                self.logger.error(f"Failed to send event start message: {e}")
+                await channel.send(_("An error occurred while sending the event start message. Please try again later."))
 
-    async def personal_reminder_loop(self, guild_id: int, user_id: int, event_id: str, reminder_time: datetime):
-        await discord.utils.sleep_until(reminder_time)
-
-        guild = self.bot.get_guild(guild_id)
-        if not guild:
-            self.logger.error(f"Guild {guild_id} not found for personal reminder.")
-            return
-
-        event = self.guild_events[guild_id].get(event_id)
-        if not event:
-            self.logger.error(f"Event {event_id} not found for personal reminder in guild {guild_id}.")
-            return
-
-        user = guild.get_member(user_id)
-        if not user:
-            self.logger.error(f"User {user_id} not found in guild {guild_id} for personal reminder.")
-            return
-
-        guild_tz = await self.get_guild_timezone(guild)
-        event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
-        
-        embed = discord.Embed(
-            title=f"🔔 Event Reminder: {event['name']}",
-            description=f"This is your personal reminder for the upcoming event.",
-            color=discord.Color.blue()
-        )
-        embed.add_field(name="Event Time", value=f"<t:{int(event_time.timestamp())}:F>", inline=False)
-        embed.add_field(name="Description", value=event['description'], inline=False)
-        
-        if event['channel']:
-            channel = guild.get_channel(event['channel'])
-            if channel:
-                embed.add_field(name="Channel", value=channel.mention, inline=True)
-        
-        time_until_event = event_time - datetime.now(guild_tz)
-        embed.add_field(name="Time Until Event", value=humanize.naturaldelta(time_until_event), inline=True)
-
-        view = EventReminderView(self, guild_id, event_id)
-        
-        try:
-            await user.send(embed=embed, view=view)
-            self.logger.info(f"Sent personal reminder to user {user_id} for event {event_id} in guild {guild_id}.")
-        except discord.Forbidden:
-            self.logger.warning(f"Unable to send DM to user {user_id} for event reminder in guild {guild_id}.")
-            # Optionally, you could try to notify the user in a guild channel here
-        except Exception as e:
-            self.logger.error(f"Error sending personal reminder to user {user_id} for event {event_id} in guild {guild_id}: {e}")
-
-        # Remove the reminder from the config after it's sent
-        async with self.config.member_from_ids(guild_id, user_id).personal_reminders() as reminders:
-            reminders.pop(event_id, None)
-
-        # Remove the task from the task list
-        task_key = f"{guild_id}:{user_id}:{event_id}"
-        self.personal_reminder_tasks.pop(task_key, None)
-
+    @commands.guild_only()
     @commands.command(name="eventcreate")
     @commands.has_permissions(manage_events=True)
     async def event_create(self, ctx):
+        """
+        Start the process of creating a new event using an interactive modal.
+
+        This command will open an interactive form for creating a new event.
+        You must have the Manage Events permission to use this command.
+        """
         view = EventCreationView(self, ctx.guild)
-        embed = discord.Embed(title="📅 Create New Event", 
-                              description="Click the button below to start creating a new event.", 
+        embed = discord.Embed(title=_("📅 Create New Event"), 
+                              description=_("Click the button below to start creating a new event."), 
                               color=discord.Color.blue())
         message = await ctx.send(embed=embed, view=view)
         view.message = message
 
+    @commands.guild_only()
     @commands.command(name="eventlist")
     async def event_list(self, ctx):
-        guild_tz = await self.get_guild_timezone(ctx.guild)
+        """
+        Display a list of all scheduled events.
+
+        This command shows a list of all upcoming events with their details.
+        """
+        guild_tz = await self.cog.get_guild_timezone(ctx.guild)
         events = await self.config.guild(ctx.guild).events()
         if not events:
-            await ctx.send(embed=self.error_embed("No events scheduled."))
+            await ctx.send(embed=self.error_embed(_("No events scheduled.")))
             return
         
-        embed = discord.Embed(title="📅 Scheduled Events", color=discord.Color.blue())
+        embed = discord.Embed(title=_("📅 Scheduled Events"), color=discord.Color.blue())
         for event_id, data in events.items():
             event_time = datetime.fromisoformat(data['time1']).astimezone(guild_tz)
             time_until = humanize.naturaltime(event_time, when=datetime.now(guild_tz))
@@ -613,17 +581,24 @@ class RobustEventsCog(commands.Cog):
         events = await self.config.guild(guild).events()
         return next((id for id, event in events.items() if event['name'].lower() == event_name.lower()), None)
 
+    @commands.guild_only()
     @commands.command(name="eventdelete")
     @commands.has_permissions(manage_events=True)
     async def event_delete(self, ctx, *, event_name: str):
+        """
+        Delete a specific event by its name.
+
+        This command will delete an event and notify all participants.
+        You must have the Manage Events permission to use this command.
+        """
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if event_id:
             success = await self.delete_event(ctx.guild, event_id)
             if success:
-                await ctx.send(embed(self.success_embed(f"Event '{event_name}' deleted."))
+                await ctx.send(embed=self.success_embed(_("Event '{event_name}' deleted.").format(event_name=event_name)))
             else:
-                await ctx.send(embed(self.error_embed(f"Failed to delete event '{event_name}'."))
+                await ctx.send(embed=self.error_embed(_("Failed to delete event '{event_name}'.").format(event_name=event_name)))
 
     async def delete_event(self, guild: discord.Guild, event_id: str):
         async with self.config.guild(guild).events() as events:
@@ -645,7 +620,7 @@ class RobustEventsCog(commands.Cog):
                 try:
                     await role.delete()
                 except discord.Forbidden:
-                    self.logger.error(f"Couldn't delete the event role for '{event['name']}' due to lack of permissions.")
+                    self.logger.error(_("Couldn't delete the event role for '{event_name}' due to lack of permissions.").format(event_name=event['name']))
 
         async for member_id, member_data in self.config.all_members(guild):
             async with self.config.member_from_ids(guild.id, member_id).personal_reminders() as reminders:
@@ -667,13 +642,20 @@ class RobustEventsCog(commands.Cog):
 
         return True
 
+    @commands.guild_only()
     @commands.command(name="eventupdate")
     @commands.has_permissions(manage_events=True)
     async def event_update(self, ctx, *, event_name: str):
+        """
+        Update details of an existing event.
+
+        This command allows updating the details of an event.
+        You must have the Manage Events permission to use this command.
+        """
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if not event_id:
-            await ctx.send(embed(self.error_embed(f"No event found with the name '{event_name}'.")))
+            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.").format(event_name=event_name)))
 
     async def create_event(self, guild: discord.Guild, name: str, event_time1: datetime, description: str, notifications: List[int], repeat: str, role_name: Optional[str], channel: Optional[discord.TextChannel], event_time2: Optional[datetime] = None) -> str:
         guild_tz = await self.get_guild_timezone(guild)
@@ -716,6 +698,7 @@ class RobustEventsCog(commands.Cog):
 
                 events[event_id].update(new_data)
                 self.guild_events[guild.id][event_id].update(new_data)
+                await self.config.guild(guild).events.set(events)  # Ensure config changes are saved
 
             await self.schedule_event(guild, event_id)
             return True
@@ -727,14 +710,15 @@ class RobustEventsCog(commands.Cog):
         if not role_name:
             return None
         existing_role = discord.utils.get(guild.roles, name=role_name)
-        if (existing_role):
+        if existing_role:
             return existing_role
         try:
             return await guild.create_role(name=role_name, mentionable=True)
         except discord.Forbidden:
-            self.logger.error(f"Bot doesn't have permission to create roles in guild {guild.name}")
+            self.logger.error(_("Bot doesn't have permission to create roles in guild {guild_name}").format(guild_name=guild.name))
             return None
 
+    @commands.guild_only()
     @commands.command(name="settimezone")
     @commands.has_permissions(manage_events=True)
     async def set_timezone(self, ctx, timezone_str: str):
@@ -748,21 +732,27 @@ class RobustEventsCog(commands.Cog):
             timezone = pytz.timezone(timezone_str)
             await self.config.guild(ctx.guild).timezone.set(timezone_str)
             self.guild_timezone_cache[ctx.guild.id] = timezone
-            await ctx.send(embed=self.success_embed(f"Timezone set to {timezone_str}"))
+            await ctx.send(embed=self.success_embed(_("Timezone set to {timezone_str}").format(timezone_str=timezone_str)))
         except pytz.exceptions.UnknownTimeZoneError:
-            await ctx.send(embed(self.error_embed(f"Unknown timezone: {timezone_str}. Please use a valid timezone from the IANA Time Zone Database.")))
+            await ctx.send(embed=self.error_embed(_("Unknown timezone: {timezone_str}. Please use a valid timezone from the IANA Time Zone Database.").format(timezone_str=timezone_str)))
 
+    @commands.guild_only()
     @commands.command(name="eventinfo")
     async def event_info(self, ctx, *, event_name: str):
+        """
+        Display detailed information about a specific event.
+
+        This command shows detailed information about an upcoming event.
+        """
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if not event_id:
-            await ctx.send(embed(self.error_embed(f"No event found with the name '{event_name}'.")))
+            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.")), ephemeral=True)
             return
 
         event = self.guild_events[ctx.guild.id].get(event_id)
         if not event:
-            await ctx.send(embed(self.error_embed(f"Event data not found for '{event_name}'.")))
+            await ctx.send(embed=self.error_embed(_("Event data not found for '{event_name}'.")), ephemeral=True)
             return
 
         embed = await self.create_event_info_embed(ctx.guild, event_id, event)
@@ -788,44 +778,44 @@ class RobustEventsCog(commands.Cog):
         time_field = f"🕒 Start: <t:{int(time1.timestamp())}:F>"
         if time2:
             time_field += f"\n🕒 End: <t:{int(time2.timestamp())}:F>"
-        embed.add_field(name="Event Time", value=time_field, inline=False)
+        embed.add_field(name=_("Event Time"), value=time_field, inline=False)
 
         # Countdown
         now = datetime.now(guild_tz)
         time_until = time1 - now
         if time_until.total_seconds() > 0:
-            countdown = f"⏳ Starts <t:{int(time1.timestamp())}:R>"
-            embed.add_field(name="Countdown", value=countdown, inline=True)
+            countdown = _("⏳ Starts <t:{timestamp}:R>").format(timestamp=int(time1.timestamp()))
+            embed.add_field(name=_("Countdown"), value=countdown, inline=True)
 
         # Repeat information
         repeat_emoji = {
             'none': '🚫', 'daily': '📆', 'weekly': '🗓️', 'monthly': '📅', 'yearly': '🎊'
         }
         repeat_value = f"{repeat_emoji.get(event['repeat'], '🔄')} {event['repeat'].capitalize()}"
-        embed.add_field(name="Repeat", value=repeat_value, inline=True)
+        embed.add_field(name=_("Repeat"), value=repeat_value, inline=True)
 
         # Channel information
         channel = guild.get_channel(event['channel'])
-        channel_value = f"📢 {channel.mention}" if channel else "Channel not found"
-        embed.add_field(name="Channel", value=channel_value, inline=True)
+        channel_value = f"📢 {channel.mention}" if channel else _("Channel not found")
+        embed.add_field(name=_("Channel"), value=channel_value, inline=True)
 
         # Role information
         role = guild.get_role(event['role_id'])
-        role_value = f"👥 {role.mention}" if role else "No specific role"
-        embed.add_field(name="Event Role", value=role_value, inline=True)
+        role_value = f"👥 {role.mention}" if role else _("No specific role")
+        embed.add_field(name=_("Event Role"), value=role_value, inline=True)
 
         # Notifications
         if event['notifications']:
             notif_value = ", ".join(f"{n}m" for n in sorted(event['notifications']))
-            embed.add_field(name="🔔 Reminders", value=notif_value, inline=True)
+            embed.add_field(name=_("🔔 Reminders"), value=notif_value, inline=True)
 
         # Participants count (if role exists)
         if role:
             participant_count = len(role.members)
-            embed.add_field(name="👥 Participants", value=f"{participant_count} joined", inline=True)
+            embed.add_field(name=_("👥 Participants"), value=f"{participant_count} joined", inline=True)
 
         # Footer with event ID
-        embed.set_footer(text=f"Event ID: {event_id}")
+        embed.set_footer(text=_("Event ID: {event_id}").format(event_id=event_id))
 
         return embed
 
@@ -834,21 +824,35 @@ class RobustEventsCog(commands.Cog):
             reminders[event_id] = reminder_time.isoformat()
         await self.schedule_personal_reminder(guild_id, user_id, event_id, reminder_time)
 
+    @commands.guild_only()
     @commands.command(name="eventedit")
     @commands.has_permissions(manage_events=True)
     async def event_edit(self, ctx, *, event_name: str):
+        """
+        Edit an existing event using an interactive modal.
+
+        This command will open an interactive form for editing an event.
+        You must have the Manage Events permission to use this command.
+        """
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if not event_id:
-            await ctx.send(embed(self.error_embed(f"No event found with the name '{event_name}'.")))
+            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.").format(event_name=event_name)))
 
+    @commands.guild_only()
     @commands.command(name="eventcancel")
     @commands.has_permissions(manage_events=True)
     async def event_cancel(self, ctx, *, event_name: str):
+        """
+        Cancel an event and notify all participants.
+
+        This command will cancel an event and notify all participants.
+        You must have the Manage Events permission to use this command.
+        """
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if not event_id:
-            await ctx.send(embed(self.error_embed(f"No event found with the name '{event_name}'.")))
+            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.").format(event_name=event_name)))
 
     async def cancel_event(self, guild: discord.Guild, event_id: str):
         try:
@@ -860,56 +864,61 @@ class RobustEventsCog(commands.Cog):
 
             channel = guild.get_channel(event['channel'])
             if channel:
-                await channel.send(f"The event '{event['name']}' has been cancelled.")
+                await channel.send(_("The event '{event_name}' has been cancelled.").format(event_name=event['name']))
 
         except Exception as e:
             self.logger.error(f"Error cancelling event {event_id}: {e}")
 
     def error_embed(self, message: str) -> discord.Embed:
-        return discord.Embed(title="❌ Error", description=message, color=discord.Color.red())
+        return discord.Embed(title=_("❌ Error"), description=message, color=discord.Color.red())
 
     def success_embed(self, message: str) -> discord.Embed:
-        return discord.Embed(title="✅ Success", description=message, color=discord.Color.green())
+        return discord.Embed(title=_("✅ Success"), description=message, color=discord.Color.green())
 
     @commands.command(name="eventhelp", aliases=["event"])
     async def event_help(self, ctx):
+        """
+        Display a list of all available event-related commands.
+
+        This command shows a list of all commands for managing and participating in events.
+        """
         prefix = ctx.clean_prefix
 
         embed = discord.Embed(
-            title="📅 Event Management System Help",
-            description="Here's a list of all available event-related commands:",
+            title=_("📅 Event Management System Help"),
+            description=_("Here's a list of all available event-related commands:"),
             color=discord.Color.blue()
         )
 
         management_commands = [
-            ("eventcreate", "Start the process of creating a new event using an interactive modal."),
-            ("eventdelete <name>", "Delete a specific event by its name."),
-            ("eventupdate <name> [options]", "Update details of an existing event."),
-            ("settimezone <timezone>", "Set the timezone for the guild (e.g., 'US/Pacific', 'Europe/London')."),
-            ("eventedit <name>", "Edit an existing event using an interactive modal."),
-            ("eventcancel <name>", "Cancel an event and notify all participants."),
+            ("eventcreate", _("Start the process of creating a new event using an interactive modal.")),
+            ("eventdelete <name>", _("Delete a specific event by its name.")),
+            ("eventupdate <name> [options]", _("Update details of an existing event.")),
+            ("settimezone <timezone>", _("Set the timezone for the guild (e.g., 'US/Pacific', 'Europe/London').")),
+            ("eventedit <name>", _("Edit an existing event using an interactive modal.")),
+            ("eventcancel <name>", _("Cancel an event and notify all participants.")),
         ]
 
         event_commands = [
-            ("eventlist", "Display a list of all scheduled events."),
-            ("eventinfo <name>", "Display detailed information about a specific event."),
-            ("eventremind <name>", "Set a personal reminder for an event."),
+            ("eventlist", _("Display a list of all scheduled events.")),
+            ("eventinfo <name>", _("Display detailed information about a specific event.")),
+            ("eventremind <name>", _("Set a personal reminder for an event.")),
         ]
 
-        embed.add_field(name="🛠️ Management Commands", value="Commands for creating and managing events (requires Manage Events permission):", inline=False)
+        embed.add_field(name=_("🛠️ Management Commands"), value=_("Commands for creating and managing events (requires Manage Events permission):"), inline=False)
         for command, description in management_commands:
             embed.add_field(name=f"`{prefix}{command}`", value=description, inline=False)
 
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-        embed.add_field(name="🎫 Event Participation Commands", value="Commands for event participants:", inline=False)
+        embed.add_field(name=_("🎫 Event Participation Commands"), value=_("Commands for event participants:"), inline=False)
         for command, description in event_commands:
             embed.add_field(name=f"`{prefix}{command}`", value=description, inline=False)
 
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-        embed.add_field(name="ℹ️ Help Command", value=f"For help with specific commands, use `{prefix}help <command>`.", inline=False)
-        embed.set_footer(text=f"Current prefix: {prefix}")
+        embed.add_field(name=_("ℹ️ Help Command"), value=_("For help with specific commands, use `{prefix}help <command>`.").format(prefix=prefix), inline=False)
+        embed.set_footer(text=_("Current prefix: {prefix}").format(prefix=prefix))
         await ctx.send(embed=embed)
 
     @tasks.loop(hours=1)
@@ -918,15 +927,22 @@ class RobustEventsCog(commands.Cog):
             events = await self.config.guild(guild).events()
             self.guild_events[guild.id] = events
 
-    @commands.    @commands.has_permissions(administrator=True)
+    @commands.guild_only()
+    @commands.command(name="eventpurge")
+    @commands.has_permissions(administrator=True)
     async def event_purge(self, ctx):
-        """Purge all event data. Use with caution!"""
+        """
+        Purge all event data. Use with caution!
+
+        This command will purge all event data. Use it only when necessary.
+        """
         view = ConfirmPurgeView(self)
         embed = discord.Embed(
-            title="⚠️ Purge All Event Data",
-            description="Are you sure you want            color=discord.Color.red()
+            title=_("⚠️ Purge All Event Data"),
+            description=_("Are you sure you want to purge all event data?"),
+            color=discord.Color.red()
         )
-        embed.add_field(name="Warning", value="This should only be used when updates to the cog break compatibility with current events.")
+        embed.add_field(name=_("Warning"), value=_("This should only be used when updates to the cog break compatibility with current events."))
         await ctx.send(embed=embed, view=view)
 
     async def purge_all_data(self):
@@ -991,22 +1007,22 @@ class ReminderSelectView(discord.ui.View):
         reminder_time = self.event_time - timedelta(minutes=minutes)
         now = datetime.now(guild_tz)
         if reminder_time <= now:
-            await interaction.response.send_message(embed(self.cog.error_embed("This reminder time has already passed.")), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("This reminder time has already passed.")), ephemeral=True)
             return
 
         await self.cog.set_personal_reminder(interaction.guild_id, self.user_id, self.event_id, reminder_time)
-        await interaction.response.send_message(embed(self.cog.success_embed(f"I'll remind you about '{self.event_id}' {minutes} minutes before it starts.")), ephemeral=True)
+        await interaction.response.send_message(embed=self.cog.success_embed(_("I'll remind you about '{event_id}' {minutes} minutes before it starts.").format(event_id=self.event_id, minutes=minutes)), ephemeral=True)
 
 class ReminderSelect(discord.ui.Select):
     def __init__(self, callback):
         options = [
-            discord.SelectOption(label="5 minutes", value="5", emoji="⏱️"),
-            discord.SelectOption(label="15 minutes", value="15", emoji="⏱️"),
-            discord.SelectOption(label="30 minutes", value="30", emoji="⏱️"),
-            discord.SelectOption(label="1 hour", value="60", emoji="⏰"),
-            discord.SelectOption(label="2 hours", value="120", emoji="⏰"),
+            discord.SelectOption(label=_("5 minutes"), value="5", emoji="⏱️"),
+            discord.SelectOption(label=_("15 minutes"), value="15", emoji="⏱️"),
+            discord.SelectOption(label=_("30 minutes"), value="30", emoji="⏱️"),
+            discord.SelectOption(label=_("1 hour"), value="60", emoji="⏰"),
+            discord.SelectOption(label=_("2 hours"), value="120", emoji="⏰"),
         ]
-        super().__init__(placeholder="Select reminder time", options=options)
+        super().__init__(placeholder=_("Select reminder time"), options=options)
         self.callback_function = callback
 
     async def callback(self, interaction: discord.Interaction):
@@ -1017,26 +1033,26 @@ class ConfirmPurgeView(discord.ui.View):
         super().__init__()
         self.cog = cog
 
-    @discord.ui.button(label="Confirm Purge", style=discord.ButtonStyle.danger, emoji="🗑️")
+    @discord.ui.button(label=_("Confirm Purge"), style=discord.ButtonStyle.danger, emoji="🗑️")
     async def confirm_purge(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.purge_all_data()
         embed = discord.Embed(
-            title="✅ Data Purged",
-            description="All event data has been purged successfully.",
+            title=_("✅ Data Purged"),
+            description=_("All event data has been purged successfully."),
             color=discord.Color.green()
         )
         await interaction.response.send_message(embed=embed)
 
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="🚫")
+    @discord.ui.button(label=_("Cancel"), style=discord.ButtonStyle.secondary, emoji="🚫")
     async def cancel_purge(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(
-            title="❌ Purge Cancelled",
-            description="The purge operation has been cancelled. No data was deleted.",
+            title=_("❌ Purge Cancelled"),
+            description=_("The purge operation has been cancelled. No data was deleted."),
             color=discord.Color.blue()
         )
         await interaction.response.send_message(embed=embed)
 
-class BasicEventEditModal(discord.ui.Modal, title="Edit Event - Basic Info"):
+class BasicEventEditModal(discord.ui.Modal, title=_("Edit Event - Basic Info")):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
         super().__init__()
         self.cog = cog
@@ -1045,10 +1061,10 @@ class BasicEventEditModal(discord.ui.Modal, title="Edit Event - Basic Info"):
         self.event_data = event_data
         self.timezone = pytz.timezone(self.cog.config.guild(guild).timezone())
 
-        self.name = TextInput(label="Event Name", default=event_name, max_length=100)
-        self.datetime1 = TextInput(label="First Time (HH:MM)", default=datetime.fromisoformat(event_data['time1']).astimezone(self.timezone).strftime("%H:%M"))
-        self.datetime2 = TextInput(label="Second Time (Optional, HH:MM)", default=datetime.fromisoformat(event_data['time2']).astimezone(self.timezone).strftime("%H:%M") if event_data.get('time2') else "", required=False)
-        self.description = TextInput(label="Description", style=discord.TextStyle.paragraph, max_length=1000, default=event_data['description'])
+        self.name = TextInput(label=_("Event Name"), default=event_name, max_length=100)
+        self.datetime1 = TextInput(label=_("First Time (HH:MM)"), default=datetime.fromisoformat(event_data['time1']).astimezone(self.timezone).strftime("%H:%M"))
+        self.datetime2 = TextInput(label=_("Second Time (Optional, HH:MM)"), default=datetime.fromisoformat(event_data['time2']).astimezone(self.timezone).strftime("%H:%M") if event_data.get('time2') else "", required=False)
+        self.description = TextInput(label=_("Description"), style=discord.TextStyle.paragraph, max_length=1000, default=event_data['description'])
 
         self.add_item(self.name)
         self.add_item(self.datetime1)
@@ -1079,7 +1095,7 @@ class BasicEventEditModal(discord.ui.Modal, title="Edit Event - Basic Info"):
                 event_time2 = None
 
         except ValueError as e:
-            await interaction.response.send_message(embed(self.cog.error_embed(str(e))), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(str(e)), ephemeral=True)
             return
 
         self.cog.temp_edit_data[interaction.user.id] = {
@@ -1090,9 +1106,9 @@ class BasicEventEditModal(discord.ui.Modal, title="Edit Event - Basic Info"):
         }
 
         view = AdvancedEditOptionsView(self.cog, self.guild, self.event_name, self.event_data)
-        await interaction.response.send_message("Basic information updated. Click the button below to edit advanced options:", view=view, ephemeral=True)
+        await interaction.response.send_message(_("Basic information updated. Click the button below to edit advanced options:"), view=view, ephemeral=True)
 
-class AdvancedEventEditModal(discord.ui.Modal, title="Edit Event - Advanced Options"):
+class AdvancedEventEditModal(discord.ui.Modal, title=_("Edit Event - Advanced Options")):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
         super().__init__()
         self.cog = cog
@@ -1100,10 +1116,10 @@ class AdvancedEventEditModal(discord.ui.Modal, title="Edit Event - Advanced Opti
         self.event_name = event_name
         self.event_data = event_data
 
-        self.notifications = TextInput(label="Notification Times (minutes)", default=",".join(map(str, event_data['notifications'])))
-        self.repeat = TextInput(label="Repeat (none/daily/weekly/monthly/yearly)", default=event_data['repeat'])
-        self.role_name = TextInput(label="Event Role Name", default=event_data['role_name'])
-        self.channel = TextInput(label="Channel", default=f"#{self.guild.get_channel(event_data['channel']).name}")
+        self.notifications = TextInput(label=_("Notification Times (minutes)"), default=",".join(map(str, event_data['notifications'])))
+        self.repeat = TextInput(label=_("Repeat (none/daily/weekly/monthly/yearly)"), default=event_data['repeat'])
+        self.role_name = TextInput(label=_("Event Role Name"), default=event_data['role_name'])
+        self.channel = TextInput(label=_("Channel"), default=f"#{self.guild.get_channel(event_data['channel']).name}")
 
         self.add_item(self.notifications)
         self.add_item(self.repeat)
@@ -1114,28 +1130,28 @@ class AdvancedEventEditModal(discord.ui.Modal, title="Edit Event - Advanced Opti
         try:
             notifications = [int(n.strip()) for n in self.notifications.value.split(',')]
         except ValueError:
-            await interaction.response.send_message(embed(self.cog.error_embed("Invalid notification times.")), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Invalid notification times.")), ephemeral=True)
             return
 
         repeat = self.repeat.value.lower()
         if repeat not in RepeatType._value2member_map_:
-            await interaction.response.send_message(embed(self.cog.error_embed("Invalid repeat option.")), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Invalid repeat option.")), ephemeral=True)
             return
 
         role_name = self.role_name.value.strip()
         if not role_name:
-            await interaction.response.send_message(embed(self.cog.error_embed("Event role name is required.")), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Event role name is required.")), ephemeral=True)
             return
 
         channel_name = self.channel.value.lstrip('#')
         channel = discord.utils.get(interaction.guild.text_channels, name=channel_name)
         if not channel:
-            await interaction.response.send_message(embed(self.cog.error_embed(f"Channel #{channel_name} not found.")), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Channel #{channel_name} not found.").format(channel_name=channel_name)), ephemeral=True)
             return
 
         basic_data = self.cog.temp_edit_data.pop(interaction.user.id, None)
         if not basic_data:
-            await interaction.response.send_message(embed(self.cog.error_embed("Error: Event data not found.")), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Error: Event data not found.")), ephemeral=True)
             return
 
         new_data = {
@@ -1151,9 +1167,9 @@ class AdvancedEventEditModal(discord.ui.Modal, title="Edit Event - Advanced Opti
 
         success = await self.cog.update_event(self.guild, self.event_name, new_data)
         if success:
-            await interaction.response.send_message(embed(self.cog.success_embed(f"Event '{self.event_name}' has been updated successfully.")), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.success_embed(_("Event '{event_name}' has been updated successfully.").format(event_name=self.event_name)), ephemeral=True)
         else:
-            await interaction.response.send_message(embed(self.cog.error_embed(f"Failed to update event '{self.event_name}'.")), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Failed to update event '{event_name}'.").format(event_name=self.event_name)), ephemeral=True)
 
         self.cog.temp_edit_data.pop(interaction.user.id, None)
 
@@ -1165,7 +1181,7 @@ class EventEditView(discord.ui.View):
         self.event_name = event_name
         self.event_data = event_data
 
-    @discord.ui.button(label="Edit Event", style=discord.ButtonStyle.primary, emoji="✏️")
+    @discord.ui.button(label=_("Edit Event"), style=discord.ButtonStyle.primary, emoji="✏️")
     async def edit_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = BasicEventEditModal(self.cog, self.guild, self.event_name, self.event_data)
         await interaction.response.send_modal(modal)
@@ -1178,7 +1194,7 @@ class AdvancedEditOptionsView(discord.ui.View):
         self.event_name = event_name
         self.event_data = event_data
 
-    @discord.ui.button(label="Edit Advanced Options", style=discord.ButtonStyle.primary, emoji="⚙️")
+    @discord.ui.button(label=_("Edit Advanced Options"), style=discord.ButtonStyle.primary, emoji="⚙️")
     async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = AdvancedEventEditModal(self.cog, self.guild, self.event_name, self.event_data)
         await interaction.response.send_modal(modal)
@@ -1191,14 +1207,14 @@ class ConfirmCancelView(discord.ui.View):
         self.event_name = event_name
         self.event_data = event_data
 
-    @discord.ui.button(label="Confirm Cancel", style=discord.ButtonStyle.danger, emoji="🚫")
+    @discord.ui.button(label=_("Confirm Cancel"), style=discord.ButtonStyle.danger, emoji="🚫")
     async def confirm_cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.cancel_event(self.guild, self.event_name)
-        await interaction.response.send_message(embed(self.cog.success_embed(f"The event '{self.event_name}' has been cancelled and participants have been notified.")))
+        await interaction.response.send_message(embed=self.cog.success_embed(_("The event '{event_name}' has been cancelled and participants have been notified.").format(event_name=self.event_name)))
 
-    @discord.ui.button(label="Keep Event", style=discord.ButtonStyle.secondary, emoji="🔙")
+    @discord.ui.button(label=_("Keep Event"), style=discord.ButtonStyle.secondary, emoji="🔙")
     async def keep_event(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(embed(self.cog.success_embed(f"The event '{self.event_name}' has not been cancelled.")))
+        await interaction.response.send_message(embed=self.cog.success_embed(_("The event '{event_name}' has not been cancelled.").format(event_name=self.event_name)))
 
 async def setup(bot: Red):
     await bot.add_cog(RobustEventsCog(bot))
