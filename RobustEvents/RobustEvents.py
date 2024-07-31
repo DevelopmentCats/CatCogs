@@ -278,6 +278,7 @@ class RobustEventsCog(commands.Cog):
         self.guild_timezone_cache = {}
         self.guild_events = defaultdict(dict)
         self.temp_event_data = defaultdict(dict)
+        self.temp_edit_data = defaultdict(dict)
         self.event_info_messages = {}
         self.update_event_embeds.start()
         self.config.register_guild(event_info_messages={})
@@ -560,7 +561,7 @@ class RobustEventsCog(commands.Cog):
 
         This command shows a list of all upcoming events with their details.
         """
-        guild_tz = await self.cog.get_guild_timezone(ctx.guild)
+        guild_tz = await self.get_guild_timezone(ctx.guild)
         events = await self.config.guild(ctx.guild).events()
         if not events:
             await ctx.send(embed=self.error_embed(_("No events scheduled.")))
@@ -655,11 +656,11 @@ class RobustEventsCog(commands.Cog):
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if not event_id:
-            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.").format(event_name=event_name)))
+            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.")), ephemeral=True)
         else:
             event = self.guild_events[ctx.guild.id][event_id]
             view = EventEditView(self, ctx.guild, event_id, event)
-            await ctx.send(embed=self.success_embed(_("Click the button below to edit the event '{event_name}'.").format(event_name=event_name)), view=view)
+            await ctx.send(embed=self.success_embed(_("Click the button below to edit the event '{event_name}'.")), view=view)
 
     async def create_event(self, guild: discord.Guild, name: str, event_time1: datetime, description: str, notifications: List[int], repeat: str, role_name: Optional[str], channel: Optional[discord.TextChannel], event_time2: Optional[datetime] = None) -> str:
         guild_tz = await self.get_guild_timezone(guild)
@@ -841,11 +842,11 @@ class RobustEventsCog(commands.Cog):
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if not event_id:
-            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.").format(event_name=event_name)))
+            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.")), ephemeral=True)
         else:
             event = self.guild_events[ctx.guild.id][event_id]
             view = EventEditView(self, ctx.guild, event_name, event)
-            await ctx.send(embed=self.success_embed(_("Click the button below to edit the event '{event_name}'.").format(event_name=event_name)), view=view)
+            await ctx.send(embed=self.success_embed(_("Click the button below to edit the event '{event_name}'.")), view=view)
 
     @commands.guild_only()
     @commands.command(name="eventcancel")
@@ -860,7 +861,7 @@ class RobustEventsCog(commands.Cog):
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if not event_id:
-            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.").format(event_name=event_name)))
+            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.")), ephemeral=True)
 
     async def cancel_event(self, guild: discord.Guild, event_id: str):
         try:
@@ -1067,7 +1068,7 @@ class BasicEventEditModal(discord.ui.Modal, title=_("Edit Event - Basic Info")):
         self.guild = guild
         self.event_name = event_name
         self.event_data = event_data
-        self.timezone = pytz.timezone(self.cog.config.guild(guild).timezone())
+        self.timezone = pytz.timezone(await cog.config.guild(guild).timezone())
 
         self.name = TextInput(label=_("Event Name"), default=event_name, max_length=100)
         self.datetime1 = TextInput(label=_("First Time (HH:MM)"), default=datetime.fromisoformat(event_data['time1']).astimezone(self.timezone).strftime("%H:%M"))
