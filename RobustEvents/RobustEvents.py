@@ -659,7 +659,7 @@ class RobustEventsCog(commands.Cog):
             await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.")), ephemeral=True)
         else:
             event = self.guild_events[ctx.guild.id][event_id]
-            view = EventEditView(self, ctx.guild, event_id, event)
+            view = EventEditView(self, ctx.guild, event_name, event)
             await ctx.send(embed=self.success_embed(_("Click the button below to edit the event '{event_name}'.")), view=view)
 
     async def create_event(self, guild: discord.Guild, name: str, event_time1: datetime, description: str, notifications: List[int], repeat: str, role_name: Optional[str], channel: Optional[discord.TextChannel], event_time2: Optional[datetime] = None) -> str:
@@ -1062,13 +1062,13 @@ class ConfirmPurgeView(discord.ui.View):
         await interaction.response.send_message(embed=embed)
 
 class BasicEventEditModal(discord.ui.Modal, title=_("Edit Event - Basic Info")):
-    def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
+    def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict, timezone: pytz.timezone):
         super().__init__()
         self.cog = cog
         self.guild = guild
         self.event_name = event_name
         self.event_data = event_data
-        self.timezone = pytz.timezone(await cog.config.guild(guild).timezone())
+        self.timezone = timezone
 
         self.name = TextInput(label=_("Event Name"), default=event_name, max_length=100)
         self.datetime1 = TextInput(label=_("First Time (HH:MM)"), default=datetime.fromisoformat(event_data['time1']).astimezone(self.timezone).strftime("%H:%M"))
@@ -1118,12 +1118,13 @@ class BasicEventEditModal(discord.ui.Modal, title=_("Edit Event - Basic Info")):
         await interaction.response.send_message(_("Basic information updated. Click the button below to edit advanced options:"), view=view, ephemeral=True)
 
 class AdvancedEventEditModal(discord.ui.Modal, title=_("Edit Event - Advanced Options")):
-    def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
+    def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict, timezone: pytz.timezone):
         super().__init__()
         self.cog = cog
         self.guild = guild
         self.event_name = event_name
         self.event_data = event_data
+        self.timezone = timezone
 
         self.notifications = TextInput(label=_("Notification Times (minutes)"), default=",".join(map(str, event_data['notifications'])))
         self.repeat = TextInput(label=_("Repeat (none/daily/weekly/monthly/yearly)"), default=event_data['repeat'])
@@ -1192,7 +1193,8 @@ class EventEditView(discord.ui.View):
 
     @discord.ui.button(label=_("Edit Event"), style=discord.ButtonStyle.primary, emoji="✏️")
     async def edit_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = BasicEventEditModal(self.cog, self.guild, self.event_name, self.event_data)
+        timezone = await self.cog.get_guild_timezone(self.guild)
+        modal = BasicEventEditModal(self.cog, self.guild, self.event_name, self.event_data, timezone)
         await interaction.response.send_modal(modal)
 
 class AdvancedEditOptionsView(discord.ui.View):
@@ -1205,7 +1207,8 @@ class AdvancedEditOptionsView(discord.ui.View):
 
     @discord.ui.button(label=_("Edit Advanced Options"), style=discord.ButtonStyle.primary, emoji="⚙️")
     async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = AdvancedEventEditModal(self.cog, self.guild, self.event_name, self.event_data)
+        timezone = await self.cog.get_guild_timezone(self.guild)
+        modal = AdvancedEventEditModal(self.cog, self.guild, self.event_name, self.event_data, timezone)
         await interaction.response.send_modal(modal)
 
 class ConfirmCancelView(discord.ui.View):
