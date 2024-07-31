@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
-from discord.ui import Modal, TextInput, View, Select
-from redbot.core import Config, commands
+from discord.ui import Modal, TextInput, View
+from redbot.core import Config
 from redbot.core.bot import Red
 from datetime import datetime, timedelta
 import pytz
@@ -13,12 +13,13 @@ from discord.ext import tasks
 import humanize
 import calendar
 import uuid
+from enum import Enum
 
 class BasicEventModal(Modal):
-    def __init__(self, cog, timezone: pytz.timezone, original_message: discord.Message):
+    def __init__(self, cog, guild: discord.Guild, original_message: discord.Message):
         super().__init__(title="Create New Event - Basic Info")
         self.cog = cog
-        self.timezone = timezone
+        self.guild = guild
         self.original_message = original_message
 
         self.name = TextInput(label="Event Name", placeholder="Enter event name", max_length=100)
@@ -32,9 +33,10 @@ class BasicEventModal(Modal):
         self.add_item(self.description)
 
     async def on_submit(self, interaction: discord.Interaction):
+        guild_tz = await self.cog.get_guild_timezone(self.guild)
         try:
-            now = datetime.now(self.timezone)
-            
+            now = datetime.now(guild_tz)
+
             def validate_time(time_str):
                 try:
                     return datetime.strptime(time_str, "%H:%M").time()
@@ -42,15 +44,11 @@ class BasicEventModal(Modal):
                     raise ValueError(f"Invalid time format: {time_str}. Please use HH:MM format.")
 
             time1 = validate_time(self.datetime1.value)
-            event_time1 = self.timezone.localize(datetime.combine(now.date(), time1)).astimezone(pytz.UTC)
-            if event_time1 <= now:
-                event_time1 += timedelta(days=1)
+            event_time1 = guild_tz.localize(datetime.combine(now.date(), time1))
 
             if self.datetime2.value:
                 time2 = validate_time(self.datetime2.value)
-                event_time2 = self.timezone.localize(datetime.combine(now.date(), time2)).astimezone(pytz.UTC)
-                if event_time2 <= now:
-                    event_time2 += timedelta(days=1)
+                event_time2 = guild_tz.localize(datetime.combine(now.date(), time2))
             else:
                 event_time2 = None
 
@@ -58,21 +56,21 @@ class BasicEventModal(Modal):
             await interaction.response.send_message(embed=self.cog.error_embed(str(e)), ephemeral=True)
             return
 
-        self.cog.temp_event_data = {
+        self.cog.temp_event_data[interaction.user.id] = {
             'name': self.name.value,
             'time1': event_time1.isoformat(),
             'time2': event_time2.isoformat() if event_time2 else None,
             'description': self.description.value,
         }
 
-        view = AdvancedOptionsView(self.cog, self.timezone, self.original_message)
+        view = AdvancedOptionsView(self.cog, self.original_message)
         await interaction.response.send_message("Basic information saved. Click the button below to set advanced options:", view=view, ephemeral=True)
 
 class AdvancedEventModal(Modal):
-    def __init__(self, cog, timezone: pytz.timezone, original_message: discord.Message):
+    def __init__(self, cog, guild: discord.Guild, original_message: discord.Message):
         super().__init__(title="Create New Event - Advanced Options")
         self.cog = cog
-        self.timezone = timezone
+        self.guild = guild
         self.original_message = original_message
 
         self.notifications = TextInput(label="Notification Times (minutes)", placeholder="10,30,60")
@@ -93,7 +91,7 @@ class AdvancedEventModal(Modal):
             return
 
         repeat = self.repeat.value.lower()
-        if repeat not in ['none', 'daily', 'weekly', 'monthly', 'yearly']:
+        if repeat not in RepeatType._value2member_map_:
             await interaction.response.send_message(embed=self.cog.error_embed("Invalid repeat option."), ephemeral=True)
             return
 
@@ -103,18 +101,18 @@ class AdvancedEventModal(Modal):
             return
 
         channel_name = self.channel.value.lstrip('#')
-        channel = discord.utils.get(interaction.guild.text_channels, name=channel_name)
+        channel = discord.utils.get(self.guild.text_channels, name=channel_name)
         if not channel:
             await interaction.response.send_message(embed=self.cog.error_embed(f"Channel #{channel_name} not found."), ephemeral=True)
             return
 
-        basic_data = self.cog.temp_event_data
+        basic_data = self.cog.temp_event_data.pop(interaction.user.id, None)
         if not basic_data:
             await interaction.response.send_message(embed=self.cog.error_embed("Error: Event data not found."), ephemeral=True)
             return
 
         event_id = await self.cog.create_event(
-            interaction.guild,
+            self.guild,
             basic_data['name'],
             datetime.fromisoformat(basic_data['time1']),
             basic_data['description'],
@@ -127,33 +125,30 @@ class AdvancedEventModal(Modal):
 
         await interaction.response.send_message(embed=self.cog.success_embed(f"Event created successfully! Event ID: {event_id}"), ephemeral=True)
 
-        self.cog.temp_event_data = None
-
         await self.original_message.delete()
 
 class AdvancedOptionsView(View):
-    def __init__(self, cog, timezone: pytz.timezone, original_message: discord.Message):
+    def __init__(self, cog, original_message: discord.Message):
         super().__init__()
         self.cog = cog
-        self.timezone = timezone
         self.original_message = original_message
 
     @discord.ui.button(label="Set Advanced Options", style=discord.ButtonStyle.primary)
     async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        advanced_modal = AdvancedEventModal(self.cog, self.timezone, self.original_message)
+        advanced_modal = AdvancedEventModal(self.cog, interaction.guild, self.original_message)
         await interaction.response.send_modal(advanced_modal)
         self.stop()
 
 class EventCreationView(discord.ui.View):
-    def __init__(self, cog, timezone: pytz.timezone):
+    def __init__(self, cog, guild: discord.Guild):
         super().__init__()
         self.cog = cog
-        self.timezone = timezone
+        self.guild = guild
         self.message = None
 
     @discord.ui.button(label="Create Event", style=discord.ButtonStyle.primary, emoji="➕")
     async def create_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        basic_modal = BasicEventModal(self.cog, self.timezone, self.message)
+        basic_modal = BasicEventModal(self.cog, self.guild, self.message)
         await interaction.response.send_modal(basic_modal)
 
 class EventInfoView(discord.ui.View):
@@ -179,6 +174,13 @@ class EventInfoView(discord.ui.View):
             except discord.Forbidden:
                 await interaction.response.send_message("I don't have permission to assign roles.", ephemeral=True)
 
+class RepeatType(Enum):
+    NONE = 'none'
+    DAILY = 'daily'
+    WEEKLY = 'weekly'
+    MONTHLY = 'monthly'
+    YEARLY = 'yearly'
+
 class RobustEventsCog(commands.Cog):
     """Cog for managing and scheduling events"""
 
@@ -197,11 +199,13 @@ class RobustEventsCog(commands.Cog):
         self.event_tasks: Dict[str, asyncio.Task] = {}
         self.personal_reminder_tasks: Dict[str, asyncio.Task] = {}
         self.notification_queue: Dict[str, List[asyncio.Event]] = defaultdict(list)
-        self.event_cache: Dict[int, Dict[str, dict]] = defaultdict(dict)
         self.logger = logging.getLogger('red.RobustEvents')
         self.bot.loop.create_task(self.initialize_events())
         self.cleanup_expired_events.start()
         self.sync_event_cache.start()
+        self.guild_timezone_cache = {}
+        self.guild_events = defaultdict(dict)
+        self.temp_event_data = defaultdict(dict)
 
     def cog_unload(self):
         self.cleanup_expired_events.cancel()
@@ -219,10 +223,13 @@ class RobustEventsCog(commands.Cog):
                 to_remove = []
                 for event_id, event in events.items():
                     event_time = max(datetime.fromisoformat(event['time1']), datetime.fromisoformat(event['time2'] or event['time1']))
-                    if event['repeat'] == 'none' and event_time < current_time:
+                    if event['repeat'] == RepeatType.NONE.value and event_time < current_time:
                         to_remove.append(event_id)
                 for event_id in to_remove:
-                    await self.delete_event(guild, event_id)
+                    del events[event_id]
+                    if event_id in self.event_tasks:
+                        self.event_tasks[event_id].cancel()
+                        del self.event_tasks[event_id]
 
     async def initialize_events(self):
         await self.bot.wait_until_ready()
@@ -232,8 +239,8 @@ class RobustEventsCog(commands.Cog):
 
     async def load_guild_events(self, guild: discord.Guild):
         events = await self.config.guild(guild).events()
+        self.guild_events[guild.id] = events
         for event_id, event in events.items():
-            self.event_cache[guild.id][event_id] = event
             await self.schedule_event(guild, event_id)
 
     async def load_personal_reminders(self):
@@ -256,20 +263,22 @@ class RobustEventsCog(commands.Cog):
     async def event_loop(self, guild: discord.Guild, event_id: str):
         while True:
             try:
-                event = self.event_cache[guild.id].get(event_id)
+                event = self.guild_events[guild.id].get(event_id)
                 if not event:
                     return
 
-                now = datetime.now(pytz.UTC)
-                time1 = datetime.fromisoformat(event['time1'])
-                time2 = datetime.fromisoformat(event['time2']) if event.get('time2') else None
+                guild_tz = await self.get_guild_timezone(guild)
+                now = datetime.now(guild_tz)
+                time1 = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
+                time2 = datetime.fromisoformat(event['time2']).astimezone(guild_tz) if event.get('time2') else None
 
-                times = [time for time in [time1, time2] if time and time > now]
-                if not times:
+                times = [time for time in [time1, time2] if time]
+                next_time = min(times)
+
+                if next_time <= now:
                     await self.update_event_times(guild, event_id)
                     continue
 
-                next_time = min(times)
                 time_until_event = next_time - now
 
                 for notification_time in sorted(event['notifications'], reverse=True):
@@ -295,38 +304,69 @@ class RobustEventsCog(commands.Cog):
                 await asyncio.sleep(60)
 
     async def update_event_times(self, guild: discord.Guild, event_id: str):
-        event = self.event_cache[guild.id].get(event_id)
+        guild_tz = await self.get_guild_timezone(guild)
+        event = self.guild_events[guild.id].get(event_id)
         if not event:
             return
 
-        time1 = datetime.fromisoformat(event['time1'])
-        time2 = datetime.fromisoformat(event['time2']) if event.get('time2') else None
+        time1 = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
+        time2 = datetime.fromisoformat(event['time2']).astimezone(guild_tz) if event.get('time2') else None
+        now = datetime.now(guild_tz)
 
-        if event['repeat'] == 'daily':
-            delta = timedelta(days=1)
-        elif event['repeat'] == 'weekly':
-            delta = timedelta(weeks=1)
-        elif event['repeat'] == 'monthly':
-            next_month = time1.replace(day=1) + timedelta(days=32)
-            next_month = next_month.replace(day=min(time1.day, calendar.monthrange(next_month.year, next_month.month)[1]))
-            delta = next_month - time1
-        elif event['repeat'] == 'yearly':
-            next_year = time1.replace(year=time1.year + 1)
-            if time1.month == 2 and time1.day == 29:
+        if event['repeat'] == RepeatType.DAILY.value:
+            next_time1 = now.replace(hour=time1.hour, minute=time1.minute, second=0, microsecond=0)
+            if next_time1 <= now:
+                next_time1 += timedelta(days=1)
+            
+            if time2:
+                next_time2 = now.replace(hour=time2.hour, minute=time2.minute, second=0, microsecond=0)
+                if next_time2 <= now:
+                    next_time2 += timedelta(days=1)
+            else:
+                next_time2 = None
+        elif event['repeat'] == RepeatType.WEEKLY.value:
+            days_ahead = time1.weekday() - now.weekday()
+            if days_ahead <= 0:
+                days_ahead += 7
+            next_time1 = now + timedelta(days=days_ahead)
+            next_time1 = next_time1.replace(hour=time1.hour, minute=time1.minute, second=0, microsecond=0)
+            
+            if time2:
+                next_time2 = next_time1.replace(hour=time2.hour, minute=time2.minute)
+            else:
+                next_time2 = None
+        elif event['repeat'] == RepeatType.MONTHLY.value:
+            next_month = now.replace(day=1) + timedelta(days=32)
+            next_time1 = next_month.replace(day=min(time1.day, calendar.monthrange(next_month.year, next_month.month)[1]),
+                                            hour=time1.hour, minute=time1.minute, second=0, microsecond=0)
+            if time2:
+                next_time2 = next_time1.replace(hour=time2.hour, minute=time2.minute)
+            else:
+                next_time2 = None
+        elif event['repeat'] == RepeatType.YEARLY.value:
+            next_year = now.replace(year=now.year + 1, month=time1.month, day=time1.day,
+                                    hour=time1.hour, minute=time1.minute, second=0, microsecond=0)
+            if time1.month == 2 and time1.day == 29 and not calendar.isleap(next_year.year):
                 next_year = next_year.replace(day=28)
-            delta = next_year - time1
+            next_time1 = next_year
+            
+            if time2:
+                next_time2 = next_time1.replace(hour=time2.hour, minute=time2.minute)
+            else:
+                next_time2 = None
         else:
-            await self.delete_event(guild, event_id)
             return
 
-        event['time1'] = (time1 + delta).isoformat()
-        if time2:
-            event['time2'] = (time2 + delta).isoformat()
+        event['time1'] = next_time1.isoformat()
+        if next_time2:
+            event['time2'] = next_time2.isoformat()
 
-        await self.config.guild(guild).events.set_raw(event_id, value=event)
-        self.event_cache[guild.id][event_id] = event
+        async with self.config.guild(guild).events() as events:
+            events[event_id] = event
+        self.guild_events[guild.id][event_id] = event
 
     async def queue_notification(self, guild: discord.Guild, event_id: str, notification_time: int, event_time: datetime):
+        guild_tz = await self.get_guild_timezone(guild)
         queue_key = f"{guild.id}:{event_id}:{notification_time}"
         
         if queue_key in self.notification_queue and self.notification_queue[queue_key]:
@@ -341,7 +381,8 @@ class RobustEventsCog(commands.Cog):
             self.notification_queue[queue_key].clear()
 
     async def send_notification(self, guild: discord.Guild, event_id: str, notification_time: int, event_time: datetime):
-        event = self.event_cache[guild.id].get(event_id)
+        guild_tz = await self.get_guild_timezone(guild)
+        event = self.guild_events[guild.id].get(event_id)
         if not event:
             return
 
@@ -356,7 +397,7 @@ class RobustEventsCog(commands.Cog):
                 color=discord.Color.blue()
             )
             embed.add_field(name="Description", value=event['description'], inline=False)
-            embed.add_field(name="Start Time", value=f"<t:{int(event_time.timestamp())}:F>", inline=False)
+            embed.add_field(name="Start Time", value=f"<t:{int(event_time.astimezone(guild_tz).timestamp())}:F>", inline=False)
             embed.set_footer(text="This message will be automatically deleted in 30 minutes.")
             
             message = await channel.send(embed=embed)
@@ -371,7 +412,8 @@ class RobustEventsCog(commands.Cog):
             pass
 
     async def send_event_start_message(self, guild: discord.Guild, event_id: str, event_time: datetime):
-        event = self.event_cache[guild.id].get(event_id)
+        guild_tz = await self.get_guild_timezone(guild)
+        event = self.guild_events[guild.id].get(event_id)
         if not event:
             return
 
@@ -386,16 +428,14 @@ class RobustEventsCog(commands.Cog):
                 color=discord.Color.green()
             )
             embed.add_field(name="Description", value=event['description'], inline=False)
-            embed.add_field(name="Start Time", value=f"<t:{int(event_time.timestamp())}:F>", inline=False)
+            embed.add_field(name="Start Time", value=f"<t:{int(event_time.astimezone(guild_tz).timestamp())}:F>", inline=False)
             
             await channel.send(embed=embed)
 
     @commands.command(name="eventcreate")
     @commands.has_permissions(manage_events=True)
     async def event_create(self, ctx):
-        guild_timezone = await self.config.guild(ctx.guild).timezone()
-        timezone = pytz.timezone(guild_timezone) if guild_timezone else pytz.UTC
-        view = EventCreationView(self, timezone)
+        view = EventCreationView(self, ctx.guild)
         embed = discord.Embed(title="📅 Create New Event", 
                               description="Click the button below to start creating a new event.", 
                               color=discord.Color.blue())
@@ -404,6 +444,7 @@ class RobustEventsCog(commands.Cog):
 
     @commands.command(name="eventlist")
     async def event_list(self, ctx):
+        guild_tz = await self.get_guild_timezone(ctx.guild)
         events = await self.config.guild(ctx.guild).events()
         if not events:
             await ctx.send(embed=self.error_embed("No events scheduled."))
@@ -411,11 +452,11 @@ class RobustEventsCog(commands.Cog):
         
         embed = discord.Embed(title="📅 Scheduled Events", color=discord.Color.blue())
         for event_id, data in events.items():
-            event_time = datetime.fromisoformat(data['time1'])
-            time_until = humanize.naturaltime(event_time, when=datetime.now(pytz.UTC))
+            event_time = datetime.fromisoformat(data['time1']).astimezone(guild_tz)
+            time_until = humanize.naturaltime(event_time, when=datetime.now(guild_tz))
             embed.add_field(
                 name=data['name'],
-                value=f"🕒 {event_time.strftime('%Y-%m-%d %H:%M')} UTC\n⏳ {time_until}\n📍 <#{data['channel']}>",
+                value=f"🕒 {event_time.strftime('%Y-%m-%d %H:%M')} {guild_tz}\n⏳ {time_until}\n📍 <#{data['channel']}>",
                 inline=False
             )
         await ctx.send(embed=embed)
@@ -435,8 +476,6 @@ class RobustEventsCog(commands.Cog):
                 await ctx.send(embed=self.success_embed(f"Event '{event_name}' deleted."))
             else:
                 await ctx.send(embed=self.error_embed(f"Failed to delete event '{event_name}'."))
-        else:
-            await ctx.send(embed=self.error_embed(f"No event found with the name '{event_name}'."))
 
     async def delete_event(self, guild: discord.Guild, event_id: str):
         async with self.config.guild(guild).events() as events:
@@ -445,8 +484,8 @@ class RobustEventsCog(commands.Cog):
             
             event = events.pop(event_id)
 
-        if guild.id in self.event_cache and event_id in self.event_cache[guild.id]:
-            del self.event_cache[guild.id][event_id]
+        if guild.id in self.guild_events and event_id in self.guild_events[guild.id]:
+            del self.guild_events[guild.id][event_id]
         
         if event_id in self.event_tasks:
             self.event_tasks[event_id].cancel()
@@ -484,16 +523,12 @@ class RobustEventsCog(commands.Cog):
         
         if not event_id:
             await ctx.send(embed=self.error_embed(f"No event found with the name '{event_name}'."))
-            return
 
-        event_data = (await self.config.guild(ctx.guild).events())[event_id]
-        view = EventEditView(self, ctx.guild, event_id, event_data)
-        embed = discord.Embed(title=f"✏️ Edit Event: {event_name}", 
-                              description="Click the button below to edit the event details.", 
-                              color=discord.Color.blue())
-        await ctx.send(embed=embed, view=view)
-
-    async def create_event(self, guild: discord.Guild, name: str, event_time1: datetime, description: str, notifications: List[int], repeat: str, role_name: Optional[str], channel: Optional[discord.TextChannel], event_time2: Optional[datetime] = None):
+    async def create_event(self, guild: discord.Guild, name: str, event_time1: datetime, description: str, notifications: List[int], repeat: str, role_name: Optional[str], channel: Optional[discord.TextChannel], event_time2: Optional[datetime] = None) -> str:
+        guild_tz = await self.get_guild_timezone(guild)
+        event_time1 = event_time1.astimezone(guild_tz)
+        if event_time2:
+            event_time2 = event_time2.astimezone(guild_tz)
         try:
             event_role = await self.create_or_get_event_role(guild, role_name) if role_name else None
 
@@ -502,33 +537,34 @@ class RobustEventsCog(commands.Cog):
             event_data = {
                 "id": event_id,
                 "name": name,
-                "time1": event_time1.isoformat(),
+                "time1": event_time1.astimezone(guild_tz).isoformat(),
                 "description": description,
                 "notifications": sorted(notifications),
                 "repeat": repeat,
                 "role_name": role_name,
                 "role_id": event_role.id if event_role else None,
                 "channel": channel.id if channel else None,
-                "time2": event_time2.isoformat() if event_time2 else None
+                "time2": event_time2.astimezone(guild_tz).isoformat() if event_time2 else None
             }
 
             async with self.config.guild(guild).events() as events:
                 events[event_id] = event_data
-            self.event_cache[guild.id][event_id] = event_data
+            self.guild_events[guild.id][event_id] = event_data
+            await self.update_event_times(guild, event_id)
             await self.schedule_event(guild, event_id)
             return event_id
         except Exception as e:
             self.logger.error(f"Error creating event: {e}")
             raise
 
-    async def update_event(self, guild: discord.Guild, event_id: str, new_data: dict):
+    async def update_event(self, guild: discord.Guild, event_id: str, new_data: dict) -> bool:
         try:
             async with self.config.guild(guild).events() as events:
                 if event_id not in events:
                     return False
 
                 events[event_id].update(new_data)
-                self.event_cache[guild.id][event_id].update(new_data)
+                self.guild_events[guild.id][event_id].update(new_data)
 
             await self.schedule_event(guild, event_id)
             return True
@@ -548,22 +584,19 @@ class RobustEventsCog(commands.Cog):
             self.logger.error(f"Bot doesn't have permission to create roles in guild {guild.name}")
             return None
 
-    def get_next_event_time(self, current_time: datetime, repeat_type: str) -> datetime:
-        if repeat_type == 'daily':
-            return current_time + timedelta(days=1)
-        elif repeat_type == 'weekly':
-            return current_time + timedelta(weeks=1)
-        elif repeat_type == 'monthly':
-            return current_time + timedelta(weeks=4)
-        else:
-            return current_time
-
     @commands.command(name="settimezone")
     @commands.has_permissions(manage_events=True)
     async def set_timezone(self, ctx, timezone_str: str):
+        """
+        Set the timezone for the guild. Requires 'Manage Events' permission.
+
+        Usage: [p]settimezone <timezone>
+        Example: [p]settimezone US/Pacific
+        """
         try:
             timezone = pytz.timezone(timezone_str)
             await self.config.guild(ctx.guild).timezone.set(timezone_str)
+            self.guild_timezone_cache[ctx.guild.id] = timezone
             await ctx.send(embed=self.success_embed(f"Timezone set to {timezone_str}"))
         except pytz.exceptions.UnknownTimeZoneError:
             await ctx.send(embed=self.error_embed(f"Unknown timezone: {timezone_str}. Please use a valid timezone from the IANA Time Zone Database."))
@@ -574,55 +607,6 @@ class RobustEventsCog(commands.Cog):
         
         if not event_id:
             await ctx.send(embed=self.error_embed(f"No event found with the name '{event_name}'."))
-            return
-
-        event = (await self.config.guild(ctx.guild).events())[event_id]
-        embed = discord.Embed(title=f"📅 {event['name']}", description=event['description'], color=discord.Color.blue())
-        
-        start_time1 = datetime.fromisoformat(event['time1'])
-        embed.add_field(name="🕒 First Time", value=f"<t:{int(start_time1.timestamp())}:t>", inline=False)
-        
-        if event.get('time2'):
-            start_time2 = datetime.fromisoformat(event['time2'])
-            embed.add_field(name="🕒 Second Time", value=f"<t:{int(start_time2.timestamp())}:t>", inline=False)
-        
-        embed.add_field(name="🔁 Repeat", value=event['repeat'].capitalize(), inline=True)
-        embed.add_field(name="🔔 Notifications", value=", ".join(f"{n} minutes" for n in event['notifications']), inline=True)
-        
-        channel = ctx.guild.get_channel(event['channel'])
-        if channel:
-            embed.add_field(name="📍 Channel", value=channel.mention, inline=True)
-
-        next_occurrence = min(start_time1, start_time2) if event.get('time2') else start_time1
-        if next_occurrence < datetime.now(pytz.UTC):
-            next_occurrence += timedelta(days=1)
-        
-        time_until = humanize.naturaltime(next_occurrence, when=datetime.now(pytz.UTC))
-        embed.set_footer(text=f"Next occurrence {time_until}")
-
-        view = EventInfoView(self, event['name'], event['role_id'])
-        await ctx.send(embed=embed, view=view)
-
-    @commands.command(name="eventremind")
-    async def event_remind(self, ctx, *, event_name: str):
-        event_id = await self.get_event_id_from_name(ctx.guild, event_name)
-        
-        if not event_id:
-            await ctx.send(embed=self.error_embed(f"No event found with the name '{event_name}'."))
-            return
-
-        event = (await self.config.guild(ctx.guild).events())[event_id]
-        event_time = datetime.fromisoformat(event['time1'])
-        now = datetime.now(pytz.UTC)
-        if event_time <= now:
-            await ctx.send(embed=self.error_embed("This event has already started or passed."))
-            return
-
-        view = ReminderSelectView(self, ctx.author.id, event_id, event_time)
-        embed = discord.Embed(title=f"⏰ Set Reminder for {event['name']}", 
-                              description="Select when you'd like to be reminded:", 
-                              color=discord.Color.blue())
-        await ctx.send(embed=embed, view=view)
 
     async def set_personal_reminder(self, guild_id: int, user_id: int, event_id: str, reminder_time: datetime):
         async with self.config.member_from_ids(guild_id, user_id).personal_reminders() as reminders:
@@ -636,14 +620,6 @@ class RobustEventsCog(commands.Cog):
         
         if not event_id:
             await ctx.send(embed=self.error_embed(f"No event found with the name '{event_name}'."))
-            return
-
-        event_data = (await self.config.guild(ctx.guild).events())[event_id]
-        view = EventEditView(self, ctx.guild, event_id, event_data)
-        embed = discord.Embed(title=f"✏️ Edit Event: {event_name}", 
-                              description="Click the button below to edit the event details.", 
-                              color=discord.Color.blue())
-        await ctx.send(embed=embed, view=view)
 
     @commands.command(name="eventcancel")
     @commands.has_permissions(manage_events=True)
@@ -652,15 +628,10 @@ class RobustEventsCog(commands.Cog):
         
         if not event_id:
             await ctx.send(embed=self.error_embed(f"No event found with the name '{event_name}'."))
-            return
-
-        event = (await self.config.guild(ctx.guild).events())[event_id]
-        view = ConfirmCancelView(self, ctx.guild, event_name)
-        await ctx.send(f"Are you sure you want to cancel the event '{event_name}'?", view=view)
 
     async def cancel_event(self, guild: discord.Guild, event_id: str):
         try:
-            event = self.event_cache[guild.id].get(event_id)
+            event = self.guild_events[guild.id].get(event_id)
             if not event:
                 return
 
@@ -716,8 +687,7 @@ class RobustEventsCog(commands.Cog):
 
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-        embed.add_field(name="ℹ️ Help Command", value=f"`{prefix}eventhelp` or `{prefix}event`: Display this help message with all available commands.", inline=False)
-
+        embed.add_field(name="ℹ️ Help Command", value=f"For help with specific commands, use `{prefix}help <command>`.", inline=False)
         embed.set_footer(text=f"Current prefix: {prefix}")
         await ctx.send(embed=embed)
 
@@ -725,7 +695,7 @@ class RobustEventsCog(commands.Cog):
     async def sync_event_cache(self):
         for guild in self.bot.guilds:
             events = await self.config.guild(guild).events()
-            self.event_cache[guild.id] = events
+            self.guild_events[guild.id] = events
 
     @commands.command(name="eventpurge")
     @commands.has_permissions(administrator=True)
@@ -741,28 +711,17 @@ class RobustEventsCog(commands.Cog):
         await ctx.send(embed=embed, view=view)
 
     async def purge_all_data(self):
-        # Clear config
         await self.config.clear_all()
-        
-        # Clear event cache
-        self.event_cache.clear()
-        
-        # Cancel all event tasks
-        for task in self.event_tasks.values():
-            task.cancel()
         self.event_tasks.clear()
-        
-        # Cancel all personal reminder tasks
-        for task in self.personal_reminder_tasks.values():
-            task.cancel()
         self.personal_reminder_tasks.clear()
-        
-        # Clear notification queue
         self.notification_queue.clear()
-        
-        # Clear temporary data
-        self.temp_event_data = None
-        self.temp_edit_data = None
+        self.temp_event_data.clear()
+
+    async def get_guild_timezone(self, guild: discord.Guild) -> pytz.timezone:
+        if guild.id not in self.guild_timezone_cache:
+            timezone_str = await self.config.guild(guild).timezone()
+            self.guild_timezone_cache[guild.id] = pytz.timezone(timezone_str)
+        return self.guild_timezone_cache[guild.id]
 
 class ReminderSelectView(discord.ui.View):
     def __init__(self, cog, user_id: int, event_id: str, event_time: datetime):
@@ -775,8 +734,9 @@ class ReminderSelectView(discord.ui.View):
         self.add_item(ReminderSelect(self.set_reminder))
 
     async def set_reminder(self, interaction: discord.Interaction, minutes: int):
+        guild_tz = await self.cog.get_guild_timezone(interaction.guild)
         reminder_time = self.event_time - timedelta(minutes=minutes)
-        now = datetime.now(pytz.UTC)
+        now = datetime.now(guild_tz)
         if reminder_time <= now:
             await interaction.response.send_message(embed=self.cog.error_embed("This reminder time has already passed."), ephemeral=True)
             return
@@ -869,7 +829,7 @@ class BasicEventEditModal(discord.ui.Modal, title="Edit Event - Basic Info"):
             await interaction.response.send_message(embed=self.cog.error_embed(str(e)), ephemeral=True)
             return
 
-        self.cog.temp_edit_data = {
+        self.cog.temp_edit_data[interaction.user.id] = {
             'name': self.name.value,
             'time1': event_time1.isoformat(),
             'time2': event_time2.isoformat() if event_time2 else None,
@@ -905,7 +865,7 @@ class AdvancedEventEditModal(discord.ui.Modal, title="Edit Event - Advanced Opti
             return
 
         repeat = self.repeat.value.lower()
-        if repeat not in ['none', 'daily', 'weekly', 'monthly', 'yearly']:
+        if repeat not in RepeatType._value2member_map_:
             await interaction.response.send_message(embed=self.cog.error_embed("Invalid repeat option."), ephemeral=True)
             return
 
@@ -920,7 +880,7 @@ class AdvancedEventEditModal(discord.ui.Modal, title="Edit Event - Advanced Opti
             await interaction.response.send_message(embed=self.cog.error_embed(f"Channel #{channel_name} not found."), ephemeral=True)
             return
 
-        basic_data = self.cog.temp_edit_data
+        basic_data = self.cog.temp_edit_data.pop(interaction.user.id, None)
         if not basic_data:
             await interaction.response.send_message(embed=self.cog.error_embed("Error: Event data not found."), ephemeral=True)
             return
@@ -942,7 +902,7 @@ class AdvancedEventEditModal(discord.ui.Modal, title="Edit Event - Advanced Opti
         else:
             await interaction.response.send_message(embed=self.cog.error_embed(f"Failed to update event '{self.event_name}'."), ephemeral=True)
 
-        self.cog.temp_edit_data = None
+        self.cog.temp_edit_data.pop(interaction.user.id, None)
 
 class EventEditView(discord.ui.View):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
