@@ -196,7 +196,7 @@ class EventInfoView(discord.ui.View):
         guild_tz = await self.cog.get_guild_timezone(interaction.guild)
         event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
         view = ReminderSelectView(self.cog, interaction.user.id, self.event_id, event_time)
-        await interaction.response.send_message(_("Select when you'd like to be reminded:"), view=view, ephemeral=True)
+        await interaction.response.send_message(_("Select when you'd like to be reminded via direct message:"), view=view, ephemeral=True)
 
 class EventReminderView(discord.ui.View):
     def __init__(self, cog, guild_id: int, event_id: str):
@@ -358,6 +358,29 @@ class RobustEventsCog(commands.Cog):
             self.personal_reminder_tasks[task_key].cancel()
         self.personal_reminder_tasks[task_key] = self.bot.loop.create_task(self.personal_reminder_loop(guild_id, user_id, event_id, reminder_time))
         self.logger.debug(f"Scheduled personal reminder task for event {event_id} for user {user_id} in guild {guild_id}")
+
+    async def personal_reminder_loop(self, guild_id: int, user_id: int, event_id: str, reminder_time: datetime):
+        await discord.utils.sleep_until(reminder_time)
+        event = self.guild_events[guild_id].get(event_id)
+        if not event:
+            return
+        user = self.bot.get_user(user_id)
+        if not user:
+            return
+
+        guild = self.bot.get_guild(guild_id)
+        guild_tz = await self.get_guild_timezone(guild)
+        event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
+
+        try:
+            await user.send(
+                _("🔔 Reminder: The event '{event_name}' is starting at {event_time}.").format(
+                    event_name=event['name'],
+                    event_time=event_time.strftime('%Y-%m-%d %H:%M %Z')
+                )
+            )
+        except discord.Forbidden:
+            self.logger.warning(f"Could not send reminder DM to user {user_id} for event {event_id} in guild {guild_id}.")
 
     async def event_loop(self, guild: discord.Guild, event_id: str):
         while True:
@@ -629,7 +652,7 @@ class RobustEventsCog(commands.Cog):
             if success:
                 await ctx.send(embed=self.success_embed(_("Event '{event_name}' deleted.").format(event_name=event_name)))
             else:
-                await ctx.send(embed=self.error_embed(_("Failed to delete event '{event_name}'.").format(event_name=event_name)))
+                await ctx.send(embed=self.error_embed(_("Failed to delete event '{event_name}'.".format(event_name=event_name))))
 
     async def delete_event(self, guild: discord.Guild, event_id: str):
         async with self.config.guild(guild).events() as events:
@@ -1051,7 +1074,7 @@ class ReminderSelectView(discord.ui.View):
             return
 
         await self.cog.set_personal_reminder(interaction.guild_id, self.user_id, self.event_id, reminder_time)
-        await interaction.response.send_message(embed=self.cog.success_embed(_("I'll remind you about '{event_id}' {minutes} minutes before it starts.").format(event_id=self.event_id, minutes=minutes)), ephemeral=True)
+        await interaction.response.send_message(embed=self.cog.success_embed(_("I'll remind you about '{event_id}' {minutes} minutes before it starts via direct message.").format(event_id=self.event_id, minutes=minutes)), ephemeral=True)
 
 class ReminderSelect(discord.ui.Select):
     def __init__(self, callback):
@@ -1062,7 +1085,7 @@ class ReminderSelect(discord.ui.Select):
             discord.SelectOption(label=_("1 hour"), value="60", emoji="⏰"),
             discord.SelectOption(label=_("2 hours"), value="120", emoji="⏰"),
         ]
-        super().__init__(placeholder=_("Select reminder time"), options=options)
+        super().__init__(placeholder=_("Select reminder time before the event"), options=options)
         self.callback_function = callback
 
     async def callback(self, interaction: discord.Interaction):
