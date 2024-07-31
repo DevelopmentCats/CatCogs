@@ -1175,13 +1175,15 @@ class AdvancedEventEditModal(discord.ui.Modal, title=_("Edit Event - Advanced Op
             'channel': channel.id,
         }
 
-        success = await self.cog.update_event(self.guild, self.event_name, new_data)
-        if success:
-            await interaction.response.send_message(embed=self.cog.success_embed(_("Event '{event_name}' has been updated successfully.").format(event_name=self.event_name)), ephemeral=True)
+        event_id = await self.cog.get_event_id_from_name(self.guild, self.event_name)
+        if event_id:
+            success = await self.cog.update_event(self.guild, event_id, new_data)
+            if success:
+                await interaction.response.send_message(embed=self.cog.success_embed(_("Event '{event_name}' has been updated successfully.").format(event_name=self.event_name)), ephemeral=True)
+            else:
+                await interaction.response.send_message(embed=self.cog.error_embed(_("Failed to update event '{event_name}'.")), ephemeral=True)
         else:
-            await interaction.response.send_message(embed=self.cog.error_embed(_("Failed to update event '{event_name}'.").format(event_name=self.event_name)), ephemeral=True)
-
-        self.cog.temp_edit_data.pop(interaction.user.id, None)
+            await interaction.response.send_message(embed=self.cog.error_embed(_("Event '{event_name}' not found.")), ephemeral=True)
 
 class EventEditView(discord.ui.View):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
