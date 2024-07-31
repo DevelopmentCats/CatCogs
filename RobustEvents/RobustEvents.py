@@ -159,13 +159,13 @@ class EventCreationView(discord.ui.View):
         await interaction.response.send_modal(basic_modal)
 
 class EventInfoView(discord.ui.View):
-    def __init__(self, cog, event_name: str, role_id: int):
+    def __init__(self, cog, event_id: str, role_id: int):
         super().__init__(timeout=None)
         self.cog = cog
-        self.event_name = event_name
+        self.event_id = event_id
         self.role_id = role_id
 
-    @discord.ui.button(label="Join Event", style=discord.ButtonStyle.primary, emoji="✅", custom_id="join_event")
+    @discord.ui.button(label="Join Event", style=discord.ButtonStyle.primary, emoji="✅")
     async def join_event(self, interaction: discord.Interaction, button: discord.ui.Button):
         role = interaction.guild.get_role(self.role_id)
         if role is None:
@@ -177,9 +177,21 @@ class EventInfoView(discord.ui.View):
         else:
             try:
                 await interaction.user.add_roles(role)
-                await interaction.response.send_message(f"You've been added to the {self.event_name} event!", ephemeral=True)
+                await interaction.response.send_message("You've been added to the event!", ephemeral=True)
             except discord.Forbidden:
                 await interaction.response.send_message("I don't have permission to assign roles.", ephemeral=True)
+
+    @discord.ui.button(label="Set Reminder", style=discord.ButtonStyle.secondary, emoji="⏰")
+    async def set_reminder(self, interaction: discord.Interaction, button: discord.ui.Button):
+        event = self.cog.guild_events[interaction.guild.id].get(self.event_id)
+        if not event:
+            await interaction.response.send_message("Error: Event not found.", ephemeral=True)
+            return
+
+        guild_tz = await self.cog.get_guild_timezone(interaction.guild)
+        event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
+        view = ReminderSelectView(self.cog, interaction.user.id, self.event_id, event_time)
+        await interaction.response.send_message("Select when you'd like to be reminded:", view=view, ephemeral=True)
 
 class RobustEventsCog(commands.Cog):
     """Cog for managing and scheduling events"""
@@ -607,7 +619,74 @@ class RobustEventsCog(commands.Cog):
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if not event_id:
-            await ctx.send(embed(self.error_embed(f"No event found with the name '{event_name}'.")))
+            await ctx.send(embed=self.error_embed(f"No event found with the name '{event_name}'."))
+            return
+
+        event = self.guild_events[ctx.guild.id].get(event_id)
+        if not event:
+            await ctx.send(embed=self.error_embed(f"Event data not found for '{event_name}'."))
+            return
+
+        guild_tz = await self.get_guild_timezone(ctx.guild)
+        time1 = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
+        time2 = datetime.fromisoformat(event['time2']).astimezone(guild_tz) if event.get('time2') else None
+
+        embed = discord.Embed(title=f"📅 {event['name']}", color=discord.Color.blue())
+        
+        # Event description
+        embed.description = f"```{event['description']}```"
+
+        # Event times
+        time_field = f"🕒 Start: <t:{int(time1.timestamp())}:F>"
+        if time2:
+            time_field += f"\n🕒 End: <t:{int(time2.timestamp())}:F>"
+        embed.add_field(name="Event Time", value=time_field, inline=False)
+
+        # Countdown
+        now = datetime.now(guild_tz)
+        time_until = time1 - now
+        if time_until.total_seconds() > 0:
+            days, remainder = divmod(time_until.total_seconds(), 86400)
+            hours, remainder = divmod(remainder, 3600)
+            minutes, _ = divmod(remainder, 60)
+            countdown = f"⏳ Starts in: "
+            if days > 0:
+                countdown += f"{int(days)}d "
+            countdown += f"{int(hours)}h {int(minutes)}m"
+            embed.add_field(name="Countdown", value=countdown, inline=True)
+
+        # Repeat information
+        repeat_emoji = {
+            'none': '🚫', 'daily': '📆', 'weekly': '🗓️', 'monthly': '📅', 'yearly': '🎊'
+        }
+        repeat_value = f"{repeat_emoji.get(event['repeat'], '🔄')} {event['repeat'].capitalize()}"
+        embed.add_field(name="Repeat", value=repeat_value, inline=True)
+
+        # Channel information
+        channel = ctx.guild.get_channel(event['channel'])
+        channel_value = f"📢 {channel.mention}" if channel else "Channel not found"
+        embed.add_field(name="Channel", value=channel_value, inline=True)
+
+        # Role information
+        role = ctx.guild.get_role(event['role_id'])
+        role_value = f"👥 {role.mention}" if role else "No specific role"
+        embed.add_field(name="Event Role", value=role_value, inline=True)
+
+        # Notifications
+        if event['notifications']:
+            notif_value = ", ".join(f"{n}m" for n in sorted(event['notifications']))
+            embed.add_field(name="🔔 Reminders", value=notif_value, inline=True)
+
+        # Participants count (if role exists)
+        if role:
+            participant_count = len(role.members)
+            embed.add_field(name="👥 Participants", value=f"{participant_count} joined", inline=True)
+
+        # Footer with event ID
+        embed.set_footer(text=f"Event ID: {event_id}")
+
+        view = EventInfoView(self, event_id, event['role_id'])
+        await ctx.send(embed=embed, view=view)
 
     async def set_personal_reminder(self, guild_id: int, user_id: int, event_id: str, reminder_time: datetime):
         async with self.config.member_from_ids(guild_id, user_id).personal_reminders() as reminders:
