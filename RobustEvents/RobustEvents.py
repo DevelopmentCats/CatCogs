@@ -185,7 +185,6 @@ class RobustEventsCog(commands.Cog):
     """Cog for managing and scheduling events"""
 
     def __init__(self, bot: Red):
-        super().__init__()
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         default_guild = {
