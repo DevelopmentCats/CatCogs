@@ -18,6 +18,8 @@ from redbot.core.i18n import Translator, cog_i18n
 
 _ = Translator("RobustEvents", __file__)
 
+MIN_NOTIFICATION_INTERVAL = timedelta(minutes=5)  # Minimum interval between notifications
+
 class RepeatType(Enum):
     NONE = 'none'
     DAILY = 'daily'
@@ -271,6 +273,7 @@ class RobustEventsCog(commands.Cog):
         self.event_tasks: Dict[str, asyncio.Task] = {}
         self.personal_reminder_tasks: Dict[str, asyncio.Task] = {}
         self.notification_queue: Dict[str, List[asyncio.Event]] = defaultdict(list)
+        self.last_notification_time: Dict[str, datetime] = {}  # Track last notification time
         self.logger = logging.getLogger('red.RobustEvents')
         self.bot.loop.create_task(self.initialize_events())
         self.cleanup_expired_events.start()
@@ -471,6 +474,14 @@ class RobustEventsCog(commands.Cog):
         queue_key = f"{guild.id}:{event_id}:{notification_time}"
         
         if queue_key in self.notification_queue and self.notification_queue[queue_key]:
+            self.logger.debug(f"Notification for event {event_id} at {notification_time} minutes already queued.")
+            return
+
+        # Check last notification time
+        last_notification = self.last_notification_time.get(queue_key)
+        now = datetime.now(guild_tz)
+        if last_notification and now - last_notification < MIN_NOTIFICATION_INTERVAL:
+            self.logger.debug(f"Skipping notification for event {event_id} at {notification_time} minutes due to minimum interval.")
             return
 
         notification_event = asyncio.Event()
@@ -478,15 +489,18 @@ class RobustEventsCog(commands.Cog):
         
         try:
             await self.send_notification(guild, event_id, notification_time, event_time)
+            self.last_notification_time[queue_key] = now
         finally:
             self.notification_queue[queue_key].remove(notification_event)
             if not self.notification_queue[queue_key]:
                 del self.notification_queue[queue_key]
 
     async def send_notification(self, guild: discord.Guild, event_id: str, notification_time: int, event_time: datetime):
+        self.logger.debug(f"Sending notification for event {event_id} at {notification_time} minutes before the event.")
         guild_tz = await self.get_guild_timezone(guild)
         event = self.guild_events[guild.id].get(event_id)
         if not event:
+            self.logger.error(f"Event {event_id} not found in guild {guild.id} during notification.")
             return
 
         channel = guild.get_channel(event['channel'])
