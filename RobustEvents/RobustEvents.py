@@ -915,7 +915,11 @@ class RobustEventsCog(commands.Cog):
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if not event_id:
-            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.")), ephemeral=True)
+            await ctx.send(embed(self.error_embed(_("No event found with the name '{event_name}'."))), ephemeral=True)
+        else:
+            event = self.guild_events[ctx.guild.id][event_id]
+            view = ConfirmCancelView(self, ctx.guild, event_name, event)
+            await ctx.send(embed=self.success_embed(_("Click the button below to confirm canceling the event '{event_name}'.")), view=view)
 
     async def cancel_event(self, guild: discord.Guild, event_id: str):
         try:
@@ -1014,6 +1018,7 @@ class RobustEventsCog(commands.Cog):
         self.personal_reminder_tasks.clear()
         self.notification_queue.clear()
         self.temp_event_data.clear()
+        self.last_notification_time.clear()
 
     async def get_guild_timezone(self, guild: discord.Guild) -> pytz.timezone:
         if guild.id not in self.guild_timezone_cache:
@@ -1158,7 +1163,7 @@ class BasicEventEditModal(discord.ui.Modal, title=_("Edit Event - Basic Info")):
                 event_time2 = None
 
         except ValueError as e:
-            await interaction.response.send_message(embed=self.cog.error_embed(str(e)), ephemeral=True)
+            await interaction.response.send_message(embed(self.cog.error_embed(str(e))), ephemeral=True)
             return
 
         self.cog.temp_edit_data[interaction.user.id] = {
