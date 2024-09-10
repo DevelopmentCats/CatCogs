@@ -204,6 +204,12 @@ class EventInfoView(discord.ui.View):
             try:
                 await interaction.user.add_roles(role)
                 await interaction.response.send_message(_("You've been added to the event!"), ephemeral=True)
+                
+                # Update the embed
+                event = self.cog.guild_events[interaction.guild.id].get(self.event_id)
+                if event:
+                    new_embed = await self.cog.create_event_info_embed(interaction.guild, self.event_id, event)
+                    await interaction.message.edit(embed=new_embed)
             except discord.Forbidden:
                 await interaction.response.send_message(_("I don't have permission to assign roles."), ephemeral=True)
 
@@ -311,13 +317,16 @@ class RobustEventsCog(commands.Cog):
         self.cleanup_event_info_messages.start()
 
     async def initialize_cog(self):
-        await self.bot.wait_until_ready()
-        await self.initialize_events()
-        await self.initialize_event_info_messages()
-        if hasattr(self, 'cleanup_notifications'):
-            await self.cleanup_notifications()
-        else:
-            self.logger.warning("cleanup_notifications method not found. Skipping cleanup.")
+        try:
+            await self.bot.wait_until_ready()
+            await self.initialize_events()
+            await self.initialize_event_info_messages()
+            if hasattr(self, 'cleanup_notifications'):
+                await self.cleanup_notifications()
+            else:
+                self.logger.warning("cleanup_notifications method not found. Skipping cleanup.")
+        except Exception as e:
+            self.logger.error(f"Error initializing cog: {e}", exc_info=True)
 
     def cog_unload(self):
         self.cleanup_expired_events.cancel()
@@ -449,8 +458,10 @@ class RobustEventsCog(commands.Cog):
             except asyncio.CancelledError:
                 self.logger.info(f"Event loop for {event_id} cancelled")
                 return
+            except discord.HTTPException as e:
+                await self.log_and_notify_error(guild, f"Discord API error in event loop for {event_id}", e)
             except Exception as e:
-                await self.log_and_notify_error(guild, f"Error in event loop for {event_id}", e)
+                await self.log_and_notify_error(guild, f"Unexpected error in event loop for {event_id}", e)
                 await asyncio.sleep(60)
 
     async def update_event_times(self, guild: discord.Guild, event_id: str):
@@ -545,13 +556,23 @@ class RobustEventsCog(commands.Cog):
         notification_event = asyncio.Event()
         self.notification_queue[queue_key].append(notification_event)
         
-        try:
-            await self.send_notification(guild, event_id, notification_time, event_time)
-            self.last_notification_time[queue_key] = now
-        finally:
-            self.notification_queue[queue_key].remove(notification_event)
-            if not self.notification_queue[queue_key]:
-                del self.notification_queue[queue_key]
+        MAX_RETRIES = 3
+        retry_count = 0
+        while retry_count < MAX_RETRIES:
+            try:
+                await self.send_notification(guild, event_id, notification_time, event_time)
+                self.last_notification_time[queue_key] = now
+                break
+            except Exception as e:
+                retry_count += 1
+                self.logger.warning(f"Failed to send notification (attempt {retry_count}): {e}")
+                await asyncio.sleep(5)  # Wait before retrying
+        else:
+            self.logger.error(f"Failed to send notification after {MAX_RETRIES} attempts")
+
+        self.notification_queue[queue_key].remove(notification_event)
+        if not self.notification_queue[queue_key]:
+            del self.notification_queue[queue_key]
 
     async def send_notification(self, guild: discord.Guild, event_id: str, notification_time: int, event_time: datetime):
         self.logger.debug(f"Sending notification for event {event_id} at {notification_time} minutes before the event.")
@@ -1181,7 +1202,7 @@ class RobustEventsCog(commands.Cog):
             self.guild_timezone_cache[guild.id] = pytz.timezone(timezone_str)
         return self.guild_timezone_cache[guild.id]
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=1)
     async def update_event_embeds(self):
         for guild in self.bot.guilds:
             guild_tz = await self.get_guild_timezone(guild)
