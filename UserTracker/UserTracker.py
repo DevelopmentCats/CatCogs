@@ -262,11 +262,17 @@ class UserTracker(commands.Cog):
                     details = embed.fields[0].value
                     if activity_type == "Message Sent":
                         content = details.split("**Content:** ")[-1]
-                        return f"Message: {content[:ACTIVITY_SUMMARY_LENGTH]}..."
+                        summary = f"Message: {content[:ACTIVITY_SUMMARY_LENGTH]}..."
+                        if embed.image:
+                            summary += " [Image]"
+                        return summary
                     else:
                         return f"{activity_type}: {details[:ACTIVITY_SUMMARY_LENGTH]}..."
                 elif message.author != self.bot.user:
-                    return f"User message: {message.content[:ACTIVITY_SUMMARY_LENGTH]}..."
+                    summary = f"User message: {message.content[:ACTIVITY_SUMMARY_LENGTH]}..."
+                    if message.attachments:
+                        summary += " [Image]"
+                    return summary
             return "No activity logged yet"
         
         return asyncio.create_task(_get_last_message())
@@ -332,7 +338,7 @@ class UserTracker(commands.Cog):
         embed.add_field(name="Details", value=details, inline=False)
         return embed
 
-    async def log_activity(self, user, activity_type, details):
+    async def log_activity(self, user, activity_type, details, image_urls=None):
         async with self.rate_limiter:
             for guild in self.bot.guilds:
                 try:
@@ -341,7 +347,14 @@ class UserTracker(commands.Cog):
                         thread = await self.get_user_thread(guild, user)
                         if thread:
                             embed = self.create_embed(user, activity_type, details)
+                            if image_urls:
+                                embed.set_image(url=image_urls[0])  # Set the first image as the main image
                             await thread.send(embed=embed)
+                            
+                            # Send additional images as separate messages
+                            for url in image_urls[1:]:
+                                await thread.send(url)
+                            
                             self.get_last_message_cached.cache_clear()  # Clear cache for this specific thread
                             await self.update_main_message(guild)
                 except Exception as e:
@@ -358,7 +371,13 @@ class UserTracker(commands.Cog):
             details = (f"**Server:** {message.guild.name}\n"
                        f"**Channel:** {message.channel.mention}\n"
                        f"**Content:** {content[:1900]}{'...' if len(content) > 1900 else ''}")
-            await self.log_activity(message.author, "Message Sent", details)
+
+            image_urls = []
+            for attachment in message.attachments:
+                if attachment.content_type.startswith('image'):
+                    image_urls.append(attachment.url)
+
+            await self.log_activity(message.author, "Message Sent", details, image_urls)
         except Exception as e:
             print(f"Error in on_message for user {message.author.id}: {e}")
 
