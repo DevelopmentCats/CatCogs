@@ -232,8 +232,6 @@ class UserTracker(commands.Cog):
         if user and thread:
             try:
                 last_activity = await self.get_last_message(thread)
-            except discord.errors.Forbidden:
-                last_activity = "Unable to access thread"
             except Exception as e:
                 last_activity = f"Error retrieving activity: {str(e)}"
             
@@ -257,7 +255,7 @@ class UserTracker(commands.Cog):
             if not thread:
                 return "Thread not found"
             
-            async for message in thread.history(limit=20):
+            async for message in thread.history(limit=1):
                 if message.author == self.bot.user and message.embeds:
                     embed = message.embeds[0]
                     return f"{embed.title}: {embed.fields[0].value[:ACTIVITY_SUMMARY_LENGTH]}..."
@@ -279,6 +277,8 @@ class UserTracker(commands.Cog):
         if not log_channel:
             return
 
+        thread_name = f"Logs for {user.name} ({user.id})"
+        
         async with self.config.guild(guild).user_threads() as user_threads:
             if str(user.id) in user_threads:
                 thread = guild.get_thread(user_threads[str(user.id)])
@@ -287,8 +287,13 @@ class UserTracker(commands.Cog):
                 # If thread doesn't exist, remove it from user_threads
                 del user_threads[str(user.id)]
             
+            # Check for existing threads with the same name
+            for thread in log_channel.threads:
+                if thread.name == thread_name:
+                    user_threads[str(user.id)] = thread.id
+                    return thread
+            
             # Create a new thread only if one doesn't exist
-            thread_name = f"Logs for {user.name} ({user.id})"
             thread = await log_channel.create_thread(name=thread_name, auto_archive_duration=10080)
             user_threads[str(user.id)] = thread.id
 
@@ -331,8 +336,8 @@ class UserTracker(commands.Cog):
                         if thread:
                             embed = self.create_embed(user, activity_type, details)
                             await thread.send(embed=embed)
+                            self.get_last_message_cached.cache_clear()  # Clear cache after new activity
                             await self.update_main_message(guild)
-                            self.get_last_message.cache_clear()  # Clear cache after new activity
                 except Exception as e:
                     self.logger.error(f"Error logging activity for user {user.id} in guild {guild.id}: {e}")
                     raise UserTrackerError(f"Failed to log activity: {str(e)}")
