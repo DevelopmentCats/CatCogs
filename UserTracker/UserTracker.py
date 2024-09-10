@@ -2,6 +2,31 @@ from redbot.core import commands, Config
 import discord
 from datetime import datetime, timedelta
 import asyncio
+import logging
+from functools import lru_cache
+import time
+
+ACTIVITY_SUMMARY_LENGTH = 50
+
+class UserTrackerError(Exception):
+    pass
+
+class RateLimiter:
+    def __init__(self, calls, period):
+        self.calls = calls
+        self.period = period
+        self.timestamps = []
+
+    async def __aenter__(self):
+        while len(self.timestamps) >= self.calls:
+            if datetime.now() - self.timestamps[0] > self.period:
+                self.timestamps.pop(0)
+            else:
+                await asyncio.sleep(0.1)
+        self.timestamps.append(datetime.now())
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
 
 class UserTracker(commands.Cog):
     def __init__(self, bot):
@@ -16,6 +41,8 @@ class UserTracker(commands.Cog):
         self.config.register_guild(**default_guild)
         self.lock = asyncio.Lock()
         self.task = bot.loop.create_task(self.initialize())
+        self.logger = logging.getLogger('UserTracker')
+        self.rate_limiter = RateLimiter(calls=5, period=timedelta(seconds=5))
 
     async def initialize(self):
         await self.bot.wait_until_ready()
@@ -183,35 +210,14 @@ class UserTracker(commands.Cog):
         embed.description = "Click on the links below to view individual user logs:"
 
         user_threads = await self.config.guild(guild).user_threads()
+        tasks = []
         for user_id, thread_id in user_threads.items():
-            user = self.bot.get_user(int(user_id))
-            thread = guild.get_thread(thread_id)
-            if user and thread:
-                try:
-                    last_message = await self.get_last_message(thread)
-                    if last_message:
-                        if last_message.embeds:
-                            last_activity = f"{last_message.embeds[0].title}: {last_message.embeds[0].fields[0].value[:50]}..."
-                        else:
-                            last_activity = last_message.content[:50] + "..."
-                    else:
-                        last_activity = "No activity logged yet"
-                except discord.errors.Forbidden:
-                    last_activity = "Unable to access thread"
-                except Exception as e:
-                    last_activity = f"Error retrieving activity: {str(e)}"
-                
-                embed.add_field(
-                    name=f"{user.name} (ID: {user.id})",
-                    value=f"[View Logs]({thread.jump_url})\nLast activity: {last_activity}",
-                    inline=False
-                )
-            elif user:
-                embed.add_field(
-                    name=f"{user.name} (ID: {user.id})",
-                    value="Thread not found. It may have been deleted.",
-                    inline=False
-                )
+            tasks.append(self.get_user_field(guild, user_id, thread_id))
+        
+        fields = await asyncio.gather(*tasks)
+        for field in fields:
+            if field:
+                embed.add_field(**field)
 
         if not user_threads:
             embed.add_field(name="No tracked users", value="Use the `track add` command to start tracking users.")
@@ -220,16 +226,43 @@ class UserTracker(commands.Cog):
         embed.timestamp = datetime.utcnow()
         return embed
 
-    async def get_last_message(self, thread):
-        bot_message = user_message = None
+    async def get_user_field(self, guild, user_id, thread_id):
+        user = self.bot.get_user(int(user_id))
+        thread = guild.get_thread(thread_id)
+        if user and thread:
+            try:
+                last_activity = await self.get_last_message(thread)
+            except discord.errors.Forbidden:
+                last_activity = "Unable to access thread"
+            except Exception as e:
+                last_activity = f"Error retrieving activity: {str(e)}"
+            
+            return {
+                "name": f"{user.name} (ID: {user.id})",
+                "value": f"[View Logs]({thread.jump_url})\nLast activity: {last_activity}",
+                "inline": False
+            }
+        elif user:
+            return {
+                "name": f"{user.name} (ID: {user.id})",
+                "value": "Thread not found. It may have been deleted.",
+                "inline": False
+            }
+        return None
+
+    @lru_cache(maxsize=128)
+    async def get_last_message(self, thread_id):
+        thread = self.bot.get_channel(thread_id)
+        if not thread:
+            return "Thread not found"
+        
         async for message in thread.history(limit=20):
-            if not bot_message and message.author == self.bot.user:
-                bot_message = message
-            if not user_message and message.author != self.bot.user:
-                user_message = message
-            if bot_message and user_message:
-                break
-        return bot_message or user_message
+            if message.author == self.bot.user and message.embeds:
+                embed = message.embeds[0]
+                return f"{embed.title}: {embed.fields[0].value[:ACTIVITY_SUMMARY_LENGTH]}..."
+            elif message.author != self.bot.user:
+                return f"User message: {message.content[:ACTIVITY_SUMMARY_LENGTH]}..."
+        return "No activity logged yet"
 
     async def create_user_thread(self, guild, user):
         log_channel_id = await self.config.guild(guild).log_channel()
@@ -273,17 +306,20 @@ class UserTracker(commands.Cog):
         return embed
 
     async def log_activity(self, user, activity_type, details):
-        for guild in self.bot.guilds:
-            try:
-                tracked_users = await self.config.guild(guild).tracked_users()
-                if user.id in tracked_users:
-                    thread = await self.get_user_thread(guild, user)
-                    if thread:
-                        embed = self.create_embed(user, activity_type, details)
-                        await thread.send(embed=embed)
-                        await self.ensure_main_message(guild)
-            except Exception as e:
-                print(f"Error logging activity for user {user.id} in guild {guild.id}: {e}")
+        async with self.rate_limiter:
+            for guild in self.bot.guilds:
+                try:
+                    tracked_users = await self.config.guild(guild).tracked_users()
+                    if user.id in tracked_users:
+                        thread = await self.get_user_thread(guild, user)
+                        if thread:
+                            embed = self.create_embed(user, activity_type, details)
+                            await thread.send(embed=embed)
+                            await self.update_main_message(guild)
+                            self.get_last_message.cache_clear()  # Clear cache after new activity
+                except Exception as e:
+                    self.logger.error(f"Error logging activity for user {user.id} in guild {guild.id}: {e}")
+                    raise UserTrackerError(f"Failed to log activity: {str(e)}")
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -333,7 +369,7 @@ class UserTracker(commands.Cog):
                         details = f"Listening to {activity.title} by {activity.artist}"
                     else:
                         details = str(activity)
-                    details = f"**Server:** {after.guild.name}\n**Activity:** {details}"
+                    details = f"**Server:** {after.guild.name}\n**Activity:** {details[:ACTIVITY_SUMMARY_LENGTH]}{'...' if len(details) > ACTIVITY_SUMMARY_LENGTH else ''}"
                     await self.log_activity(after, "Activity Change", details)
         except Exception as e:
             print(f"Error in on_member_update for user {after.id}: {e}")
