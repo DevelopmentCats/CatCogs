@@ -1,10 +1,14 @@
 {
     "author": ["Your Name"],
-    "install_msg": "Thanks for installing the User Tracker cog! Use `[p]help UserTracker` to see available commands.",
+    "install_msg": "Thanks for installing the User Tracker cog! Use `[p]help UserTracker` to see available commands. Only the bot owner can use these commands by default.",
     "name": "UserTracker",
     "short": "Tracks and logs activities of specified users in real-time.",
-    "description": "This cog allows you to track and log activities of specified users in real-time, including messages, voice state changes, and status updates.",
-    "tags": ["logging", "tracking", "utility"],
+    "description": "This cog allows you to track and log activities of specified users in real-time, including messages, voice state changes, status updates, and image attachments. It uses threads for individual user logs and maintains a main message with links to these threads.",
+    "tags": ["logging", "tracking", "utility", "moderation"],
     "min_bot_version": "3.5.0",
-    "end_user_data_statement": "This cog stores Discord User IDs for users that are set to be tracked. No personal data is stored."
+    "end_user_data_statement": "This cog stores Discord User IDs for users that are set to be tracked. It also stores message content, voice activity, status changes, and image URLs from tracked users. No personal data beyond what's visible in Discord is stored.",
+    "permissions": ["manage_channels", "manage_threads", "send_messages", "embed_links", "attach_files", "read_message_history"],
+    "required_cogs": {},
+    "requirements": [],
+    "type": "COG"
 }
