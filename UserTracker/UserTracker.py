@@ -232,6 +232,8 @@ class UserTracker(commands.Cog):
         if user and thread:
             try:
                 last_activity = await self.get_last_message(thread)
+            except discord.errors.Forbidden:
+                last_activity = "Unable to access thread"
             except Exception as e:
                 last_activity = f"Error retrieving activity: {str(e)}"
             
@@ -282,7 +284,10 @@ class UserTracker(commands.Cog):
                 thread = guild.get_thread(user_threads[str(user.id)])
                 if thread:
                     return thread
+                # If thread doesn't exist, remove it from user_threads
+                del user_threads[str(user.id)]
             
+            # Create a new thread only if one doesn't exist
             thread_name = f"Logs for {user.name} ({user.id})"
             thread = await log_channel.create_thread(name=thread_name, auto_archive_duration=10080)
             user_threads[str(user.id)] = thread.id
