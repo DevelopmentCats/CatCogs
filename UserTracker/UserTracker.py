@@ -13,61 +13,89 @@ class UserTracker(commands.Cog):
         }
         self.config.register_guild(**default_guild)
         self.lock = asyncio.Lock()
+        self.task = bot.loop.create_task(self.initialize())
 
-    @commands.group()
+    async def initialize(self):
+        await self.bot.wait_until_ready()
+        for guild in self.bot.guilds:
+            log_channel_id = await self.config.guild(guild).log_channel()
+            if log_channel_id:
+                channel = guild.get_channel(log_channel_id)
+                if not channel:
+                    await self.config.guild(guild).log_channel.set(None)
+                    print(f"Log channel for guild {guild.name} was not found. Setting cleared.")
+
+    def cog_unload(self):
+        if hasattr(self, 'task'):
+            self.task.cancel()
+
+    @commands.group(invoke_without_command=True)
     @commands.guild_only()
     @commands.admin_or_permissions(manage_guild=True)
-    async def usertracker(self, ctx):
-        """Commands for the User Tracker cog"""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
+    async def track(self, ctx):
+        """User tracking commands"""
+        await ctx.send_help(ctx.command)
 
-    @usertracker.command()
-    async def add(self, ctx, user: discord.Member):
-        """Add a user to track"""
+    @track.command(name="add")
+    async def track_add(self, ctx, user: discord.User):
+        """Add a user to track by mention or User ID"""
         async with self.lock:
             async with self.config.guild(ctx.guild).tracked_users() as tracked_users:
                 if user.id not in tracked_users:
                     tracked_users.append(user.id)
-                    await ctx.send(f"{user.name} has been added to the tracking list.")
+                    await ctx.send(f"✅ User {user.name} (ID: {user.id}) has been added to the tracking list.")
                 else:
-                    await ctx.send(f"{user.name} is already being tracked.")
+                    await ctx.send(f"ℹ️ User {user.name} (ID: {user.id}) is already being tracked.")
 
-    @usertracker.command()
-    async def remove(self, ctx, user: discord.Member):
-        """Remove a user from tracking"""
+    @track.command(name="remove")
+    async def track_remove(self, ctx, user: discord.User):
+        """Remove a user from tracking by mention or User ID"""
         async with self.lock:
             async with self.config.guild(ctx.guild).tracked_users() as tracked_users:
                 if user.id in tracked_users:
                     tracked_users.remove(user.id)
-                    await ctx.send(f"{user.name} has been removed from the tracking list.")
+                    await ctx.send(f"✅ User {user.name} (ID: {user.id}) has been removed from the tracking list.")
                 else:
-                    await ctx.send(f"{user.name} is not being tracked.")
+                    await ctx.send(f"ℹ️ User {user.name} (ID: {user.id}) is not being tracked.")
 
-    @usertracker.command()
-    async def list(self, ctx):
+    @track.command(name="list")
+    async def track_list(self, ctx):
         """List all tracked users"""
         tracked_users = await self.config.guild(ctx.guild).tracked_users()
         if tracked_users:
             user_list = []
             for user_id in tracked_users:
-                user = ctx.guild.get_member(user_id)
+                user = self.bot.get_user(user_id)
                 if user:
                     user_list.append(f"{user.name} (ID: {user.id})")
                 else:
                     user_list.append(f"Unknown User (ID: {user_id})")
-            await ctx.send("Currently tracked users:\n" + "\n".join(user_list))
+            
+            embed = discord.Embed(title="Tracked Users", color=discord.Color.blue())
+            embed.description = "\n".join(user_list)
+            await ctx.send(embed=embed)
         else:
-            await ctx.send("No users are currently being tracked.")
+            await ctx.send("ℹ️ No users are currently being tracked.")
 
-    @usertracker.command()
-    async def setchannel(self, ctx, channel: discord.TextChannel):
-        """Set the channel for logging tracked user activities"""
-        if not channel.permissions_for(ctx.guild.me).send_messages:
-            await ctx.send(f"I don't have permission to send messages in {channel.mention}. Please choose a different channel or adjust my permissions.")
-            return
-        await self.config.guild(ctx.guild).log_channel.set(channel.id)
-        await ctx.send(f"Log channel set to {channel.mention}")
+    @track.command(name="channel")
+    async def track_channel(self, ctx, channel: discord.TextChannel = None):
+        """Set or view the channel for logging tracked user activities"""
+        if channel is None:
+            current_channel_id = await self.config.guild(ctx.guild).log_channel()
+            if current_channel_id:
+                current_channel = ctx.guild.get_channel(current_channel_id)
+                if current_channel:
+                    await ctx.send(f"Current log channel: {current_channel.mention}")
+                else:
+                    await ctx.send("ℹ️ The previously set log channel no longer exists.")
+            else:
+                await ctx.send("ℹ️ No log channel is currently set.")
+        else:
+            if not channel.permissions_for(ctx.guild.me).send_messages:
+                await ctx.send(f"❌ I don't have permission to send messages in {channel.mention}. Please choose a different channel or adjust my permissions.")
+                return
+            await self.config.guild(ctx.guild).log_channel.set(channel.id)
+            await ctx.send(f"✅ Log channel set to {channel.mention}")
 
     async def log_activity(self, guild, user, activity_type, details):
         try:
@@ -80,7 +108,7 @@ class UserTracker(commands.Cog):
                 return
 
             embed = discord.Embed(
-                title=f"{activity_type} - {user.name}",
+                title=f"{activity_type} - {user.name} (ID: {user.id})",
                 color=discord.Color.blue(),
                 timestamp=datetime.utcnow()
             )
@@ -162,7 +190,3 @@ class UserTracker(commands.Cog):
                 print(f"Log channel {channel.name} was deleted in guild {channel.guild.name}. Log channel setting has been cleared.")
         except Exception as e:
             print(f"Error in on_guild_channel_delete: {e}")
-
-    def cog_unload(self):
-        # Cleanup code here if needed
-        pass
