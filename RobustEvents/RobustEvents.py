@@ -123,21 +123,25 @@ class AdvancedEventModal(Modal):
             await interaction.response.send_message(embed=self.cog.error_embed(_("Error: Event data not found.")), ephemeral=True)
             return
 
-        event_id = await self.cog.create_event(
-            self.guild,
-            basic_data['name'],
-            datetime.fromisoformat(basic_data['time1']),
-            basic_data['description'],
-            notifications,
-            repeat,
-            role_name,
-            channel,
-            datetime.fromisoformat(basic_data['time2']) if basic_data['time2'] else None
-        )
+        try:
+            event_id = await self.cog.create_event(
+                self.guild,
+                basic_data['name'],
+                datetime.fromisoformat(basic_data['time1']),
+                basic_data['description'],
+                notifications,
+                repeat,
+                role_name,
+                channel,
+                datetime.fromisoformat(basic_data['time2']) if basic_data['time2'] else None
+            )
 
-        await interaction.response.send_message(embed=self.cog.success_embed(_("Event created successfully! Event ID: {event_id}").format(event_id=event_id)), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.success_embed(_("Event created successfully! Event ID: {event_id}").format(event_id=event_id)), ephemeral=True)
 
-        await self.original_message.delete()
+            await self.original_message.delete()
+        except Exception as e:
+            self.cog.logger.error(f"Error creating event: {e}", exc_info=True)
+            await interaction.response.send_message(_("An error occurred while creating the event. Please try again."), ephemeral=True)
 
 class AdvancedOptionsView(View):
     def __init__(self, cog, original_message: discord.Message):
@@ -771,10 +775,13 @@ class RobustEventsCog(commands.Cog):
             await self.update_event_times(guild, event_id)
             await self.schedule_event(guild, event_id)
             await self.update_event_cache(guild, event_id)
-            await self.cleanup_notifications()
+            if hasattr(self, 'cleanup_notifications'):
+                await self.cleanup_notifications()
+            else:
+                self.logger.warning("cleanup_notifications method not found. Skipping cleanup.")
             return event_id
         except Exception as e:
-            self.logger.error(f"Error creating event: {e}")
+            self.logger.error(f"Error creating event: {e}", exc_info=True)
             raise
 
     async def update_event(self, guild: discord.Guild, event_id: str, new_data: dict) -> bool:
@@ -789,7 +796,10 @@ class RobustEventsCog(commands.Cog):
 
             await self.schedule_event(guild, event_id)
             await self.update_event_cache(guild, event_id)
-            await self.cleanup_notifications()
+            if hasattr(self, 'cleanup_notifications'):
+                await self.cleanup_notifications()
+            else:
+                self.logger.warning("cleanup_notifications method not found. Skipping cleanup.")
             return True
         except Exception as e:
             self.logger.error(f"Error updating event {event_id}: {e}")
