@@ -258,7 +258,13 @@ class UserTracker(commands.Cog):
             async for message in thread.history(limit=1):
                 if message.author == self.bot.user and message.embeds:
                     embed = message.embeds[0]
-                    return f"{embed.title}: {embed.fields[0].value[:ACTIVITY_SUMMARY_LENGTH]}..."
+                    activity_type = embed.title
+                    details = embed.fields[0].value
+                    if activity_type == "Message Sent":
+                        content = details.split("**Content:** ")[-1]
+                        return f"Message: {content[:ACTIVITY_SUMMARY_LENGTH]}..."
+                    else:
+                        return f"{activity_type}: {details[:ACTIVITY_SUMMARY_LENGTH]}..."
                 elif message.author != self.bot.user:
                     return f"User message: {message.content[:ACTIVITY_SUMMARY_LENGTH]}..."
             return "No activity logged yet"
@@ -336,7 +342,7 @@ class UserTracker(commands.Cog):
                         if thread:
                             embed = self.create_embed(user, activity_type, details)
                             await thread.send(embed=embed)
-                            self.get_last_message_cached.cache_clear()  # Clear cache after new activity
+                            self.get_last_message_cached.cache_clear()  # Clear cache for this specific thread
                             await self.update_main_message(guild)
                 except Exception as e:
                     self.logger.error(f"Error logging activity for user {user.id} in guild {guild.id}: {e}")
