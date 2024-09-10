@@ -29,7 +29,7 @@ class UserTracker(commands.Cog):
                     await self.config.guild(guild).main_message_id.set(None)
                     print(f"Log channel for guild {guild.name} was not found. Settings cleared.")
                 else:
-                    await self.update_main_message(guild)
+                    await self.ensure_main_message(guild)
 
     def cog_unload(self):
         if hasattr(self, 'task'):
@@ -116,7 +116,26 @@ class UserTracker(commands.Cog):
             user = self.bot.get_user(user_id)
             if user:
                 await self.create_user_thread(guild, user)
-        await self.create_main_message(guild, channel)
+        await self.ensure_main_message(guild)
+
+    async def ensure_main_message(self, guild):
+        log_channel_id = await self.config.guild(guild).log_channel()
+        main_message_id = await self.config.guild(guild).main_message_id()
+        if not log_channel_id:
+            return
+
+        channel = guild.get_channel(log_channel_id)
+        if not channel:
+            return
+
+        if main_message_id:
+            try:
+                message = await channel.fetch_message(main_message_id)
+                await self.update_main_message(guild)
+            except discord.NotFound:
+                await self.create_main_message(guild, channel)
+        else:
+            await self.create_main_message(guild, channel)
 
     async def create_main_message(self, guild, channel):
         embed = await self.get_thread_list_embed(guild)
@@ -150,12 +169,15 @@ class UserTracker(commands.Cog):
             thread = guild.get_thread(thread_id)
             if user and thread:
                 last_message = await self.get_last_message(thread)
-                last_activity = last_message.content if last_message else "No recent activity"
+                last_activity = last_message.content if last_message else "No activity logged yet"
                 embed.add_field(
                     name=f"{user.name} (ID: {user.id})",
                     value=f"[View Logs]({thread.jump_url})\nLast activity: {last_activity[:100]}{'...' if len(last_activity) > 100 else ''}",
                     inline=False
                 )
+
+        if not user_threads:
+            embed.add_field(name="No tracked users", value="Use the `track add` command to start tracking users.")
 
         embed.set_footer(text="Last updated")
         embed.timestamp = datetime.utcnow()
