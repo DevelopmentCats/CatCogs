@@ -152,16 +152,33 @@ class AdvancedOptionsView(View):
         self.stop()
 
 class EventCreationView(discord.ui.View):
-    def __init__(self, cog, guild: discord.Guild):
-        super().__init__()
+    def __init__(self, cog, guild: discord.Guild, author: discord.Member):
+        super().__init__(timeout=300)  # 5 minutes timeout
         self.cog = cog
         self.guild = guild
+        self.author = author
         self.message = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author.id:
+            await interaction.response.send_message(_("Only the command initiator can use these buttons."), ephemeral=True)
+            return False
+        return True
 
     @discord.ui.button(label=_("Create Event"), style=discord.ButtonStyle.primary, emoji="➕")
     async def create_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         basic_modal = BasicEventModal(self.cog, self.guild, self.message)
         await interaction.response.send_modal(basic_modal)
+        self.stop()
+
+    @discord.ui.button(label=_("Cancel"), style=discord.ButtonStyle.secondary, emoji="❌")
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content=_("Event creation cancelled."), view=None)
+        self.stop()
+
+    async def on_timeout(self):
+        if self.message:
+            await self.message.edit(content=_("Event creation timed out."), view=None)
 
 class EventInfoView(discord.ui.View):
     def __init__(self, cog, event_id: str, role_id: int):
@@ -293,7 +310,10 @@ class RobustEventsCog(commands.Cog):
         await self.bot.wait_until_ready()
         await self.initialize_events()
         await self.initialize_event_info_messages()
-        await self.cleanup_notifications()
+        if hasattr(self, 'cleanup_notifications'):
+            await self.cleanup_notifications()
+        else:
+            self.logger.warning("cleanup_notifications method not found. Skipping cleanup.")
 
     def cog_unload(self):
         self.cleanup_expired_events.cancel()
@@ -600,12 +620,19 @@ class RobustEventsCog(commands.Cog):
         This command will open an interactive form for creating a new event.
         You must have the Manage Events permission to use this command.
         """
-        view = EventCreationView(self, ctx.guild)
+        view = EventCreationView(self, ctx.guild, ctx.author)
         embed = discord.Embed(title=_("📅 Create New Event"), 
                               description=_("Click the button below to start creating a new event."), 
                               color=discord.Color.blue())
         message = await ctx.send(embed=embed, view=view)
         view.message = message
+
+        # Wait for the view to finish
+        await view.wait()
+
+        # If the view timed out, clean up the message
+        if view.is_finished() and not view.is_dispatching():
+            await message.edit(content=_("Event creation timed out."), view=None)
 
     @commands.guild_only()
     @commands.command(name="eventlist")
