@@ -232,8 +232,6 @@ class UserTracker(commands.Cog):
         if user and thread:
             try:
                 last_activity = await self.get_last_message(thread)
-            except discord.errors.Forbidden:
-                last_activity = "Unable to access thread"
             except Exception as e:
                 last_activity = f"Error retrieving activity: {str(e)}"
             
@@ -251,18 +249,24 @@ class UserTracker(commands.Cog):
         return None
 
     @lru_cache(maxsize=128)
-    async def get_last_message(self, thread_id):
-        thread = self.bot.get_channel(thread_id)
-        if not thread:
-            return "Thread not found"
+    def get_last_message_cached(self, thread_id):
+        async def _get_last_message():
+            thread = self.bot.get_channel(thread_id)
+            if not thread:
+                return "Thread not found"
+            
+            async for message in thread.history(limit=20):
+                if message.author == self.bot.user and message.embeds:
+                    embed = message.embeds[0]
+                    return f"{embed.title}: {embed.fields[0].value[:ACTIVITY_SUMMARY_LENGTH]}..."
+                elif message.author != self.bot.user:
+                    return f"User message: {message.content[:ACTIVITY_SUMMARY_LENGTH]}..."
+            return "No activity logged yet"
         
-        async for message in thread.history(limit=20):
-            if message.author == self.bot.user and message.embeds:
-                embed = message.embeds[0]
-                return f"{embed.title}: {embed.fields[0].value[:ACTIVITY_SUMMARY_LENGTH]}..."
-            elif message.author != self.bot.user:
-                return f"User message: {message.content[:ACTIVITY_SUMMARY_LENGTH]}..."
-        return "No activity logged yet"
+        return asyncio.create_task(_get_last_message())
+
+    async def get_last_message(self, thread):
+        return await self.get_last_message_cached(thread.id)
 
     async def create_user_thread(self, guild, user):
         log_channel_id = await self.config.guild(guild).log_channel()
@@ -273,11 +277,18 @@ class UserTracker(commands.Cog):
         if not log_channel:
             return
 
-        thread_name = f"Logs for {user.name} ({user.id})"
-        thread = await log_channel.create_thread(name=thread_name, auto_archive_duration=10080)
         async with self.config.guild(guild).user_threads() as user_threads:
+            if str(user.id) in user_threads:
+                thread = guild.get_thread(user_threads[str(user.id)])
+                if thread:
+                    return thread
+            
+            thread_name = f"Logs for {user.name} ({user.id})"
+            thread = await log_channel.create_thread(name=thread_name, auto_archive_duration=10080)
             user_threads[str(user.id)] = thread.id
+
         await self.update_main_message(guild)
+        return thread
 
     async def remove_user_thread(self, guild, user):
         async with self.config.guild(guild).user_threads() as user_threads:
