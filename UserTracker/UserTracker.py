@@ -3,7 +3,7 @@ import discord
 from datetime import datetime
 import asyncio
 
-class UserActivityLogger(commands.Cog):
+class UserTracker(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
@@ -17,12 +17,12 @@ class UserActivityLogger(commands.Cog):
     @commands.group()
     @commands.guild_only()
     @commands.admin_or_permissions(manage_guild=True)
-    async def activitylog(self, ctx):
-        """Commands for the User Activity Logger cog"""
+    async def usertracker(self, ctx):
+        """Commands for the User Tracker cog"""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @activitylog.command()
+    @usertracker.command()
     async def add(self, ctx, user: discord.Member):
         """Add a user to track"""
         async with self.lock:
@@ -33,7 +33,7 @@ class UserActivityLogger(commands.Cog):
                 else:
                     await ctx.send(f"{user.name} is already being tracked.")
 
-    @activitylog.command()
+    @usertracker.command()
     async def remove(self, ctx, user: discord.Member):
         """Remove a user from tracking"""
         async with self.lock:
@@ -44,7 +44,7 @@ class UserActivityLogger(commands.Cog):
                 else:
                     await ctx.send(f"{user.name} is not being tracked.")
 
-    @activitylog.command()
+    @usertracker.command()
     async def list(self, ctx):
         """List all tracked users"""
         tracked_users = await self.config.guild(ctx.guild).tracked_users()
@@ -60,7 +60,7 @@ class UserActivityLogger(commands.Cog):
         else:
             await ctx.send("No users are currently being tracked.")
 
-    @activitylog.command()
+    @usertracker.command()
     async def setchannel(self, ctx, channel: discord.TextChannel):
         """Set the channel for logging tracked user activities"""
         if not channel.permissions_for(ctx.guild.me).send_messages:
@@ -166,6 +166,3 @@ class UserActivityLogger(commands.Cog):
     def cog_unload(self):
         # Cleanup code here if needed
         pass
-
-def setup(bot):
-    bot.add_cog(UserActivityLogger(bot))
