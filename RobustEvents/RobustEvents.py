@@ -307,7 +307,7 @@ class RobustEventsCog(commands.Cog):
         self.guild_events = defaultdict(dict)
         self.temp_event_data = defaultdict(dict)
         self.temp_edit_data = defaultdict(dict)
-        self.event_info_messages = {}
+        self.event_info_messages = defaultdict(dict)
 
         self.bot.loop.create_task(self.initialize_cog())
 
@@ -705,7 +705,7 @@ class RobustEventsCog(commands.Cog):
             if success:
                 await ctx.send(embed=self.success_embed(_("Event '{event_name}' deleted.").format(event_name=event_name)))
             else:
-                await ctx.send(embed=self.error_embed(_("Failed to delete event '{event_name}'.".format(event_name=event_name))))
+                await ctx.send(embed=self.error_embed(_("Failed to delete event '{event_name}'.").format(event_name=event_name)))
 
     async def delete_event(self, guild: discord.Guild, event_id: str):
         async with self.config.guild(guild).events() as events:
@@ -1222,7 +1222,8 @@ class RobustEventsCog(commands.Cog):
     async def initialize_event_info_messages(self):
         await self.bot.wait_until_ready()
         for guild in self.bot.guilds:
-            self.event_info_messages[guild.id] = await self.config.guild(guild).event_info_messages()
+            guild_messages = await self.config.guild(guild).event_info_messages()
+            self.event_info_messages[guild.id] = guild_messages
 
     async def remove_event_info_message(self, guild_id: int, event_id: str):
         if guild_id in self.event_info_messages and event_id in self.event_info_messages[guild_id]:
@@ -1232,9 +1233,12 @@ class RobustEventsCog(commands.Cog):
     @tasks.loop(hours=24)
     async def cleanup_event_info_messages(self):
         for guild in self.bot.guilds:
-            for event_id in list(self.event_info_messages.get(guild.id, {}).keys()):
-                if event_id not in self.guild_events[guild.id]:
-                    await self.remove_event_info_message(guild.id, event_id)
+            guild_events = self.event_info_messages.get(guild.id, {})
+            for event_id in list(guild_events.keys()):
+                if event_id not in self.guild_events.get(guild.id, {}):
+                    del guild_events[event_id]
+            self.event_info_messages[guild.id] = guild_events
+            await self.config.guild(guild).event_info_messages.set(guild_events)
 
 class ReminderSelectView(discord.ui.View):
     def __init__(self, cog, user_id: int, event_id: str, event_time: datetime):
