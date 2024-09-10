@@ -1,0 +1,21 @@
+{
+    "name": "ChannelMirror",
+    "short": "Mirror messages between channels across servers",
+    "description": "This cog allows you to mirror messages from channels in other servers to channels in the current server. It supports cross-server functionality with enhanced security measures.",
+    "end_user_data_statement": "This cog stores message IDs for mirrored messages to prevent duplication. No personal data is stored.",
+    "author": [
+        "Your Name"
+    ],
+    "required_cogs": {},
+    "requirements": [],
+    "tags": [
+        "utility",
+        "moderation",
+        "channel",
+        "mirror"
+    ],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}
