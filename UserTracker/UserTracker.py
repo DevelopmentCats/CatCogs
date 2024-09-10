@@ -10,7 +10,8 @@ class UserTracker(commands.Cog):
         default_guild = {
             "tracked_users": [],
             "log_channel": None,
-            "user_threads": {}
+            "user_threads": {},
+            "main_message_id": None
         }
         self.config.register_guild(**default_guild)
         self.lock = asyncio.Lock()
@@ -25,7 +26,10 @@ class UserTracker(commands.Cog):
                 if not channel:
                     await self.config.guild(guild).log_channel.set(None)
                     await self.config.guild(guild).user_threads.set({})
+                    await self.config.guild(guild).main_message_id.set(None)
                     print(f"Log channel for guild {guild.name} was not found. Settings cleared.")
+                else:
+                    await self.update_main_message(guild)
 
     def cog_unload(self):
         if hasattr(self, 'task'):
@@ -46,6 +50,7 @@ class UserTracker(commands.Cog):
                 if user.id not in tracked_users:
                     tracked_users.append(user.id)
                     await self.create_user_thread(ctx.guild, user)
+                    await self.update_main_message(ctx.guild)
                     await ctx.send(f"✅ User {user.name} (ID: {user.id}) has been added to the tracking list for this server.")
                 else:
                     await ctx.send(f"ℹ️ User {user.name} (ID: {user.id}) is already being tracked in this server.")
@@ -58,6 +63,7 @@ class UserTracker(commands.Cog):
                 if user.id in tracked_users:
                     tracked_users.remove(user.id)
                     await self.remove_user_thread(ctx.guild, user)
+                    await self.update_main_message(ctx.guild)
                     await ctx.send(f"✅ User {user.name} (ID: {user.id}) has been removed from the tracking list for this server.")
                 else:
                     await ctx.send(f"ℹ️ User {user.name} (ID: {user.id}) is not being tracked in this server.")
@@ -100,6 +106,7 @@ class UserTracker(commands.Cog):
                 return
             await self.config.guild(ctx.guild).log_channel.set(channel.id)
             await self.config.guild(ctx.guild).user_threads.set({})
+            await self.config.guild(ctx.guild).main_message_id.set(None)
             await self.setup_log_channel(ctx.guild, channel)
             await ctx.send(f"✅ Log channel for this server set to {channel.mention}")
 
@@ -109,6 +116,54 @@ class UserTracker(commands.Cog):
             user = self.bot.get_user(user_id)
             if user:
                 await self.create_user_thread(guild, user)
+        await self.create_main_message(guild, channel)
+
+    async def create_main_message(self, guild, channel):
+        embed = await self.get_thread_list_embed(guild)
+        message = await channel.send(embed=embed)
+        await self.config.guild(guild).main_message_id.set(message.id)
+
+    async def update_main_message(self, guild):
+        log_channel_id = await self.config.guild(guild).log_channel()
+        main_message_id = await self.config.guild(guild).main_message_id()
+        if not log_channel_id or not main_message_id:
+            return
+
+        channel = guild.get_channel(log_channel_id)
+        if not channel:
+            return
+
+        try:
+            message = await channel.fetch_message(main_message_id)
+            embed = await self.get_thread_list_embed(guild)
+            await message.edit(embed=embed)
+        except discord.NotFound:
+            await self.create_main_message(guild, channel)
+
+    async def get_thread_list_embed(self, guild):
+        embed = discord.Embed(title="User Log Threads", color=discord.Color.blue())
+        embed.description = "Click on the links below to view individual user logs:"
+
+        user_threads = await self.config.guild(guild).user_threads()
+        for user_id, thread_id in user_threads.items():
+            user = self.bot.get_user(int(user_id))
+            thread = guild.get_thread(thread_id)
+            if user and thread:
+                last_message = await self.get_last_message(thread)
+                last_activity = last_message.content if last_message else "No recent activity"
+                embed.add_field(
+                    name=f"{user.name} (ID: {user.id})",
+                    value=f"[View Logs]({thread.jump_url})\nLast activity: {last_activity[:100]}{'...' if len(last_activity) > 100 else ''}",
+                    inline=False
+                )
+
+        embed.set_footer(text="Last updated")
+        embed.timestamp = datetime.utcnow()
+        return embed
+
+    async def get_last_message(self, thread):
+        messages = await thread.history(limit=1).flatten()
+        return messages[0] if messages else None
 
     async def create_user_thread(self, guild, user):
         log_channel_id = await self.config.guild(guild).log_channel()
@@ -123,6 +178,7 @@ class UserTracker(commands.Cog):
         thread = await log_channel.create_thread(name=thread_name, auto_archive_duration=10080)
         async with self.config.guild(guild).user_threads() as user_threads:
             user_threads[str(user.id)] = thread.id
+        await self.update_main_message(guild)
 
     async def remove_user_thread(self, guild, user):
         async with self.config.guild(guild).user_threads() as user_threads:
@@ -131,6 +187,7 @@ class UserTracker(commands.Cog):
             thread = guild.get_thread(thread_id)
             if thread:
                 await thread.delete()
+        await self.update_main_message(guild)
 
     async def get_user_thread(self, guild, user):
         user_threads = await self.config.guild(guild).user_threads()
@@ -158,6 +215,7 @@ class UserTracker(commands.Cog):
                     if thread:
                         embed = self.create_embed(user, activity_type, details)
                         await thread.send(embed=embed)
+                        await self.update_main_message(guild)
             except Exception as e:
                 print(f"Error logging activity for user {user.id} in guild {guild.id}: {e}")
 
@@ -221,6 +279,7 @@ class UserTracker(commands.Cog):
             if channel.id == log_channel_id:
                 await self.config.guild(channel.guild).log_channel.set(None)
                 await self.config.guild(channel.guild).user_threads.set({})
+                await self.config.guild(channel.guild).main_message_id.set(None)
                 print(f"Log channel {channel.name} was deleted in guild {channel.guild.name}. Log channel and thread settings have been cleared.")
         except Exception as e:
             print(f"Error in on_guild_channel_delete for guild {channel.guild.id}: {e}")
