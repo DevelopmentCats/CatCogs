@@ -293,6 +293,7 @@ class RobustEventsCog(commands.Cog):
         await self.bot.wait_until_ready()
         await self.initialize_events()
         await self.initialize_event_info_messages()
+        await self.cleanup_notifications()
 
     def cog_unload(self):
         self.cleanup_expired_events.cancel()
@@ -387,6 +388,7 @@ class RobustEventsCog(commands.Cog):
             try:
                 event = self.guild_events[guild.id].get(event_id)
                 if not event:
+                    self.logger.info(f"Event {event_id} not found, stopping loop")
                     return
 
                 guild_tz = await self.get_guild_timezone(guild)
@@ -407,7 +409,7 @@ class RobustEventsCog(commands.Cog):
                     notification_delta = timedelta(minutes=notification_time)
                     if time_until_event > notification_delta:
                         await asyncio.sleep((time_until_event - notification_delta).total_seconds())
-                        await self.queue_notification(guild, event_id, notification_time, next_time)
+                        await self.send_notification_with_retry(guild, event_id, notification_time, next_time)
                         time_until_event = notification_delta
 
                 await discord.utils.sleep_until(next_time)
@@ -418,14 +420,13 @@ class RobustEventsCog(commands.Cog):
                     await self.send_event_start_message(guild, event_id, time2)
 
                 await self.update_event_times(guild, event_id)
-
-                # After updating event times, trigger an update of the event info embed
-                await self.update_event_times(guild, event_id)
+                await self.update_single_event_embed(guild, event_id)
 
             except asyncio.CancelledError:
+                self.logger.info(f"Event loop for {event_id} cancelled")
                 return
             except Exception as e:
-                self.logger.error(f"Error in event loop for {event_id}: {e}")
+                await self.log_and_notify_error(guild, f"Error in event loop for {event_id}", e)
                 await asyncio.sleep(60)
 
     async def update_event_times(self, guild: discord.Guild, event_id: str):
@@ -742,6 +743,8 @@ class RobustEventsCog(commands.Cog):
             self.guild_events[guild.id][event_id] = event_data
             await self.update_event_times(guild, event_id)
             await self.schedule_event(guild, event_id)
+            await self.update_event_cache(guild, event_id)
+            await self.cleanup_notifications()
             return event_id
         except Exception as e:
             self.logger.error(f"Error creating event: {e}")
@@ -758,6 +761,8 @@ class RobustEventsCog(commands.Cog):
                 await self.config.guild(guild).events.set(events)  # Ensure config changes are saved
 
             await self.schedule_event(guild, event_id)
+            await self.update_event_cache(guild, event_id)
+            await self.cleanup_notifications()
             return True
         except Exception as e:
             self.logger.error(f"Error updating event {event_id}: {e}")
@@ -777,21 +782,134 @@ class RobustEventsCog(commands.Cog):
 
     @commands.guild_only()
     @commands.command(name="settimezone")
-    @commands.has_permissions(manage_events=True)
-    async def set_timezone(self, ctx, timezone_str: str):
-        """
-        Set the timezone for the guild. Requires 'Manage Events' permission.
-
-        Usage: [p]settimezone <timezone>
-        Example: [p]settimezone US/Pacific
-        """
+    @commands.has_permissions(manage_guild=True)
+    async def set_timezone(self, ctx: commands.Context, timezone_str: str):
+        """Set the timezone for the guild."""
         try:
-            timezone = pytz.timezone(timezone_str)
-            await self.config.guild(ctx.guild).timezone.set(timezone_str)
-            self.guild_timezone_cache[ctx.guild.id] = timezone
+            await self.update_guild_timezone(ctx.guild, timezone_str)
             await ctx.send(embed=self.success_embed(_("Timezone set to {timezone_str}").format(timezone_str=timezone_str)))
         except pytz.exceptions.UnknownTimeZoneError:
             await ctx.send(embed=self.error_embed(_("Unknown timezone: {timezone_str}. Please use a valid timezone from the IANA Time Zone Database.").format(timezone_str=timezone_str)))
+        except Exception as e:
+            await self.handle_command_error(ctx, e)
+
+    async def update_guild_timezone(self, guild: discord.Guild, new_timezone: str):
+        old_tz = await self.get_guild_timezone(guild)
+        new_tz = pytz.timezone(new_timezone)
+        
+        async with self.config.guild(guild).events() as events:
+            for event in events.values():
+                event['time1'] = datetime.fromisoformat(event['time1']).astimezone(old_tz).astimezone(new_tz).isoformat()
+                if event.get('time2'):
+                    event['time2'] = datetime.fromisoformat(event['time2']).astimezone(old_tz).astimezone(new_tz).isoformat()
+        
+        await self.config.guild(guild).timezone.set(new_timezone)
+        self.guild_timezone_cache[guild.id] = new_tz
+        await self.update_event_cache(guild)
+        self.logger.info(f"Updated timezone for guild {guild.id} to {new_timezone}")
+
+    async def update_event_cache(self, guild: discord.Guild, event_id: str = None):
+        if event_id:
+            event = await self.config.guild(guild).events.get_raw(event_id)
+            if event:
+                self.guild_events[guild.id][event_id] = event
+            else:
+                self.guild_events[guild.id].pop(event_id, None)
+        else:
+            events = await self.config.guild(guild).events()
+            self.guild_events[guild.id] = events
+        self.logger.debug(f"Event cache updated for guild {guild.id}")
+
+    async def log_and_notify_error(self, guild: discord.Guild, message: str, error: Exception):
+        self.logger.error(f"{message}: {error}", exc_info=True)
+        owner = guild.owner
+        if owner:
+            try:
+                await owner.send(f"An error occurred in the event system: {message}\n```{error}```")
+            except discord.HTTPException:
+                pass
+
+    async def send_notification_with_retry(self, guild: discord.Guild, event_id: str, notification_time: int, event_time: datetime):
+        self.logger.debug(f"Sending notification for event {event_id} at {notification_time} minutes before the event.")
+        guild_tz = await self.get_guild_timezone(guild)
+        event = self.guild_events[guild.id].get(event_id)
+        if not event:
+            self.logger.error(f"Event {event_id} not found in guild {guild.id} during notification.")
+            return
+
+        channel = guild.get_channel(event['channel'])
+        if channel:
+            role = guild.get_role(event['role_id']) if event['role_id'] else None
+            role_mention = role.mention if role else "@everyone"
+            
+            embed = discord.Embed(
+                title=f"🔔 {role_mention} Event Reminder: {event['name']}",
+                description=_("The event '{event_name}' is starting in {minutes} minutes!").format(event_name=event['name'], minutes=notification_time),
+                color=discord.Color.blue()
+            )
+            embed.add_field(name=_("Description"), value=event['description'], inline=False)
+            embed.add_field(name=_("Start Time"), value=f"<t:{int(event_time.astimezone(guild_tz).timestamp())}:F>", inline=False)
+            embed.set_footer(text=_("This message will be automatically deleted in 30 minutes."))
+            
+            try:
+                message = await channel.send(embed=embed)
+                self.bot.loop.create_task(self.delete_message_after(message, delay=1800))
+            except discord.HTTPException as e:
+                self.logger.error(f"Failed to send notification message: {e}")
+                await channel.send(_("An error occurred while sending the notification message. Please try again later."))
+
+    @tasks.loop(minutes=15)
+    async def sync_event_cache(self):
+        for guild in self.bot.guilds:
+            events = await self.config.guild(guild).events()
+            self.guild_events[guild.id] = events
+        self.logger.info("Event cache synced")
+
+    @tasks.loop(minutes=5)
+    async def update_event_embeds(self):
+        for guild in self.bot.guilds:
+            guild_tz = await self.get_guild_timezone(guild)
+            now = datetime.now(guild_tz)
+            for event_id, event in self.guild_events[guild.id].items():
+                if event_id in self.event_info_messages:
+                    channel_id, message_id = self.event_info_messages[event_id]
+                    channel = guild.get_channel(channel_id)
+                    if channel:
+                        try:
+                            message = await channel.fetch_message(message_id)
+                            new_embed = await self.create_event_info_embed(guild, event_id, event)
+                            await message.edit(embed=new_embed)
+                        except (discord.NotFound, discord.Forbidden):
+                            del self.event_info_messages[event_id]
+
+    async def update_single_event_embed(self, guild: discord.Guild, event_id: str):
+        if event_id in self.event_info_messages:
+            channel_id, message_id = self.event_info_messages[event_id]
+            channel = guild.get_channel(channel_id)
+            if channel:
+                try:
+                    message = await channel.fetch_message(message_id)
+                    event = self.guild_events[guild.id].get(event_id)
+                    if event:
+                        new_embed = await self.create_event_info_embed(guild, event_id, event)
+                        await message.edit(embed=new_embed)
+                except (discord.NotFound, discord.Forbidden):
+                    del self.event_info_messages[event_id]
+
+    async def handle_command_error(self, ctx: commands.Context, error: Exception):
+        self.logger.error(f"Error in command {ctx.command}: {error}", exc_info=True)
+        await ctx.send(embed=self.error_embed(_("An error occurred while processing the command. Please try again later.")))
+
+    async def get_guild_config(self, guild: discord.Guild):
+        return await self.config.guild(guild).all()
+
+    async def set_guild_config(self, guild: discord.Guild, config: dict):
+        await self.config.guild(guild).set(config)
+
+    async def sync_config(self, guild: discord.Guild):
+        config = await self.get_guild_config(guild)
+        self.guild_events[guild.id] = config.get("events", {})
+        self.guild_timezone_cache[guild.id] = pytz.timezone(config.get("timezone", "UTC"))
 
     @commands.guild_only()
     @commands.command(name="eventinfo")
