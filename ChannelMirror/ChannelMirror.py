@@ -11,7 +11,8 @@ class ChannelMirror(commands.Cog):
         self.config = Config.get_conf(self, identifier=1234567890)
         default_guild = {
             "mirror_pairs": {},  # {target_channel_id: {source_channel_id: source_guild_id}}
-            "mirrored_messages": {}
+            "mirrored_messages": {},
+            "last_mirrored_id": {}  # {source_channel_id: last_mirrored_message_id}
         }
         self.config.register_guild(**default_guild)
         self.mirror_task.start()
@@ -46,6 +47,12 @@ class ChannelMirror(commands.Cog):
             
             pairs[str(target_channel.id)][str(source_channel_id)] = source_channel.guild.id
 
+        # Mirror only the last message when a new pair is added
+        async for message in source_channel.history(limit=1):
+            await self.mirror_message(ctx.guild, message, target_channel)
+            async with self.config.guild(ctx.guild).last_mirrored_id() as last_mirrored:
+                last_mirrored[str(source_channel_id)] = message.id
+
         embed = discord.Embed(title="Mirror Added", color=discord.Color.green())
         embed.add_field(name="Source Channel", value=f"{source_channel.name} (ID: {source_channel_id}, Server: {source_channel.guild.name})", inline=False)
         embed.add_field(name="Target Channel", value=target_channel.mention, inline=False)
@@ -65,6 +72,9 @@ class ChannelMirror(commands.Cog):
             source_guild_id = pairs[str(target_channel.id)].pop(str(source_channel_id))
             if not pairs[str(target_channel.id)]:
                 del pairs[str(target_channel.id)]
+
+        async with self.config.guild(ctx.guild).last_mirrored_id() as last_mirrored:
+            last_mirrored.pop(str(source_channel_id), None)
 
         embed = discord.Embed(title="Mirror Removed", color=discord.Color.red())
         embed.add_field(name="Source Channel", value=f"Channel ID: {source_channel_id} (Server ID: {source_guild_id})", inline=False)
@@ -121,6 +131,7 @@ class ChannelMirror(commands.Cog):
     async def mirror_task(self):
         for guild in self.bot.guilds:
             pairs = await self.config.guild(guild).mirror_pairs()
+            last_mirrored = await self.config.guild(guild).last_mirrored_id()
             for target_id, sources in pairs.items():
                 target_channel = guild.get_channel(int(target_id))
                 if not target_channel:
@@ -131,14 +142,12 @@ class ChannelMirror(commands.Cog):
                     if not source_channel:
                         continue
 
-                    async for message in source_channel.history(limit=10):
-                        if not await self.is_message_mirrored(guild, message.id):
-                            await self.mirror_message(guild, message, target_channel)
-                            await asyncio.sleep(1)  # Avoid rate limiting
+                    last_message_id = last_mirrored.get(source_id, None)
+                    async for message in source_channel.history(limit=None, after=discord.Object(id=last_message_id) if last_message_id else None):
+                        await self.mirror_message(guild, message, target_channel)
+                        last_mirrored[source_id] = message.id
 
-    async def is_message_mirrored(self, guild, message_id):
-        async with self.config.guild(guild).mirrored_messages() as mirrored:
-            return str(message_id) in mirrored
+            await self.config.guild(guild).last_mirrored_id.set(last_mirrored)
 
     async def mirror_message(self, guild, message, target_channel):
         embed = discord.Embed(description=message.content, 
