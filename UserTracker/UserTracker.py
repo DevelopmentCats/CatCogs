@@ -189,7 +189,13 @@ class UserTracker(commands.Cog):
             if user and thread:
                 try:
                     last_message = await self.get_last_message(thread)
-                    last_activity = last_message.content if last_message else "No activity logged yet"
+                    if last_message:
+                        if last_message.embeds:
+                            last_activity = f"{last_message.embeds[0].title}: {last_message.embeds[0].fields[0].value[:50]}..."
+                        else:
+                            last_activity = last_message.content[:50] + "..."
+                    else:
+                        last_activity = "No activity logged yet"
                 except discord.errors.Forbidden:
                     last_activity = "Unable to access thread"
                 except Exception as e:
@@ -197,7 +203,7 @@ class UserTracker(commands.Cog):
                 
                 embed.add_field(
                     name=f"{user.name} (ID: {user.id})",
-                    value=f"[View Logs]({thread.jump_url})\nLast activity: {last_activity[:100]}{'...' if len(last_activity) > 100 else ''}",
+                    value=f"[View Logs]({thread.jump_url})\nLast activity: {last_activity}",
                     inline=False
                 )
             elif user:
@@ -215,9 +221,15 @@ class UserTracker(commands.Cog):
         return embed
 
     async def get_last_message(self, thread):
-        async for message in thread.history(limit=1):
-            return message
-        return None
+        bot_message = user_message = None
+        async for message in thread.history(limit=20):
+            if not bot_message and message.author == self.bot.user:
+                bot_message = message
+            if not user_message and message.author != self.bot.user:
+                user_message = message
+            if bot_message and user_message:
+                break
+        return bot_message or user_message
 
     async def create_user_thread(self, guild, user):
         log_channel_id = await self.config.guild(guild).log_channel()
