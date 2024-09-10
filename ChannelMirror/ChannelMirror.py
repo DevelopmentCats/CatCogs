@@ -1,7 +1,6 @@
 import discord
 from redbot.core import commands, Config
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
-from redbot.core.utils.chat_formatting import box, pagify
 from discord.ext import tasks
 import asyncio
 import textwrap
@@ -11,7 +10,7 @@ class ChannelMirror(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         default_guild = {
-            "mirror_pairs": {},  # {target_channel_id: {source_guild_id: source_channel_id}}
+            "mirror_pairs": {},  # {target_channel_id: {source_channel_id: source_guild_id}}
             "mirrored_messages": {}
         }
         self.config.register_guild(**default_guild)
@@ -29,37 +28,41 @@ class ChannelMirror(commands.Cog):
             await ctx.send_help(ctx.command)
 
     @channelmirror.command(name="add")
-    async def add_mirror(self, ctx, source_channel: discord.TextChannel, target_channel: discord.TextChannel):
+    async def add_mirror(self, ctx, source_channel_id: int, target_channel: discord.TextChannel):
         """Add a new channel mirror pair."""
         if target_channel.guild != ctx.guild:
             return await ctx.send("The target channel must be in this server.")
+
+        source_channel = self.bot.get_channel(source_channel_id)
+        if not source_channel:
+            return await ctx.send(f"Unable to find a channel with ID {source_channel_id}. Make sure the bot is in the server containing this channel.")
 
         async with self.config.guild(ctx.guild).mirror_pairs() as pairs:
             if str(target_channel.id) not in pairs:
                 pairs[str(target_channel.id)] = {}
             
-            if str(source_channel.guild.id) in pairs[str(target_channel.id)]:
+            if str(source_channel_id) in pairs[str(target_channel.id)]:
                 return await ctx.send("This source channel is already being mirrored to this target channel.")
             
-            pairs[str(target_channel.id)][str(source_channel.guild.id)] = source_channel.id
+            pairs[str(target_channel.id)][str(source_channel_id)] = source_channel.guild.id
 
         embed = discord.Embed(title="Mirror Added", color=discord.Color.green())
-        embed.add_field(name="Source Channel", value=f"{source_channel.mention} (Server: {source_channel.guild.name})", inline=False)
+        embed.add_field(name="Source Channel", value=f"{source_channel.name} (ID: {source_channel_id}, Server: {source_channel.guild.name})", inline=False)
         embed.add_field(name="Target Channel", value=target_channel.mention, inline=False)
         embed.set_footer(text="Messages will now be mirrored from the source to the target channel.")
         await ctx.send(embed=embed)
 
     @channelmirror.command(name="remove")
-    async def remove_mirror(self, ctx, target_channel: discord.TextChannel, source_guild_id: int):
+    async def remove_mirror(self, ctx, target_channel: discord.TextChannel, source_channel_id: int):
         """Remove a channel mirror pair."""
         async with self.config.guild(ctx.guild).mirror_pairs() as pairs:
             if str(target_channel.id) not in pairs:
                 return await ctx.send("This target channel is not set up for mirroring.")
             
-            if str(source_guild_id) not in pairs[str(target_channel.id)]:
-                return await ctx.send("This source guild is not being mirrored to this target channel.")
+            if str(source_channel_id) not in pairs[str(target_channel.id)]:
+                return await ctx.send("This source channel is not being mirrored to this target channel.")
             
-            source_channel_id = pairs[str(target_channel.id)].pop(str(source_guild_id))
+            source_guild_id = pairs[str(target_channel.id)].pop(str(source_channel_id))
             if not pairs[str(target_channel.id)]:
                 del pairs[str(target_channel.id)]
 
@@ -81,13 +84,17 @@ class ChannelMirror(commands.Cog):
             target_channel = ctx.guild.get_channel(int(target_id))
             if target_channel:
                 embed = discord.Embed(title=f"Mirror Target: #{target_channel.name}", color=discord.Color.blue())
-                for source_guild_id, source_channel_id in sources.items():
-                    source_guild = self.bot.get_guild(int(source_guild_id))
-                    source_channel = source_guild.get_channel(source_channel_id) if source_guild else None
+                for source_id, source_guild_id in sources.items():
+                    source_guild = self.bot.get_guild(source_guild_id)
+                    source_channel = self.bot.get_channel(int(source_id))
                     if source_channel:
-                        embed.add_field(name=f"Source: {source_guild.name}", value=f"#{source_channel.name} (ID: {source_channel_id})", inline=False)
+                        embed.add_field(name=f"Source: {source_guild.name if source_guild else 'Unknown Server'}", 
+                                        value=f"#{source_channel.name} (ID: {source_id})", 
+                                        inline=False)
                     else:
-                        embed.add_field(name=f"Source: Guild ID {source_guild_id}", value=f"Channel ID: {source_channel_id} (Not Found)", inline=False)
+                        embed.add_field(name=f"Source: Guild ID {source_guild_id}", 
+                                        value=f"Channel ID: {source_id} (Not Found)", 
+                                        inline=False)
                 embeds.append(embed)
 
         if embeds:
@@ -119,11 +126,8 @@ class ChannelMirror(commands.Cog):
                 if not target_channel:
                     continue
 
-                for source_guild_id, source_channel_id in sources.items():
-                    source_guild = self.bot.get_guild(int(source_guild_id))
-                    if not source_guild:
-                        continue
-                    source_channel = source_guild.get_channel(source_channel_id)
+                for source_id, source_guild_id in sources.items():
+                    source_channel = self.bot.get_channel(int(source_id))
                     if not source_channel:
                         continue
 
@@ -168,15 +172,15 @@ class ChannelMirror(commands.Cog):
         This cog allows you to mirror messages from channels in other servers to channels in this server.
 
         **Commands:**
-        • `channelmirror add <source> <target>`: Add a new mirror pair
-        • `channelmirror remove <target> <source_guild_id>`: Remove a mirror pair
+        • `channelmirror add <source_channel_id> <target_channel>`: Add a new mirror pair
+        • `channelmirror remove <target_channel> <source_channel_id>`: Remove a mirror pair
         • `channelmirror list`: List all mirror pairs
         • `channelmirror status`: Show mirror system status
 
         **Examples:**
         ```
-        [p]channelmirror add #announcements #mirror-announcements
-        [p]channelmirror remove #mirror-announcements 123456789
+        [p]channelmirror add 1234567890 #mirror-channel
+        [p]channelmirror remove #mirror-channel 1234567890
         [p]channelmirror list
         [p]channelmirror status
         ```
