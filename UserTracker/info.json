@@ -1,0 +1,10 @@
+{
+    "author": ["Your Name"],
+    "install_msg": "Thanks for installing the User Tracker cog! Use `[p]help UserTracker` to see available commands.",
+    "name": "UserTracker",
+    "short": "Tracks and logs activities of specified users in real-time.",
+    "description": "This cog allows you to track and log activities of specified users in real-time, including messages, voice state changes, and status updates.",
+    "tags": ["logging", "tracking", "utility"],
+    "min_bot_version": "3.5.0",
+    "end_user_data_statement": "This cog stores Discord User IDs for users that are set to be tracked. No personal data is stored."
+}
