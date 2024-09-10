@@ -4,6 +4,7 @@ from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from discord.ext import tasks
 import asyncio
 import textwrap
+from typing import Union, Optional
 
 class ChannelMirror(commands.Cog):
     def __init__(self, bot):
@@ -29,9 +30,10 @@ class ChannelMirror(commands.Cog):
             await ctx.send_help(ctx.command)
 
     @mirror.command(name="add")
-    async def add_mirror(self, ctx, source: discord.TextChannel, target: discord.TextChannel = None):
+    async def add_mirror(self, ctx, source: Union[discord.TextChannel, str], target: Optional[discord.TextChannel] = None):
         """Add a new channel mirror pair.
         
+        Source can be a channel mention, channel ID, or name.
         If target is not specified, it uses the current channel as the target.
         The source channel can be from any server the bot is in.
         """
@@ -41,23 +43,42 @@ class ChannelMirror(commands.Cog):
         if target.guild != ctx.guild:
             return await ctx.send("The target channel must be in this server.")
 
+        # Handle the source channel
+        if isinstance(source, str):
+            try:
+                source_id = int(source)
+                source_channel = self.bot.get_channel(source_id)
+                if source_channel is None:
+                    for guild in self.bot.guilds:
+                        channel = guild.get_channel(source_id)
+                        if channel:
+                            source_channel = channel
+                            break
+            except ValueError:
+                source_channel = discord.utils.get(self.bot.get_all_channels(), name=source)
+        else:
+            source_channel = source
+
+        if source_channel is None:
+            return await ctx.send(f"Unable to find a channel with the identifier '{source}'. Please make sure the bot is in the server containing this channel.")
+
         async with self.config.guild(ctx.guild).mirror_pairs() as pairs:
             if str(target.id) not in pairs:
                 pairs[str(target.id)] = {}
             
-            if str(source.id) in pairs[str(target.id)]:
+            if str(source_channel.id) in pairs[str(target.id)]:
                 return await ctx.send("This source channel is already being mirrored to this target channel.")
             
-            pairs[str(target.id)][str(source.id)] = source.guild.id
+            pairs[str(target.id)][str(source_channel.id)] = source_channel.guild.id
 
         # Mirror only the last message when a new pair is added
-        async for message in source.history(limit=1):
+        async for message in source_channel.history(limit=1):
             await self.mirror_message(ctx.guild, message, target)
             async with self.config.guild(ctx.guild).last_mirrored_id() as last_mirrored:
-                last_mirrored[str(source.id)] = message.id
+                last_mirrored[str(source_channel.id)] = message.id
 
         embed = discord.Embed(title="Mirror Added", color=discord.Color.green())
-        embed.add_field(name="Source Channel", value=f"{source.name} (Server: {source.guild.name})", inline=False)
+        embed.add_field(name="Source Channel", value=f"{source_channel.name} (Server: {source_channel.guild.name})", inline=False)
         embed.add_field(name="Target Channel", value=target.mention, inline=False)
         embed.set_footer(text="Messages will now be mirrored from the source to the target channel.")
         await ctx.send(embed=embed)
