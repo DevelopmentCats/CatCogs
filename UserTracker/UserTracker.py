@@ -29,6 +29,12 @@ class RateLimiter:
         pass
 
 class UserTracker(commands.Cog):
+    """
+    Track and log activities of specified users in real-time.
+
+    This cog allows you to monitor messages, voice state changes, status updates, and image attachments of tracked users.
+    It uses threads for individual user logs and maintains a main message with links to these threads.
+    """
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
@@ -66,7 +72,20 @@ class UserTracker(commands.Cog):
     @commands.group(invoke_without_command=True)
     @commands.guild_only()
     async def track(self, ctx):
-        """User tracking commands"""
+        """
+        User tracking commands.
+
+        Use subcommands to manage tracked users, log channels, and user authorizations.
+        Only authorized users can use these commands.
+
+        Subcommands:
+        - add: Add a user to track
+        - remove: Remove a user from tracking
+        - list: List all tracked users
+        - channel: Set or view the log channel
+        - authorize: Authorize a user to use UserTracker commands (Bot Owner only)
+        - deauthorize: Remove authorization for a user (Bot Owner only)
+        """
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
@@ -74,7 +93,11 @@ class UserTracker(commands.Cog):
 
     @track.command(name="add")
     async def track_add(self, ctx, user: discord.User):
-        """Add a user to track in this server"""
+        """
+        Add a user to track in this server.
+
+        This will create a new thread for logging the user's activities.
+        """
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
@@ -90,7 +113,11 @@ class UserTracker(commands.Cog):
 
     @track.command(name="remove")
     async def track_remove(self, ctx, user: discord.User):
-        """Remove a user from tracking in this server"""
+        """
+        Remove a user from tracking in this server.
+
+        This will delete the user's log thread.
+        """
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
@@ -106,7 +133,11 @@ class UserTracker(commands.Cog):
 
     @track.command(name="list")
     async def track_list(self, ctx):
-        """List all tracked users in this server"""
+        """
+        List all tracked users in this server.
+
+        Displays a list of tracked users with their IDs.
+        """
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
@@ -128,7 +159,11 @@ class UserTracker(commands.Cog):
 
     @track.command(name="channel")
     async def track_channel(self, ctx, channel: discord.TextChannel = None):
-        """Set or view the channel for logging tracked user activities in this server"""
+        """
+        Set or view the channel for logging tracked user activities in this server.
+
+        If no channel is specified, it will display the current log channel.
+        """
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
@@ -447,10 +482,14 @@ class UserTracker(commands.Cog):
         except Exception as e:
             print(f"Error in on_guild_channel_delete for guild {channel.guild.id}: {e}")
 
-    @commands.command()
+    @track.command(name="authorize")
     @commands.is_owner()
-    async def authorize_tracker(self, ctx, user: discord.User):
-        """Authorize a user to use UserTracker commands (Bot Owner only)"""
+    async def track_authorize(self, ctx, user: discord.User):
+        """
+        Authorize a user to use UserTracker commands (Bot Owner only).
+
+        This allows the specified user to use all UserTracker commands in this server.
+        """
         async with self.config.guild(ctx.guild).authorized_users() as authorized_users:
             if user.id not in authorized_users:
                 authorized_users.append(user.id)
@@ -458,10 +497,14 @@ class UserTracker(commands.Cog):
             else:
                 await ctx.send(f"ℹ️ User {user.name} (ID: {user.id}) is already authorized to use UserTracker commands in this server.")
 
-    @commands.command()
+    @track.command(name="deauthorize")
     @commands.is_owner()
-    async def deauthorize_tracker(self, ctx, user: discord.User):
-        """Remove authorization for a user to use UserTracker commands (Bot Owner only)"""
+    async def track_deauthorize(self, ctx, user: discord.User):
+        """
+        Remove authorization for a user to use UserTracker commands (Bot Owner only).
+
+        This prevents the specified user from using UserTracker commands in this server.
+        """
         async with self.config.guild(ctx.guild).authorized_users() as authorized_users:
             if user.id in authorized_users:
                 authorized_users.remove(user.id)
