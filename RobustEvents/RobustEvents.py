@@ -1086,12 +1086,12 @@ class RobustEventsCog(commands.Cog):
         This command shows detailed information about an upcoming event.
         """
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
-    
+        
         if not event_id:
             await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.")), ephemeral=True)
             return
 
-        event = self.guild_events[ctx.guild.id].get(event_id)
+        event = self.guild_events.get(ctx.guild.id, {}).get(event_id)
         if not event:
             await ctx.send(embed=self.error_embed(_("Event data not found for '{event_name}'.")), ephemeral=True)
             return
@@ -1106,6 +1106,7 @@ class RobustEventsCog(commands.Cog):
             self.event_info_messages[ctx.guild.id] = {}
         self.event_info_messages[ctx.guild.id][event_id] = (ctx.channel.id, message.id)
         await self.config.guild(ctx.guild).event_info_messages.set(self.event_info_messages[ctx.guild.id])
+        self.logger.debug(f"Updated event info messages for guild {ctx.guild.id}, event {event_id}")
 
     async def create_event_info_embed(self, guild: discord.Guild, event_id: str, event: dict):
         guild_tz = await self.get_guild_timezone(guild)
@@ -1306,9 +1307,11 @@ class RobustEventsCog(commands.Cog):
 
     async def initialize_event_info_messages(self):
         await self.bot.wait_until_ready()
+        self.event_info_messages = {}
         for guild in self.bot.guilds:
             guild_messages = await self.config.guild(guild).event_info_messages()
-            self.event_info_messages[guild.id] = guild_messages
+            self.event_info_messages[guild.id] = guild_messages or {}
+        self.logger.info("Event info messages initialized")
 
     async def log_and_notify_error(self, guild: discord.Guild, message: str, error: Exception):
         error_details = ''.join(traceback.format_exception(type(error), error, error.__traceback__))
