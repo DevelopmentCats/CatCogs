@@ -1601,7 +1601,7 @@ class ConfirmCancelView(ui.View):
         await self.message.delete()
         self.stop()
 
-@ui.button(label=_("Keep Event"), style=discord.ButtonStyle.secondary, emoji="🔙")
+    @ui.button(label=_("Keep Event"), style=discord.ButtonStyle.secondary, emoji="🔙")
     async def keep_event(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(embed=self.cog.success_embed(_("The event '{event_name}' has not been cancelled.").format(event_name=self.event_name)))
         await self.message.delete()
