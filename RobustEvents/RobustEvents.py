@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 import discord
 import humanize
 import pytz
+import traceback
 from discord.ext import commands, tasks
 from discord.ui import Modal, TextInput, View
 from redbot.core import Config, commands
@@ -315,16 +316,26 @@ class RobustEventsCog(commands.Cog):
         self.sync_event_cache.start()
         self.update_event_embeds.start()
         self.cleanup_event_info_messages.start()
+        self.failed_notifications = []
+        self.refresh_timezone_cache.start()
+        self.backup_event_data.start()
+        self.retry_failed_notifications.start()
 
     async def initialize_cog(self):
         try:
+            self.logger.info("Starting RobustEvents cog initialization...")
             await self.bot.wait_until_ready()
+            self.logger.info("Bot is ready, initializing events...")
             await self.initialize_events()
+            self.logger.info("Events initialized, setting up event info messages...")
             await self.initialize_event_info_messages()
+            self.logger.info("Event info messages set up, performing initial cleanup...")
             if hasattr(self, 'cleanup_notifications'):
                 await self.cleanup_notifications()
+                self.logger.info("Initial cleanup completed.")
             else:
                 self.logger.warning("cleanup_notifications method not found. Skipping cleanup.")
+            self.logger.info("RobustEvents cog initialization completed successfully.")
         except Exception as e:
             self.logger.error(f"Error initializing cog: {e}", exc_info=True)
 
@@ -342,6 +353,10 @@ class RobustEventsCog(commands.Cog):
         self.notification_queue.clear()
         self.last_notification_time.clear()
         self.event_info_messages.clear()
+        asyncio.create_task(self.cleanup_notifications())
+        self.refresh_timezone_cache.cancel()
+        self.backup_event_data.cancel()
+        self.retry_failed_notifications.cancel()
 
     @tasks.loop(hours=24)
     async def cleanup_expired_events(self):
@@ -400,12 +415,14 @@ class RobustEventsCog(commands.Cog):
             return
         user = self.bot.get_user(user_id)
         if not user:
+            self.logger.warning(f"User {user_id} not found for personal reminder of event {event_id}")
             return
-
         guild = self.bot.get_guild(guild_id)
+        if not guild:
+            self.logger.warning(f"Guild {guild_id} not found for personal reminder of event {event_id}")
+            return
         guild_tz = await self.get_guild_timezone(guild)
         event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
-
         try:
             await user.send(
                 _("🔔 Reminder: The event '{event_name}' is starting at {event_time}.").format(
@@ -414,9 +431,12 @@ class RobustEventsCog(commands.Cog):
                 )
             )
         except discord.Forbidden:
-            self.logger.warning(f"Could not send reminder DM to user {user_id} for event {event_id} in guild {guild_id}.")
+            self.logger.warning(f"Couldn't send reminder DM to user {user_id} for event {event_id} due to permissions")
+        except discord.HTTPException as e:
+            self.logger.error(f"Failed to send reminder DM to user {user_id} for event {event_id}: {e}")
 
     async def event_loop(self, guild: discord.Guild, event_id: str):
+        self.sent_notifications = set()
         while True:
             try:
                 event = self.guild_events[guild.id].get(event_id)
@@ -441,7 +461,11 @@ class RobustEventsCog(commands.Cog):
                 for notification_time in sorted(event['notifications'], reverse=True):
                     notification_delta = timedelta(minutes=notification_time)
                     if time_until_event > notification_delta:
-                        await asyncio.sleep((time_until_event - notification_delta).total_seconds())
+                        notification_key = f"{guild.id}:{event_id}:{notification_time}"
+                        if notification_key in self.sent_notifications:
+                            continue
+                        self.sent_notifications.add(notification_key)
+                        await asyncio.sleep_until(next_time - notification_delta - timedelta(seconds=1))  # Add 1-second buffer
                         await self.send_notification_with_retry(guild, event_id, notification_time, next_time)
                         time_until_event = notification_delta
 
@@ -556,23 +580,34 @@ class RobustEventsCog(commands.Cog):
         notification_event = asyncio.Event()
         self.notification_queue[queue_key].append(notification_event)
         
-        MAX_RETRIES = 3
-        retry_count = 0
-        while retry_count < MAX_RETRIES:
-            try:
-                await self.send_notification(guild, event_id, notification_time, event_time)
-                self.last_notification_time[queue_key] = now
-                break
-            except Exception as e:
-                retry_count += 1
-                self.logger.warning(f"Failed to send notification (attempt {retry_count}): {e}")
-                await asyncio.sleep(5)  # Wait before retrying
-        else:
-            self.logger.error(f"Failed to send notification after {MAX_RETRIES} attempts")
+        try:
+            await self.send_notification(guild, event_id, notification_time, event_time)
+            self.last_notification_time[queue_key] = now
+        except Exception as e:
+            self.logger.error(f"Failed to send notification for event {event_id}: {e}")
+            # Store failed notifications for retry
+            self.failed_notifications.append((guild.id, event_id, notification_time, event_time))
 
         self.notification_queue[queue_key].remove(notification_event)
         if not self.notification_queue[queue_key]:
             del self.notification_queue[queue_key]
+
+    async def send_notification_with_retry(self, guild: discord.Guild, event_id: str, notification_time: int, event_time: datetime):
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                await self.send_notification(guild, event_id, notification_time, event_time)
+                return
+            except discord.HTTPException as e:
+                if attempt == max_retries - 1:
+                    self.logger.error(f"Failed to send notification after {max_retries} attempts: {e}")
+                else:
+                    retry_delay = (2 ** attempt) * 5  # Exponential backoff
+                    self.logger.warning(f"Attempt {attempt + 1} failed, retrying in {retry_delay} seconds: {e}")
+                    await asyncio.sleep(retry_delay)
+            except Exception as e:
+                self.logger.error(f"Unexpected error sending notification: {e}")
+                return
 
     async def send_notification(self, guild: discord.Guild, event_id: str, notification_time: int, event_time: datetime):
         self.logger.debug(f"Sending notification for event {event_id} at {notification_time} minutes before the event.")
@@ -583,25 +618,31 @@ class RobustEventsCog(commands.Cog):
             return
 
         channel = guild.get_channel(event['channel'])
-        if channel:
-            role = guild.get_role(event['role_id']) if event['role_id'] else None
-            role_mention = role.mention if role else "@everyone"
-            
-            embed = discord.Embed(
-                title=f"🔔 {role_mention} Event Reminder: {event['name']}",
-                description=_("The event '{event_name}' is starting in {minutes} minutes!").format(event_name=event['name'], minutes=notification_time),
-                color=discord.Color.blue()
-            )
-            embed.add_field(name=_("Description"), value=event['description'], inline=False)
-            embed.add_field(name=_("Start Time"), value=f"<t:{int(event_time.astimezone(guild_tz).timestamp())}:F>", inline=False)
-            embed.set_footer(text=_("This message will be automatically deleted in 30 minutes."))
-            
+        if not channel:
+            self.logger.error(f"Channel not found for event {event_id} in guild {guild.id}.")
+            return
+
+        role = guild.get_role(event['role_id']) if event['role_id'] else None
+        role_mention = role.mention if role else "@everyone"
+        
+        embed = discord.Embed(
+            title=f"🔔 {role_mention} Event Reminder: {event['name']}",
+            description=_("The event '{event_name}' is starting in {minutes} minutes!").format(event_name=event['name'], minutes=notification_time),
+            color=discord.Color.blue()
+        )
+        embed.add_field(name=_("Description"), value=event['description'], inline=False)
+        embed.add_field(name=_("Start Time"), value=f"<t:{int(event_time.astimezone(guild_tz).timestamp())}:F>", inline=False)
+        embed.set_footer(text=_("This message will be automatically deleted in 30 minutes."))
+        
+        try:
+            message = await channel.send(embed=embed)
+            self.bot.loop.create_task(self.delete_message_after(message, delay=1800))
+        except discord.HTTPException as e:
+            self.logger.error(f"Failed to send notification message: {e}")
             try:
-                message = await channel.send(embed=embed)
-                self.bot.loop.create_task(self.delete_message_after(message, delay=1800))
-            except discord.HTTPException as e:
-                self.logger.error(f"Failed to send notification message: {e}")
                 await channel.send(_("An error occurred while sending the notification message. Please try again later."))
+            except discord.HTTPException:
+                self.logger.error(f"Failed to send error message to channel {channel.id} in guild {guild.id}")
 
     async def delete_message_after(self, message: discord.Message, delay: int):
         await asyncio.sleep(delay)
@@ -701,11 +742,19 @@ class RobustEventsCog(commands.Cog):
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if event_id:
-            success = await self.delete_event(ctx.guild, event_id)
-            if success:
-                await ctx.send(embed=self.success_embed(_("Event '{event_name}' deleted.").format(event_name=event_name)))
+            confirm_view = ConfirmView()
+            await ctx.send(f"Are you sure you want to delete the event '{event_name}'?", view=confirm_view)
+            await confirm_view.wait()
+            if confirm_view.value:
+                success = await self.delete_event(ctx.guild, event_id)
+                if success:
+                    await ctx.send(embed=self.success_embed(_("Event '{event_name}' deleted.").format(event_name=event_name)))
+                else:
+                    await ctx.send(embed=self.error_embed(_("Failed to delete event '{event_name}'.").format(event_name=event_name)))
             else:
-                await ctx.send(embed=self.error_embed(_("Failed to delete event '{event_name}'.").format(event_name=event_name)))
+                await ctx.send(_("Event deletion cancelled."))
+        else:
+            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.").format(event_name=event_name)))
 
     async def delete_event(self, guild: discord.Guild, event_id: str):
         async with self.config.guild(guild).events() as events:
@@ -1225,6 +1274,27 @@ class RobustEventsCog(commands.Cog):
             guild_messages = await self.config.guild(guild).event_info_messages()
             self.event_info_messages[guild.id] = guild_messages
 
+    async def log_and_notify_error(self, guild: discord.Guild, message: str, error: Exception):
+        error_details = ''.join(traceback.format_exception(type(error), error, error.__traceback__))
+        self.logger.error(f"{message}: {error_details}")
+        owner = guild.owner
+        if owner:
+            try:
+                await owner.send(f"An error occurred in the event system: {message}\n```{error_details[:1900]}```")
+            except discord.HTTPException:
+                pass
+
+    async def cleanup_notifications(self):
+        now = datetime.now(pytz.UTC)
+        for guild in self.bot.guilds:
+            guild_tz = await self.get_guild_timezone(guild)
+            for event_id, event in self.guild_events.get(guild.id, {}).items():
+                event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
+            if event_time < now:
+                notification_keys = [f"{guild.id}:{event_id}:{n}" for n in event['notifications']]
+                self.sent_notifications -= set(notification_keys)
+            self.logger.debug("Cleaned up old notifications")
+
     async def remove_event_info_message(self, guild_id: int, event_id: str):
         if guild_id in self.event_info_messages and event_id in self.event_info_messages[guild_id]:
             del self.event_info_messages[guild_id][event_id]
@@ -1239,6 +1309,13 @@ class RobustEventsCog(commands.Cog):
                     del guild_events[event_id]
             self.event_info_messages[guild.id] = guild_events
             await self.config.guild(guild).event_info_messages.set(guild_events)
+
+    @tasks.loop(hours=24)
+    async def backup_event_data(self):
+        for guild in self.bot.guilds:
+            events = await self.config.guild(guild).events()
+            # Implement your backup logic here, e.g., saving to a file or external service
+            self.logger.info(f"Backed up event data for guild {guild.id}")
 
 class ReminderSelectView(discord.ui.View):
     def __init__(self, cog, user_id: int, event_id: str, event_time: datetime):
