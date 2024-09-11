@@ -12,7 +12,7 @@ import humanize
 import pytz
 import traceback
 from discord.ext import commands, tasks
-from discord import ui
+from discord import ui, TextInput
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 from redbot.core.i18n import Translator, cog_i18n
@@ -835,7 +835,7 @@ class RobustEventsCog(commands.Cog):
                 except discord.Forbidden:
                     self.logger.error(_("Couldn't delete the event role for '{event_name}' due to lack of permissions.").format(event_name=event['name']))
 
-        async for member_id, member_data in self.config.all_members(guild):
+        async for member_id, member_data in (await self.config.all_members(guild)).items():
             async with self.config.member_from_ids(guild.id, member_id).personal_reminders() as reminders:
                 if event_id in reminders:
                     del reminders[event_id]
