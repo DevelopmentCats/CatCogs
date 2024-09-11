@@ -835,14 +835,15 @@ class RobustEventsCog(commands.Cog):
                 except discord.Forbidden:
                     self.logger.error(_("Couldn't delete the event role for '{event_name}' due to lack of permissions.").format(event_name=event['name']))
 
-        async for member_id, member_data in (await self.config.all_members(guild)).items():
-            async with self.config.member_from_ids(guild.id, member_id).personal_reminders() as reminders:
-                if event_id in reminders:
-                    del reminders[event_id]
-            task_key = f"{guild.id}:{member_id}:{event_id}"
-            if task_key in self.personal_reminder_tasks:
-                self.personal_reminder_tasks[task_key].cancel()
-                del self.personal_reminder_tasks[task_key]
+        all_members = await self.config.all_members(guild)
+        for member_id, member_data in all_members.items():
+            async with self.config.member_from_ids(guild.id, member_id).personal_reminders() as personal_reminders:
+                if event_id in personal_reminders:
+                    del personal_reminders[event_id]
+                task_key = f"{guild.id}:{member_id}:{event_id}"
+                if task_key in self.personal_reminder_tasks:
+                    self.personal_reminder_tasks[task_key].cancel()
+                    del self.personal_reminder_tasks[task_key]
 
         for key in list(self.notification_queue.keys()):
             if key.startswith(f"{guild.id}:{event_id}:"):
@@ -1200,7 +1201,7 @@ class RobustEventsCog(commands.Cog):
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
         
         if not event_id:
-            await ctx.send(embed(self.error_embed(_("No event found with the name '{event_name}'."))), ephemeral=True)
+            await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.")), ephemeral=True)
         else:
             event = self.guild_events[ctx.guild.id][event_id]
             view = ConfirmCancelView(self, ctx.guild, event_name, event)
@@ -1425,10 +1426,10 @@ class BasicEventEditModal(ui.Modal, title=_("Edit Event - Basic Info")):
         self.event_data = event_data
         self.timezone = timezone
 
-        self.name = TextInput(label=_("Event Name"), default=event_name, max_length=100)
-        self.datetime1 = TextInput(label=_("First Time (HH:MM)"), default=datetime.fromisoformat(event_data['time1']).astimezone(self.timezone).strftime("%H:%M"))
-        self.datetime2 = TextInput(label=_("Second Time (Optional, HH:MM)"), default=datetime.fromisoformat(event_data['time2']).astimezone(self.timezone).strftime("%H:%M") if event_data.get('time2') else "", required=False)
-        self.description = TextInput(label=_("Description"), style=discord.TextStyle.paragraph, max_length=1000, default=event_data['description'])
+        self.name = ui.TextInput(label=_("Event Name"), default=event_name, max_length=100)
+        self.datetime1 = ui.TextInput(label=_("First Time (HH:MM)"), default=datetime.fromisoformat(event_data['time1']).astimezone(self.timezone).strftime("%H:%M"))
+        self.datetime2 = ui.TextInput(label=_("Second Time (Optional, HH:MM)"), default=datetime.fromisoformat(event_data['time2']).astimezone(self.timezone).strftime("%H:%M") if event_data.get('time2') else "", required=False)
+        self.description = ui.TextInput(label=_("Description"), style=discord.TextStyle.paragraph, max_length=1000, default=event_data['description'])
 
         self.add_item(self.name)
         self.add_item(self.datetime1)
@@ -1459,7 +1460,7 @@ class BasicEventEditModal(ui.Modal, title=_("Edit Event - Basic Info")):
                 event_time2 = None
 
         except ValueError as e:
-            await interaction.response.send_message(embed(self.cog.error_embed(str(e))), ephemeral=True)
+            await interaction.response.send_message(embed=self.cog.error_embed(str(e)), ephemeral=True)
             return
 
         self.cog.temp_edit_data[interaction.user.id] = {
