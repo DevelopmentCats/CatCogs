@@ -1,4 +1,5 @@
 discord.py==1.7.3
 pytz
+traceback
 requests
 python-dotenv
