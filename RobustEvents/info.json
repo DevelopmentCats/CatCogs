@@ -12,14 +12,15 @@
     "requirements": [
         "discord.py",
         "pytz",
-        "redbot"
+        "redbot",
+        "humanize"
     ],
     "required_cogs": {},
-    "permissions": [],
+    "permissions": ["manage_roles", "manage_channels", "manage_messages"],
     "hidden": false,
     "disabled": false,
     "end_user_data_statement": "This cog stores event data in a configuration database but does not store personal user data persistently.",
-    "install_msg": "Thank you for installing RobustEvents. Use `!create_event` to create a new event and `!list_events` to view scheduled events.",
+    "install_msg": "Thank you for installing RobustEvents. Use `[p]eventcreate` to create a new event and `[p]eventlist` to view scheduled events.",
     "max_bot_version": "0.0.0",
     "min_bot_version": "3.3.10",
     "type": "COG"
