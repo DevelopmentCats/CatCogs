@@ -359,14 +359,14 @@ class RobustEventsCog(commands.Cog):
 
     @tasks.loop(hours=24)
     async def cleanup_event_info_messages(self):
-    for guild in self.bot.guilds:
-        guild_events = self.event_info_messages.get(guild.id, {})
-        if guild_events:
-            for event_id in list(guild_events.keys()):
-                if event_id not in self.guild_events.get(guild.id, {}):
+        for guild in self.bot.guilds:
+            guild_events = self.event_info_messages.get(guild.id, {})
+            if guild_events:
+                for event_id in list(guild_events.keys()):
+                    if event_id not in self.guild_events.get(guild.id, {}):
                         del guild_events[event_id]
-            self.event_info_messages[guild.id] = guild_events
-            await self.config.guild(guild).event_info_messages.set(guild_events)
+                self.event_info_messages[guild.id] = guild_events
+                await self.config.guild(guild).event_info_messages.set(guild_events)
 
     @tasks.loop(hours=24)
     async def cleanup_expired_events(self):
@@ -1304,8 +1304,8 @@ class RobustEventsCog(commands.Cog):
             for event_id, event in self.guild_events.get(guild.id, {}).items():
                 event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
                 if event_time < now:
-                notification_keys = [f"{guild.id}:{event_id}:{n}" for n in event['notifications']]
-                self.sent_notifications -= set(notification_keys)
+                    notification_keys = [f"{guild.id}:{event_id}:{n}" for n in event['notifications']]
+                    self.sent_notifications -= set(notification_keys)
         self.logger.debug("Cleaned up old notifications")
 
 
