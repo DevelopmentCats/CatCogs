@@ -316,9 +316,24 @@ class RobustEventsCog(commands.Cog):
         self.sync_event_cache.start()
         self.update_event_embeds.start()
         self.cleanup_event_info_messages.start()
+        self.sent_notifications = set()
         self.failed_notifications = []
-        self.backup_event_data.start()
         self.retry_failed_notifications.start()
+        self.cleanup_notifications.start()
+
+
+    @tasks.loop(hours=1)
+    async def cleanup_notifications(self):
+        now = datetime.now(pytz.UTC)
+        for guild in self.bot.guilds:
+            guild_tz = await self.get_guild_timezone(guild)
+            for event_id, event in self.guild_events.get(guild.id, {}).items():
+                event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
+                if event_time < now:
+                    notification_keys = [f"{guild.id}:{event_id}:{n}" for n in event['notifications']]
+                    if hasattr(self, 'sent_notifications'):
+                        self.sent_notifications -= set(notification_keys)
+            self.logger.debug("Cleaned up old notifications")
 
     async def initialize_cog(self):
         try:
@@ -329,18 +344,14 @@ class RobustEventsCog(commands.Cog):
             self.logger.info("Events initialized, setting up event info messages...")
             await self.initialize_event_info_messages()
             self.logger.info("Event info messages set up, performing initial cleanup...")
-            if hasattr(self, 'cleanup_notifications'):
-                await self.cleanup_notifications()
-                self.logger.info("Initial cleanup completed.")
-            else:
-                self.logger.warning("cleanup_notifications method not found. Skipping cleanup.")
+            await self.cleanup_notifications()
+            self.logger.info("Initial cleanup completed.")
             self.logger.info("RobustEvents cog initialization completed successfully.")
         except Exception as e:
             self.logger.error(f"Error initializing cog: {e}", exc_info=True)
 
     def cog_unload(self):
         self.cleanup_expired_events.cancel()
-        self.sync_event_cache.cancel()
         self.update_event_embeds.cancel()
         for task in self.event_tasks.values():
             task.cancel()
@@ -353,9 +364,8 @@ class RobustEventsCog(commands.Cog):
         self.last_notification_time.clear()
         self.event_info_messages.clear()
         asyncio.create_task(self.cleanup_notifications())
-        self.refresh_timezone_cache.cancel()
-        self.backup_event_data.cancel()
-        self.retry_failed_notifications.cancel()
+        if hasattr(self, 'refresh_timezone_cache'):
+            self.refresh_timezone_cache.cancel()
 
     @tasks.loop(hours=24)
     async def cleanup_event_info_messages(self):
@@ -383,6 +393,17 @@ class RobustEventsCog(commands.Cog):
                     if event_id in self.event_tasks:
                         self.event_tasks[event_id].cancel()
                         del self.event_tasks[event_id]
+
+    @tasks.loop(minutes=15)
+    async def retry_failed_notifications(self):
+        for guild_id, event_id, notification_time, event_time in self.failed_notifications[:]:
+            guild = self.bot.get_guild(guild_id)
+            if guild:
+                try:
+                    await self.send_notification(guild, event_id, notification_time, event_time)
+                    self.failed_notifications.remove((guild_id, event_id, notification_time, event_time))
+                except Exception as e:
+                    self.logger.error(f"Failed to retry notification for event {event_id}: {e}")
 
     async def initialize_events(self):
         await self.bot.wait_until_ready()
@@ -449,7 +470,6 @@ class RobustEventsCog(commands.Cog):
             self.logger.error(f"Failed to send reminder DM to user {user_id} for event {event_id}: {e}")
 
     async def event_loop(self, guild: discord.Guild, event_id: str):
-        self.sent_notifications = set()
         while True:
             try:
                 event = self.guild_events[guild.id].get(event_id)
@@ -1236,12 +1256,6 @@ class RobustEventsCog(commands.Cog):
         embed.set_footer(text=_("Current prefix: {prefix}").format(prefix=prefix))
         await ctx.send(embed=embed)
 
-    @tasks.loop(hours=1)
-    async def sync_event_cache(self):
-        for guild in self.bot.guilds:
-            events = await self.config.guild(guild).events()
-            self.guild_events[guild.id] = events
-
     @commands.guild_only()
     @commands.command(name="eventpurge")
     @commands.has_permissions(administrator=True)
@@ -1318,18 +1332,6 @@ class RobustEventsCog(commands.Cog):
                 await owner.send(f"An error occurred in the event system: {message}\n```{error_details[:1900]}```")
             except discord.HTTPException:
                 pass
-
-async def cleanup_notifications(self):
-    now = datetime.now(pytz.UTC)
-    for guild in self.bot.guilds:
-        guild_tz = await self.get_guild_timezone(guild)
-        for event_id, event in self.guild_events.get(guild.id, {}).items():
-            event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
-            if event_time < now:
-                notification_keys = [f"{guild.id}:{event_id}:{n}" for n in event['notifications']]
-                self.sent_notifications -= set(notification_keys)
-    self.logger.debug("Cleaned up old notifications")
-
 
 class ReminderSelectView(ui.View):
     def __init__(self, cog, user_id: int, event_id: str, event_time: datetime):
