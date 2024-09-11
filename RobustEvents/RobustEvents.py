@@ -317,7 +317,6 @@ class RobustEventsCog(commands.Cog):
         self.update_event_embeds.start()
         self.cleanup_event_info_messages.start()
         self.failed_notifications = []
-        self.refresh_timezone_cache.start()
         self.backup_event_data.start()
         self.retry_failed_notifications.start()
 
@@ -465,15 +464,16 @@ class RobustEventsCog(commands.Cog):
                         if notification_key in self.sent_notifications:
                             continue
                         self.sent_notifications.add(notification_key)
-                        await self.sleep_until(next_time - notification_delta - timedelta(seconds=1))  # Add 1-second buffer
+                        notification_time = next_time - notification_delta
+                        await asyncio.sleep_until(notification_time.replace(tzinfo=None))
                         await self.send_notification_with_retry(guild, event_id, notification_time, next_time)
                         time_until_event = notification_delta
 
-                await self.sleep_until(next_time)
+                await asyncio.sleep_until(next_time.replace(tzinfo=None))
                 await self.send_event_start_message(guild, event_id, next_time)
 
                 if time2 and next_time == time1:
-                    await self.sleep_until(time2)
+                    await asyncio.sleep_until(time2.replace(tzinfo=None))
                     await self.send_event_start_message(guild, event_id, time2)
 
                 await self.update_event_times(guild, event_id)
