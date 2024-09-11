@@ -12,21 +12,12 @@ import humanize
 import pytz
 import traceback
 from discord.ext import commands, tasks
-from discord.ui import Modal, TextInput, View
+from discord import ui
 from redbot.core import Config, commands
 from redbot.core.bot import Red
 from redbot.core.i18n import Translator, cog_i18n
 
 _ = Translator("RobustEvents", __file__)
-
-async def sleep_until(when):
-    now = datetime.now(when.tzinfo)
-    if now >= when:
-        return
-    while now < when:
-        remaining = (when - now).total_seconds()
-        await asyncio.sleep(min(1, remaining))
-        now = datetime.now(when.tzinfo)
 
 MIN_NOTIFICATION_INTERVAL = timedelta(minutes=5)  # Minimum interval between notifications
 
@@ -37,17 +28,17 @@ class RepeatType(Enum):
     MONTHLY = 'monthly'
     YEARLY = 'yearly'
 
-class BasicEventModal(Modal):
+class BasicEventModal(ui.Modal, title=_("Create New Event - Basic Info")):
     def __init__(self, cog, guild: discord.Guild, original_message: discord.Message):
-        super().__init__(title=_("Create New Event - Basic Info"))
+        super().__init__()
         self.cog = cog
         self.guild = guild
         self.original_message = original_message
 
-        self.name = TextInput(label=_("Event Name"), placeholder=_("Enter event name"), max_length=100)
-        self.datetime1 = TextInput(label=_("First Time (HH:MM)"), placeholder=_("14:30"))
-        self.datetime2 = TextInput(label=_("Second Time (Optional, HH:MM)"), placeholder=_("18:30"), required=False)
-        self.description = TextInput(label=_("Description"), style=discord.TextStyle.paragraph, max_length=1000)
+        self.name = ui.TextInput(label=_("Event Name"), placeholder=_("Enter event name"), max_length=100)
+        self.datetime1 = ui.TextInput(label=_("First Time (HH:MM)"), placeholder=_("14:30"))
+        self.datetime2 = ui.TextInput(label=_("Second Time (Optional, HH:MM)"), placeholder=_("18:30"), required=False)
+        self.description = ui.TextInput(label=_("Description"), style=discord.TextStyle.paragraph, max_length=1000)
 
         self.add_item(self.name)
         self.add_item(self.datetime1)
@@ -88,17 +79,17 @@ class BasicEventModal(Modal):
         view = AdvancedOptionsView(self.cog, self.original_message)
         await interaction.response.send_message(_("Basic information saved. Click the button below to set advanced options:"), view=view, ephemeral=True)
 
-class AdvancedEventModal(Modal):
+class AdvancedEventModal(ui.Modal, title=_("Create New Event - Advanced Options")):
     def __init__(self, cog, guild: discord.Guild, original_message: discord.Message):
-        super().__init__(title=_("Create New Event - Advanced Options"))
+        super().__init__()
         self.cog = cog
         self.guild = guild
         self.original_message = original_message
 
-        self.notifications = TextInput(label=_("Notification Times (minutes)"), placeholder=_("10,30,60"))
-        self.repeat = TextInput(label=_("Repeat (none/daily/weekly/monthly/yearly)"), placeholder=_("none"))
-        self.role_name = TextInput(label=_("Event Role Name"), placeholder=_("Event Attendees"))
-        self.channel = TextInput(label=_("Channel"), placeholder=_("#events"))
+        self.notifications = ui.TextInput(label=_("Notification Times (minutes)"), placeholder=_("10,30,60"))
+        self.repeat = ui.TextInput(label=_("Repeat (none/daily/weekly/monthly/yearly)"), placeholder=_("none"))
+        self.role_name = ui.TextInput(label=_("Event Role Name"), placeholder=_("Event Attendees"))
+        self.channel = ui.TextInput(label=_("Channel"), placeholder=_("#events"))
 
         self.add_item(self.notifications)
         self.add_item(self.repeat)
@@ -153,19 +144,19 @@ class AdvancedEventModal(Modal):
             self.cog.logger.error(f"Error creating event: {e}", exc_info=True)
             await interaction.response.send_message(_("An error occurred while creating the event. Please try again."), ephemeral=True)
 
-class AdvancedOptionsView(View):
+class AdvancedOptionsView(ui.View):
     def __init__(self, cog, original_message: discord.Message):
         super().__init__()
         self.cog = cog
         self.original_message = original_message
 
-    @discord.ui.button(label=_("Set Advanced Options"), style=discord.ButtonStyle.primary)
-    async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Set Advanced Options"), style=discord.ButtonStyle.primary)
+    async def advanced_options_button(self, interaction: discord.Interaction, button: ui.Button):
         advanced_modal = AdvancedEventModal(self.cog, interaction.guild, self.original_message)
         await interaction.response.send_modal(advanced_modal)
         self.stop()
 
-class EventCreationView(discord.ui.View):
+class EventCreationView(ui.View):
     def __init__(self, cog, guild: discord.Guild, author: discord.Member):
         super().__init__(timeout=300)  # 5 minutes timeout
         self.cog = cog
@@ -179,14 +170,14 @@ class EventCreationView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label=_("Create Event"), style=discord.ButtonStyle.primary, emoji="➕")
-    async def create_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Create Event"), style=discord.ButtonStyle.primary, emoji="➕")
+    async def create_event_button(self, interaction: discord.Interaction, button: ui.Button):
         basic_modal = BasicEventModal(self.cog, self.guild, self.message)
         await interaction.response.send_modal(basic_modal)
         self.stop()
 
-    @discord.ui.button(label=_("Cancel"), style=discord.ButtonStyle.secondary, emoji="❌")
-    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Cancel"), style=discord.ButtonStyle.secondary, emoji="❌")
+    async def cancel_button(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(content=_("Event creation cancelled."), view=None)
         self.stop()
 
@@ -194,15 +185,15 @@ class EventCreationView(discord.ui.View):
         if self.message:
             await self.message.edit(content=_("Event creation timed out."), view=None)
 
-class EventInfoView(discord.ui.View):
+class EventInfoView(ui.View):
     def __init__(self, cog, event_id: str, role_id: int):
         super().__init__(timeout=None)
         self.cog = cog
         self.event_id = event_id
         self.role_id = role_id
 
-    @discord.ui.button(label=_("Join Event"), style=discord.ButtonStyle.primary, emoji="✅")
-    async def join_event(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Join Event"), style=discord.ButtonStyle.primary, emoji="✅")
+    async def join_event(self, interaction: discord.Interaction, button: ui.Button):
         role = interaction.guild.get_role(self.role_id)
         if role is None:
             await interaction.response.send_message(_("Error: Event role not found."), ephemeral=True)
@@ -223,8 +214,8 @@ class EventInfoView(discord.ui.View):
             except discord.Forbidden:
                 await interaction.response.send_message(_("I don't have permission to assign roles."), ephemeral=True)
 
-    @discord.ui.button(label=_("Set Reminder"), style=discord.ButtonStyle.secondary, emoji="⏰")
-    async def set_reminder(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Set Reminder"), style=discord.ButtonStyle.secondary, emoji="⏰")
+    async def set_reminder(self, interaction: discord.Interaction, button: ui.Button):
         event = self.cog.guild_events[interaction.guild.id].get(self.event_id)
         if not event:
             await interaction.response.send_message(_("Error: Event not found."), ephemeral=True)
@@ -235,15 +226,15 @@ class EventInfoView(discord.ui.View):
         view = ReminderSelectView(self.cog, interaction.user.id, self.event_id, event_time)
         await interaction.response.send_message(_("Select when you'd like to be reminded via direct message:"), view=view, ephemeral=True)
 
-class EventReminderView(discord.ui.View):
+class EventReminderView(ui.View):
     def __init__(self, cog, guild_id: int, event_id: str):
         super().__init__(timeout=None)
         self.cog = cog
         self.guild_id = guild_id
         self.event_id = event_id
 
-    @discord.ui.button(label=_("View Event Details"), style=discord.ButtonStyle.primary, emoji="📅")
-    async def view_event_details(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("View Event Details"), style=discord.ButtonStyle.primary, emoji="📅")
+    async def view_event_details(self, interaction: discord.Interaction, button: ui.Button):
         event = self.cog.guild_events[self.guild_id].get(self.event_id)
         if not event:
             await interaction.response.send_message(_("This event no longer exists."), ephemeral=True)
@@ -252,8 +243,8 @@ class EventReminderView(discord.ui.View):
         embed = await self.cog.create_event_info_embed(interaction.guild, self.event_id, event)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label=_("Snooze Reminder"), style=discord.ButtonStyle.secondary, emoji="⏰")
-    async def snooze_reminder(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Snooze Reminder"), style=discord.ButtonStyle.secondary, emoji="⏰")
+    async def snooze_reminder(self, interaction: discord.Interaction, button: ui.Button):
         event = self.cog.guild_events[self.guild_id].get(self.event_id)
         if not event:
             await interaction.response.send_message(_("This event no longer exists."), ephemeral=True)
@@ -274,9 +265,9 @@ class EventReminderView(discord.ui.View):
             discord.SelectOption(label=_("1 hour"), value="60")
         ]
 
-        select = discord.ui.Select(placeholder=_("Select snooze duration"), options=snooze_options)
+        select = ui.Select(placeholder=_("Select snooze duration"), options=snooze_options)
 
-        async def snooze_callback(interaction: discord.Interaction):
+        async def snooze_callback(interaction: discord.Interaction, select: ui.Select):
             minutes = int(select.values[0])
             new_reminder_time = now + timedelta(minutes=minutes)
             if new_reminder_time >= event_time:
@@ -287,7 +278,7 @@ class EventReminderView(discord.ui.View):
             await interaction.response.send_message(_("Reminder snoozed for {minutes} minutes.").format(minutes=minutes), ephemeral=True)
 
         select.callback = snooze_callback
-        view = discord.ui.View()
+        view = ui.View()
         view.add_item(select)
         await interaction.response.send_message(_("Choose how long to snooze the reminder:"), view=view, ephemeral=True)
 
@@ -417,7 +408,7 @@ class RobustEventsCog(commands.Cog):
         self.logger.debug(f"Scheduled personal reminder task for event {event_id} for user {user_id} in guild {guild_id}")
 
     async def personal_reminder_loop(self, guild_id: int, user_id: int, event_id: str, reminder_time: datetime):
-        await sleep_until(reminder_time)
+        await discord.utils.sleep_until(reminder_time)
         event = self.guild_events[guild_id].get(event_id)
         if not event:
             return
@@ -474,15 +465,15 @@ class RobustEventsCog(commands.Cog):
                             continue
                         self.sent_notifications.add(notification_key)
                         notification_time = next_time - notification_delta
-                        await sleep_until(notification_time)
+                        await discord.utils.sleep_until(notification_time)
                         await self.send_notification_with_retry(guild, event_id, notification_time, next_time)
                         time_until_event = notification_delta
 
-                await sleep_until(next_time)
+                await discord.utils.sleep_until(next_time)
                 await self.send_event_start_message(guild, event_id, next_time)
 
                 if time2 and next_time == time1:
-                    await sleep_until(time2)
+                    await discord.utils.sleep_until(time2)
                     await self.send_event_start_message(guild, event_id, time2)
 
                 await self.update_event_times(guild, event_id)
@@ -491,7 +482,7 @@ class RobustEventsCog(commands.Cog):
             except asyncio.CancelledError:
                 self.logger.info(f"Event loop for {event_id} cancelled")
                 return
-            except discord.HTTPException as e:
+            except discord.errors.HTTPException as e:
                 await self.log_and_notify_error(guild, f"Discord API error in event loop for {event_id}", e)
             except Exception as e:
                 await self.log_and_notify_error(guild, f"Unexpected error in event loop for {event_id}", e)
@@ -1273,7 +1264,7 @@ class RobustEventsCog(commands.Cog):
                         try:
                             message = await channel.fetch_message(message_id)
                             new_embed = await self.create_event_info_embed(guild, event_id, event)
-                            await message.edit(embed=new_embed)
+                            await message.edit(embed=new_embed, view=None)
                         except (discord.NotFound, discord.Forbidden):
                             del self.event_info_messages[event_id]
 
@@ -1327,7 +1318,7 @@ async def cleanup_notifications(self):
             # Implement your backup logic here, e.g., saving to a file or external service
             self.logger.info(f"Backed up event data for guild {guild.id}")
 
-class ReminderSelectView(discord.ui.View):
+class ReminderSelectView(ui.View):
     def __init__(self, cog, user_id: int, event_id: str, event_time: datetime):
         super().__init__()
         self.cog = cog
@@ -1348,7 +1339,7 @@ class ReminderSelectView(discord.ui.View):
         await self.cog.set_personal_reminder(interaction.guild_id, self.user_id, self.event_id, reminder_time)
         await interaction.response.send_message(embed=self.cog.success_embed(_("I'll remind you about '{event_id}' {minutes} minutes before it starts via direct message.").format(event_id=self.event_id, minutes=minutes)), ephemeral=True)
 
-class ReminderSelect(discord.ui.Select):
+class ReminderSelect(ui.Select):
     def __init__(self, callback):
         options = [
             discord.SelectOption(label=_("5 minutes"), value="5", emoji="⏱️"),
@@ -1363,13 +1354,13 @@ class ReminderSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         await self.callback_function(interaction, int(self.values[0]))
 
-class ConfirmPurgeView(discord.ui.View):
+class ConfirmPurgeView(ui.View):
     def __init__(self, cog):
         super().__init__()
         self.cog = cog
 
-    @discord.ui.button(label=_("Confirm Purge"), style=discord.ButtonStyle.danger, emoji="🗑️")
-    async def confirm_purge(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Confirm Purge"), style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def confirm_purge(self, interaction: discord.Interaction, button: ui.Button):
         await self.cog.purge_all_data()
         embed = discord.Embed(
             title=_("✅ Data Purged"),
@@ -1378,8 +1369,8 @@ class ConfirmPurgeView(discord.ui.View):
         )
         await interaction.response.send_message(embed=embed)
 
-    @discord.ui.button(label=_("Cancel"), style=discord.ButtonStyle.secondary, emoji="🚫")
-    async def cancel_purge(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Cancel"), style=discord.ButtonStyle.secondary, emoji="🚫")
+    async def cancel_purge(self, interaction: discord.Interaction, button: ui.Button):
         embed = discord.Embed(
             title=_("❌ Purge Cancelled"),
             description=_("The purge operation has been cancelled. No data was deleted."),
@@ -1387,7 +1378,7 @@ class ConfirmPurgeView(discord.ui.View):
         )
         await interaction.response.send_message(embed=embed)
 
-class BasicEventEditModal(discord.ui.Modal, title=_("Edit Event - Basic Info")):
+class BasicEventEditModal(ui.Modal, title=_("Edit Event - Basic Info")):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict, timezone: pytz.timezone):
         super().__init__()
         self.cog = cog
@@ -1443,7 +1434,7 @@ class BasicEventEditModal(discord.ui.Modal, title=_("Edit Event - Basic Info")):
         view = AdvancedEditOptionsView(self.cog, self.guild, self.event_name, self.event_data)
         await interaction.response.send_message(_("Basic information updated. Click the button below to edit advanced options:"), view=view, ephemeral=True)
 
-class AdvancedEventEditModal(discord.ui.Modal, title=_("Edit Event - Advanced Options")):
+class AdvancedEventEditModal(ui.Modal, title=_("Edit Event - Advanced Options")):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict, timezone: pytz.timezone):
         super().__init__()
         self.cog = cog
@@ -1511,7 +1502,7 @@ class AdvancedEventEditModal(discord.ui.Modal, title=_("Edit Event - Advanced Op
         else:
             await interaction.response.send_message(embed=self.cog.error_embed(_("Event '{event_name}' not found.")), ephemeral=True)
 
-class EventEditView(discord.ui.View):
+class EventEditView(ui.View):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
         super().__init__()
         self.cog = cog
@@ -1519,13 +1510,13 @@ class EventEditView(discord.ui.View):
         self.event_name = event_name
         self.event_data = event_data
 
-    @discord.ui.button(label=_("Edit Event"), style=discord.ButtonStyle.primary, emoji="✏️")
-    async def edit_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Edit Event"), style=discord.ButtonStyle.primary, emoji="✏️")
+    async def edit_event_button(self, interaction: discord.Interaction, button: ui.Button):
         timezone = await self.cog.get_guild_timezone(self.guild)
         modal = BasicEventEditModal(self.cog, self.guild, self.event_name, self.event_data, timezone)
         await interaction.response.send_modal(modal)
 
-class AdvancedEditOptionsView(discord.ui.View):
+class AdvancedEditOptionsView(ui.View):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
         super().__init__()
         self.cog = cog
@@ -1533,13 +1524,13 @@ class AdvancedEditOptionsView(discord.ui.View):
         self.event_name = event_name
         self.event_data = event_data
 
-    @discord.ui.button(label=_("Edit Advanced Options"), style=discord.ButtonStyle.primary, emoji="⚙️")
-    async def advanced_options_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Edit Advanced Options"), style=discord.ButtonStyle.primary, emoji="⚙️")
+    async def advanced_options_button(self, interaction: discord.Interaction, button: ui.Button):
         timezone = await self.cog.get_guild_timezone(self.guild)
         modal = AdvancedEventEditModal(self.cog, self.guild, self.event_name, self.event_data, timezone)
         await interaction.response.send_modal(modal)
 
-class ConfirmCancelView(discord.ui.View):
+class ConfirmCancelView(ui.View):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict):
         super().__init__()
         self.cog = cog
@@ -1547,13 +1538,13 @@ class ConfirmCancelView(discord.ui.View):
         self.event_name = event_name
         self.event_data = event_data
 
-    @discord.ui.button(label=_("Confirm Cancel"), style=discord.ButtonStyle.danger, emoji="🚫")
-    async def confirm_cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Confirm Cancel"), style=discord.ButtonStyle.danger, emoji="🚫")
+    async def confirm_cancel(self, interaction: discord.Interaction, button: ui.Button):
         await self.cog.cancel_event(self.guild, self.event_name)
         await interaction.response.send_message(embed=self.cog.success_embed(_("The event '{event_name}' has been cancelled and participants have been notified.").format(event_name=self.event_name)))
 
-    @discord.ui.button(label=_("Keep Event"), style=discord.ButtonStyle.secondary, emoji="🔙")
-    async def keep_event(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label=_("Keep Event"), style=discord.ButtonStyle.secondary, emoji="🔙")
+    async def keep_event(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(embed=self.cog.success_embed(_("The event '{event_name}' has not been cancelled.").format(event_name=self.event_name)))
 
 async def setup(bot: Red):
