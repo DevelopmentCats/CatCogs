@@ -358,6 +358,17 @@ class RobustEventsCog(commands.Cog):
         self.retry_failed_notifications.cancel()
 
     @tasks.loop(hours=24)
+    async def cleanup_event_info_messages(self):
+    for guild in self.bot.guilds:
+        guild_events = self.event_info_messages.get(guild.id, {})
+        if guild_events:
+            for event_id in list(guild_events.keys()):
+                if event_id not in self.guild_events.get(guild.id, {}):
+                        del guild_events[event_id]
+            self.event_info_messages[guild.id] = guild_events
+            await self.config.guild(guild).event_info_messages.set(guild_events)
+
+    @tasks.loop(hours=24)
     async def cleanup_expired_events(self):
         for guild in self.bot.guilds:
             async with self.config.guild(guild).events() as events:
@@ -408,7 +419,10 @@ class RobustEventsCog(commands.Cog):
         self.logger.debug(f"Scheduled personal reminder task for event {event_id} for user {user_id} in guild {guild_id}")
 
     async def personal_reminder_loop(self, guild_id: int, user_id: int, event_id: str, reminder_time: datetime):
-        await discord.utils.sleep_until(reminder_time)
+        now = datetime.now(pytz.UTC)
+        sleep_duration = (reminder_time - now).total_seconds()
+        if sleep_duration > 0:
+            await asyncio.sleep(sleep_duration)
         event = self.guild_events[guild_id].get(event_id)
         if not event:
             return
@@ -465,15 +479,24 @@ class RobustEventsCog(commands.Cog):
                             continue
                         self.sent_notifications.add(notification_key)
                         notification_time = next_time - notification_delta
-                        await discord.utils.sleep_until(notification_time)
+                        now = datetime.now(pytz.UTC)
+                        sleep_duration = (notification_time - now).total_seconds()
+                        if sleep_duration > 0:
+                            await asyncio.sleep(sleep_duration)
                         await self.send_notification_with_retry(guild, event_id, notification_time, next_time)
                         time_until_event = notification_delta
 
-                await discord.utils.sleep_until(next_time)
+                now = datetime.now(pytz.UTC)
+                sleep_duration = (next_time - now).total_seconds()
+                if sleep_duration > 0:
+                    await asyncio.sleep(sleep_duration)
                 await self.send_event_start_message(guild, event_id, next_time)
 
                 if time2 and next_time == time1:
-                    await discord.utils.sleep_until(time2)
+                    now = datetime.now(pytz.UTC)
+                    sleep_duration = (time2 - now).total_seconds()
+                    if sleep_duration > 0:
+                        await asyncio.sleep(sleep_duration)
                     await self.send_event_start_message(guild, event_id, time2)
 
                 await self.update_event_times(guild, event_id)
@@ -1274,6 +1297,18 @@ class RobustEventsCog(commands.Cog):
             guild_messages = await self.config.guild(guild).event_info_messages()
             self.event_info_messages[guild.id] = guild_messages
 
+    async def cleanup_notifications(self):
+        now = datetime.now(pytz.UTC)
+        for guild in self.bot.guilds:
+            guild_tz = await self.get_guild_timezone(guild)
+            for event_id, event in self.guild_events.get(guild.id, {}).items():
+                event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
+                if event_time < now:
+                notification_keys = [f"{guild.id}:{event_id}:{n}" for n in event['notifications']]
+                self.sent_notifications -= set(notification_keys)
+        self.logger.debug("Cleaned up old notifications")
+
+
     async def log_and_notify_error(self, guild: discord.Guild, message: str, error: Exception):
         error_details = ''.join(traceback.format_exception(type(error), error, error.__traceback__))
         self.logger.error(f"{message}: {error_details}")
@@ -1295,28 +1330,6 @@ async def cleanup_notifications(self):
                 self.sent_notifications -= set(notification_keys)
     self.logger.debug("Cleaned up old notifications")
 
-    async def remove_event_info_message(self, guild_id: int, event_id: str):
-        if guild_id in self.event_info_messages and event_id in self.event_info_messages[guild_id]:
-            del self.event_info_messages[guild_id][event_id]
-            await self.config.guild_from_id(guild_id).event_info_messages.set(self.event_info_messages[guild_id])
-
-    @tasks.loop(hours=24)
-    async def cleanup_event_info_messages(self):
-        for guild in self.bot.guilds:
-            guild_events = self.event_info_messages.get(guild.id, {})
-            if guild_events:
-                for event_id in list(guild_events.keys()):
-                    if event_id not in self.guild_events.get(guild.id, {}):
-                        del guild_events[event_id]
-            self.event_info_messages[guild.id] = guild_events
-            await self.config.guild(guild).event_info_messages.set(guild_events)
-
-    @tasks.loop(hours=24)
-    async def backup_event_data(self):
-        for guild in self.bot.guilds:
-            events = await self.config.guild(guild).events()
-            # Implement your backup logic here, e.g., saving to a file or external service
-            self.logger.info(f"Backed up event data for guild {guild.id}")
 
 class ReminderSelectView(ui.View):
     def __init__(self, cog, user_id: int, event_id: str, event_time: datetime):
