@@ -178,12 +178,12 @@ class EventCreationView(ui.View):
 
     @ui.button(label=_("Cancel"), style=discord.ButtonStyle.secondary, emoji="❌")
     async def cancel_button(self, interaction: discord.Interaction, button: ui.Button):
-        await interaction.response.edit_message(content=_("Event creation cancelled."), view=None)
+        await self.message.delete()
         self.stop()
 
     async def on_timeout(self):
         if self.message:
-            await self.message.edit(content=_("Event creation timed out."), view=None)
+            await self.message.delete()
 
 class EventInfoView(ui.View):
     def __init__(self, cog, event_id: str, role_id: int):
@@ -743,7 +743,7 @@ class RobustEventsCog(commands.Cog):
                               description=_("Click the button below to start creating a new event."), 
                               color=discord.Color.blue())
         message = await ctx.send(embed=embed, view=view)
-        view.message = message
+        view.message = await ctx.send(_("Click the button below to create a new event:"), view=view)
 
         # Wait for the view to finish
         await view.wait()
@@ -1200,7 +1200,7 @@ class RobustEventsCog(commands.Cog):
         else:
             event = self.guild_events[ctx.guild.id][event_id]
             view = EventEditView(self, ctx.guild, event_name, event)
-            await ctx.send(embed=self.success_embed(_("Click the button below to edit the event '{event_name}'.")), view=view)
+            view.message = await ctx.send(embed=self.success_embed(_("Click the button below to edit the event '{event_name}'.")), view=view)
 
     @commands.guild_only()
     @commands.command(name="eventcancel")
@@ -1219,7 +1219,7 @@ class RobustEventsCog(commands.Cog):
         else:
             event = self.guild_events[ctx.guild.id][event_id]
             view = ConfirmCancelView(self, ctx.guild, event_name, event)
-            await ctx.send(embed=self.success_embed(_("Click the button below to confirm canceling the event '{event_name}'.")), view=view)
+            view.message = await ctx.send(embed=self.success_embed(_("Click the button below to confirm canceling the event '{event_name}'.")), view=view)
 
     async def cancel_event(self, guild: discord.Guild, event_id: str):
         try:
@@ -1563,6 +1563,9 @@ class EventEditView(ui.View):
         self.event_name = event_name
         self.event_data = event_data
 
+    async def on_timeout(self):
+        await self.message.delete()
+
     @ui.button(label=_("Edit Event"), style=discord.ButtonStyle.primary, emoji="✏️")
     async def edit_event_button(self, interaction: discord.Interaction, button: ui.Button):
         timezone = await self.cog.get_guild_timezone(self.guild)
@@ -1595,10 +1598,14 @@ class ConfirmCancelView(ui.View):
     async def confirm_cancel(self, interaction: discord.Interaction, button: ui.Button):
         await self.cog.cancel_event(self.guild, self.event_name)
         await interaction.response.send_message(embed=self.cog.success_embed(_("The event '{event_name}' has been cancelled and participants have been notified.").format(event_name=self.event_name)))
+        await self.message.delete()
+        self.stop()
 
-    @ui.button(label=_("Keep Event"), style=discord.ButtonStyle.secondary, emoji="🔙")
+@ui.button(label=_("Keep Event"), style=discord.ButtonStyle.secondary, emoji="🔙")
     async def keep_event(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(embed=self.cog.success_embed(_("The event '{event_name}' has not been cancelled.").format(event_name=self.event_name)))
+        await self.message.delete()
+        self.stop()
 
 async def setup(bot: Red):
     await bot.add_cog(RobustEventsCog(bot))
