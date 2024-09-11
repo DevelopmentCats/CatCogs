@@ -19,6 +19,15 @@ from redbot.core.i18n import Translator, cog_i18n
 
 _ = Translator("RobustEvents", __file__)
 
+async def sleep_until(when):
+    now = datetime.now(when.tzinfo)
+    if now >= when:
+        return
+    while now < when:
+        remaining = (when - now).total_seconds()
+        await asyncio.sleep(min(1, remaining))
+        now = datetime.now(when.tzinfo)
+
 MIN_NOTIFICATION_INTERVAL = timedelta(minutes=5)  # Minimum interval between notifications
 
 class RepeatType(Enum):
@@ -408,7 +417,7 @@ class RobustEventsCog(commands.Cog):
         self.logger.debug(f"Scheduled personal reminder task for event {event_id} for user {user_id} in guild {guild_id}")
 
     async def personal_reminder_loop(self, guild_id: int, user_id: int, event_id: str, reminder_time: datetime):
-        await discord.utils.sleep_until(reminder_time)
+        await sleep_until(reminder_time)
         event = self.guild_events[guild_id].get(event_id)
         if not event:
             return
@@ -465,15 +474,15 @@ class RobustEventsCog(commands.Cog):
                             continue
                         self.sent_notifications.add(notification_key)
                         notification_time = next_time - notification_delta
-                        await asyncio.sleep_until(notification_time.replace(tzinfo=None))
+                        await sleep_until(notification_time)
                         await self.send_notification_with_retry(guild, event_id, notification_time, next_time)
                         time_until_event = notification_delta
 
-                await asyncio.sleep_until(next_time.replace(tzinfo=None))
+                await sleep_until(next_time)
                 await self.send_event_start_message(guild, event_id, next_time)
 
                 if time2 and next_time == time1:
-                    await asyncio.sleep_until(time2.replace(tzinfo=None))
+                    await sleep_until(time2)
                     await self.send_event_start_message(guild, event_id, time2)
 
                 await self.update_event_times(guild, event_id)
@@ -1284,16 +1293,16 @@ class RobustEventsCog(commands.Cog):
             except discord.HTTPException:
                 pass
 
-    async def cleanup_notifications(self):
-        now = datetime.now(pytz.UTC)
-        for guild in self.bot.guilds:
-            guild_tz = await self.get_guild_timezone(guild)
-            for event_id, event in self.guild_events.get(guild.id, {}).items():
-                event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
+async def cleanup_notifications(self):
+    now = datetime.now(pytz.UTC)
+    for guild in self.bot.guilds:
+        guild_tz = await self.get_guild_timezone(guild)
+        for event_id, event in self.guild_events.get(guild.id, {}).items():
+            event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
             if event_time < now:
                 notification_keys = [f"{guild.id}:{event_id}:{n}" for n in event['notifications']]
                 self.sent_notifications -= set(notification_keys)
-            self.logger.debug("Cleaned up old notifications")
+    self.logger.debug("Cleaned up old notifications")
 
     async def remove_event_info_message(self, guild_id: int, event_id: str):
         if guild_id in self.event_info_messages and event_id in self.event_info_messages[guild_id]:
@@ -1304,9 +1313,10 @@ class RobustEventsCog(commands.Cog):
     async def cleanup_event_info_messages(self):
         for guild in self.bot.guilds:
             guild_events = self.event_info_messages.get(guild.id, {})
-            for event_id in list(guild_events.keys()):
-                if event_id not in self.guild_events.get(guild.id, {}):
-                    del guild_events[event_id]
+            if guild_events:
+                for event_id in list(guild_events.keys()):
+                    if event_id not in self.guild_events.get(guild.id, {}):
+                        del guild_events[event_id]
             self.event_info_messages[guild.id] = guild_events
             await self.config.guild(guild).event_info_messages.set(guild_events)
 
