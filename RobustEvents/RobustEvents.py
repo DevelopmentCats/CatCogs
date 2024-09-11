@@ -1288,40 +1288,11 @@ class RobustEventsCog(commands.Cog):
             self.guild_timezone_cache[guild.id] = pytz.timezone(timezone_str)
         return self.guild_timezone_cache[guild.id]
 
-    @tasks.loop(minutes=1)
-    async def update_event_embeds(self):
-        for guild in self.bot.guilds:
-            guild_tz = await self.get_guild_timezone(guild)
-            now = datetime.now(guild_tz)
-            for event_id, event in self.guild_events[guild.id].items():
-                if event_id in self.event_info_messages:
-                    channel_id, message_id = self.event_info_messages[event_id]
-                    channel = guild.get_channel(channel_id)
-                    if channel:
-                        try:
-                            message = await channel.fetch_message(message_id)
-                            new_embed = await self.create_event_info_embed(guild, event_id, event)
-                            await message.edit(embed=new_embed, view=None)
-                        except (discord.NotFound, discord.Forbidden):
-                            del self.event_info_messages[event_id]
-
     async def initialize_event_info_messages(self):
         await self.bot.wait_until_ready()
         for guild in self.bot.guilds:
             guild_messages = await self.config.guild(guild).event_info_messages()
             self.event_info_messages[guild.id] = guild_messages
-
-    async def cleanup_notifications(self):
-        now = datetime.now(pytz.UTC)
-        for guild in self.bot.guilds:
-            guild_tz = await self.get_guild_timezone(guild)
-            for event_id, event in self.guild_events.get(guild.id, {}).items():
-                event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
-                if event_time < now:
-                    notification_keys = [f"{guild.id}:{event_id}:{n}" for n in event['notifications']]
-                    self.sent_notifications -= set(notification_keys)
-        self.logger.debug("Cleaned up old notifications")
-
 
     async def log_and_notify_error(self, guild: discord.Guild, message: str, error: Exception):
         error_details = ''.join(traceback.format_exception(type(error), error, error.__traceback__))
