@@ -5,7 +5,7 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import discord
 import humanize
@@ -331,8 +331,7 @@ class RobustEventsCog(commands.Cog):
                 event_time = datetime.fromisoformat(event['time1']).astimezone(guild_tz)
                 if event_time < now:
                     notification_keys = [f"{guild.id}:{event_id}:{n}" for n in event['notifications']]
-                    if hasattr(self, 'sent_notifications'):
-                        self.sent_notifications -= set(notification_keys)
+                    self.sent_notifications -= set(notification_keys)
             self.logger.debug("Cleaned up old notifications")
 
     async def initialize_cog(self):
@@ -349,6 +348,16 @@ class RobustEventsCog(commands.Cog):
             self.logger.info("RobustEvents cog initialization completed successfully.")
         except Exception as e:
             self.logger.error(f"Error initializing cog: {e}", exc_info=True)
+            await self.notify_admin_of_initialization_failure(e)
+
+    async def notify_admin_of_initialization_failure(self, error: Exception):
+        for guild in self.bot.guilds:
+            owner = guild.owner
+            if owner:
+                try:
+                    await owner.send(f"RobustEvents cog initialization failed. Error: {error}")
+                except discord.HTTPException:
+                    pass
 
     def cog_unload(self):
         self.cleanup_expired_events.cancel()
@@ -799,8 +808,8 @@ class RobustEventsCog(commands.Cog):
 
         if confirm_view.value:
             success = await self.delete_event(ctx.guild, event_id)
-        if success:
-            await ctx.send(embed=self.success_embed(_("Event '{event_name}' has been deleted.").format(event_name=event_name)))
+            if success:
+                await ctx.send(embed=self.success_embed(_("Event '{event_name}' has been deleted.").format(event_name=event_name)))
         else:
             await ctx.send(embed=self.error_embed(_("Failed to delete event '{event_name}'. Please try again later.").format(event_name=event_name)))
 
@@ -864,7 +873,7 @@ class RobustEventsCog(commands.Cog):
             view = EventEditView(self, ctx.guild, event_name, event)
             await ctx.send(embed=self.success_embed(_("Click the button below to edit the event '{event_name}'.")), view=view)
 
-    async def create_event(self, guild: discord.Guild, name: str, event_time1: datetime, description: str, notifications: List[int], repeat: str, role_name: Optional[str], channel: Optional[discord.TextChannel], event_time2: Optional[datetime] = None) -> str:
+    async def create_event(self, guild: discord.Guild, name: str, event_time1: datetime, description: str, notifications: List[int], repeat: str, role_name: Optional[str], channel: Optional[discord.TextChannel], event_time2: Optional[datetime] = None) -> Tuple[bool, Optional[str]]:
         guild_tz = await self.get_guild_timezone(guild)
         event_time1 = event_time1.astimezone(guild_tz)
         if event_time2:
@@ -889,6 +898,8 @@ class RobustEventsCog(commands.Cog):
 
             async with self.config.guild(guild).events() as events:
                 events[event_id] = event_data
+            if guild.id not in self.guild_events:
+                self.guild_events[guild.id] = {}
             self.guild_events[guild.id][event_id] = event_data
             await self.update_event_times(guild, event_id)
             await self.schedule_event(guild, event_id)
@@ -897,10 +908,10 @@ class RobustEventsCog(commands.Cog):
                 await self.cleanup_notifications()
             else:
                 self.logger.warning("cleanup_notifications method not found. Skipping cleanup.")
-            return event_id
+            return True, event_id
         except Exception as e:
             self.logger.error(f"Error creating event: {e}", exc_info=True)
-            raise
+            return False, None
 
     async def update_event(self, guild: discord.Guild, event_id: str, new_data: dict) -> bool:
         try:
@@ -1075,7 +1086,7 @@ class RobustEventsCog(commands.Cog):
         This command shows detailed information about an upcoming event.
         """
         event_id = await self.get_event_id_from_name(ctx.guild, event_name)
-        
+    
         if not event_id:
             await ctx.send(embed=self.error_embed(_("No event found with the name '{event_name}'.")), ephemeral=True)
             return
@@ -1089,7 +1100,7 @@ class RobustEventsCog(commands.Cog):
         role_id = event.get('role_id')
         view = EventInfoView(self, event_id, role_id)
         message = await ctx.send(embed=embed, view=view)
-        
+    
         # Store the message ID for future updates
         if ctx.guild.id not in self.event_info_messages:
             self.event_info_messages[ctx.guild.id] = {}
@@ -1347,20 +1358,34 @@ class ReminderSelect(ui.Select):
 
 class ConfirmView(ui.View):
     def __init__(self, cog, ctx, event_name):
-        super().__init__()
+        super().__init__(timeout=60)  # 1 minute timeout
         self.cog = cog
         self.ctx = ctx
         self.event_name = event_name
+        self.value = None
 
     @ui.button(label=_("Confirm"), style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: ui.Button):
-        await self.cog.delete_event(self.ctx.guild, self.event_name)
-        await interaction.response.send_message(f"Event '{self.event_name}' has been deleted.")
+        event_id = await self.cog.get_event_id_from_name(self.ctx.guild, self.event_name)
+        if event_id:
+            success = await self.cog.delete_event(self.ctx.guild, event_id)
+            if success:
+                await interaction.response.send_message(_("Event '{event_name}' has been deleted.").format(event_name=self.event_name))
+            else:
+                await interaction.response.send_message(_("Failed to delete event '{event_name}'. Please try again later.").format(event_name=self.event_name))
+        else:
+            await interaction.response.send_message(_("Event '{event_name}' not found.").format(event_name=self.event_name))
+        self.value = True
         self.stop()
 
     @ui.button(label=_("Cancel"), style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: ui.Button):
-        await interaction.response.send_message("Event deletion cancelled.")
+        await interaction.response.send_message(_("Event deletion cancelled."))
+        self.value = False
+        self.stop()
+
+    async def on_timeout(self):
+        await self.ctx.send(_("Event deletion timed out."))
         self.stop()
 
 
