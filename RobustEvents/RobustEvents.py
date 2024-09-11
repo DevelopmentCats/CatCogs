@@ -465,15 +465,15 @@ class RobustEventsCog(commands.Cog):
                         if notification_key in self.sent_notifications:
                             continue
                         self.sent_notifications.add(notification_key)
-                        await asyncio.sleep_until(next_time - notification_delta - timedelta(seconds=1))  # Add 1-second buffer
+                        await self.sleep_until(next_time - notification_delta - timedelta(seconds=1))  # Add 1-second buffer
                         await self.send_notification_with_retry(guild, event_id, notification_time, next_time)
                         time_until_event = notification_delta
 
-                await discord.utils.sleep_until(next_time)
+                await self.sleep_until(next_time)
                 await self.send_event_start_message(guild, event_id, next_time)
 
                 if time2 and next_time == time1:
-                    await discord.utils.sleep_until(time2)
+                    await self.sleep_until(time2)
                     await self.send_event_start_message(guild, event_id, time2)
 
                 await self.update_event_times(guild, event_id)
