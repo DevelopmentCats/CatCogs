@@ -855,6 +855,20 @@ class RobustEventsCog(commands.Cog):
 
         return True
 
+    async def remove_event_info_message(self, guild_id: int, event_id: str):
+        if guild_id in self.event_info_messages and event_id in self.event_info_messages[guild_id]:
+            channel_id, message_id = self.event_info_messages[guild_id][event_id]
+            guild = self.bot.get_guild(guild_id)
+            if guild:
+                channel = guild.get_channel(channel_id)
+                if channel:
+                    try:
+                        message = await channel.fetch_message(message_id)
+                        await message.delete()
+                    except (discord.NotFound, discord.Forbidden):
+                        pass
+            del self.event_info_messages[guild_id][event_id]
+
     @commands.guild_only()
     @commands.command(name="eventupdate")
     @commands.has_permissions(manage_events=True)
@@ -1482,10 +1496,10 @@ class AdvancedEventEditModal(ui.Modal, title=_("Edit Event - Advanced Options"))
         self.event_data = event_data
         self.timezone = timezone
 
-        self.notifications = TextInput(label=_("Notification Times (minutes)"), default=",".join(map(str, event_data['notifications'])))
-        self.repeat = TextInput(label=_("Repeat (none/daily/weekly/monthly/yearly)"), default=event_data['repeat'])
-        self.role_name = TextInput(label=_("Event Role Name"), default=event_data['role_name'])
-        self.channel = TextInput(label=_("Channel"), default=f"#{self.guild.get_channel(event_data['channel']).name}")
+        self.notifications = ui.TextInput(label=_("Notification Times (minutes)"), default=",".join(map(str, event_data['notifications'])))
+        self.repeat = ui.TextInput(label=_("Repeat (none/daily/weekly/monthly/yearly)"), default=event_data['repeat'])
+        self.role_name = ui.TextInput(label=_("Event Role Name"), default=event_data['role_name'])
+        self.channel = ui.TextInput(label=_("Channel"), default=f"#{self.guild.get_channel(event_data['channel']).name}")
 
         self.add_item(self.notifications)
         self.add_item(self.repeat)
