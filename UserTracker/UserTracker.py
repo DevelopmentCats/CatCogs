@@ -5,6 +5,8 @@ import asyncio
 import logging
 from functools import lru_cache
 import time
+from google.cloud import language_v1
+import os
 
 ACTIVITY_SUMMARY_LENGTH = 50
 
@@ -18,12 +20,12 @@ class RateLimiter:
         self.timestamps = []
 
     async def __aenter__(self):
-        while len(self.timestamps) >= self.calls:
-            if datetime.now() - self.timestamps[0] > self.period:
-                self.timestamps.pop(0)
-            else:
-                await asyncio.sleep(0.1)
-        self.timestamps.append(datetime.now())
+        now = datetime.now()
+        self.timestamps = [ts for ts in self.timestamps if now - ts <= self.period]
+        if len(self.timestamps) >= self.calls:
+            sleep_time = (self.timestamps[0] + self.period - now).total_seconds()
+            await asyncio.sleep(max(0, sleep_time))
+        self.timestamps.append(now)
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         pass
@@ -46,13 +48,19 @@ class UserTracker(commands.Cog):
             "authorized_users": []
         }
         self.config.register_guild(**default_guild)
+        self.config.register_global(google_api_key=None)
         self.lock = asyncio.Lock()
         self.task = bot.loop.create_task(self.initialize())
         self.logger = logging.getLogger('UserTracker')
         self.rate_limiter = RateLimiter(calls=5, period=timedelta(seconds=5))
+        self.language_client = None  # We'll initialize this in initialize()
 
     async def initialize(self):
         await self.bot.wait_until_ready()
+        api_key = await self.config.google_api_key()
+        if api_key:
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = api_key
+            self.language_client = language_v1.LanguageServiceClient()
         for guild in self.bot.guilds:
             log_channel_id = await self.config.guild(guild).log_channel()
             if log_channel_id:
@@ -85,6 +93,7 @@ class UserTracker(commands.Cog):
         - channel: Set or view the log channel
         - authorize: Authorize a user to use UserTracker commands (Bot Owner only)
         - deauthorize: Remove authorization for a user (Bot Owner only)
+        - setapikey: Set the Google Cloud API key for sentiment analysis (Bot Owner only)
         """
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
@@ -391,29 +400,59 @@ class UserTracker(commands.Cog):
     async def log_activity(self, user, activity_type, details, image_urls=None):
         async with self.rate_limiter:
             for guild in self.bot.guilds:
+                if user not in guild.members:
+                    continue
                 try:
                     tracked_users = await self.config.guild(guild).tracked_users()
                     if user.id in tracked_users:
                         thread = await self.get_user_thread(guild, user)
                         if thread:
                             embed = self.create_embed(user, activity_type, details)
+                            
+                            if activity_type == "Message Sent":
+                                content = details.split("**Content:** ")[-1]
+                                analysis = await self.analyze_text(content)
+                                embed.add_field(name="Sentiment", value=f"{analysis['sentiment']:.2f}", inline=True)
+                                embed.add_field(name="Toxicity", value="Detected" if analysis['toxicity'] else "Not Detected", inline=True)
+                            
                             if image_urls:
-                                embed.set_image(url=image_urls[0])  # Set the first image as the main image
+                                embed.set_image(url=image_urls[0])
                             await thread.send(embed=embed)
                             
-                            # Send additional images as separate messages
                             for url in image_urls[1:]:
                                 await thread.send(url)
                             
-                            self.get_last_message_cached.cache_clear()  # Clear cache for this specific thread
+                            self.get_last_message_cached.cache_clear()
                             await self.update_main_message(guild)
                 except Exception as e:
-                    self.logger.error(f"Error logging activity for user {user.id} in guild {guild.id}: {e}")
+                    self.logger.error(f"Error logging activity for user {user.id} in guild {guild.id}: {e}", exc_info=True)
                     raise UserTrackerError(f"Failed to log activity: {str(e)}")
+
+    async def bot_in_guild(self, guild_id):
+        return self.bot.get_guild(guild_id) is not None
+
+    async def analyze_text(self, text):
+        if not self.language_client:
+            return {'sentiment': 0, 'toxicity': False}
+    
+        try:
+            document = language_v1.Document(content=text, type_=language_v1.Document.Type.PLAIN_TEXT)
+            
+            sentiment = self.language_client.analyze_sentiment(request={'document': document}).document_sentiment
+            
+            toxicity = self.language_client.classify_text(request={'document': document}).categories
+        
+            return {
+                'sentiment': sentiment.score,
+                'toxicity': any(category.name == '/Toxic' for category in toxicity)
+            }
+        except Exception as e:
+            self.logger.error(f"Error in analyze_text: {e}", exc_info=True)
+            return {'sentiment': 0, 'toxicity': False}
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        if message.author.bot:
+        if message.author.bot or not await self.bot_in_guild(message.guild.id):
             return
 
         try:
@@ -422,14 +461,11 @@ class UserTracker(commands.Cog):
                        f"**Channel:** {message.channel.mention}\n"
                        f"**Content:** {content[:1900]}{'...' if len(content) > 1900 else ''}")
 
-            image_urls = []
-            for attachment in message.attachments:
-                if attachment.content_type.startswith('image'):
-                    image_urls.append(attachment.url)
+            image_urls = [attachment.url for attachment in message.attachments if attachment.content_type.startswith('image')]
 
             await self.log_activity(message.author, "Message Sent", details, image_urls)
         except Exception as e:
-            print(f"Error in on_message for user {message.author.id}: {e}")
+            self.logger.error(f"Error in on_message for user {message.author.id}: {e}", exc_info=True)
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -445,7 +481,7 @@ class UserTracker(commands.Cog):
                 details = f"**Server:** {member.guild.name}\n**Action:** {action}"
                 await self.log_activity(member, "Voice Activity", details)
             except Exception as e:
-                print(f"Error in on_voice_state_update for user {member.id}: {e}")
+                self.logger.error(f"Error in on_voice_state_update for user {member.id}: {e}", exc_info=True)
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
@@ -468,7 +504,32 @@ class UserTracker(commands.Cog):
                     details = f"**Server:** {after.guild.name}\n**Activity:** {details[:ACTIVITY_SUMMARY_LENGTH]}{'...' if len(details) > ACTIVITY_SUMMARY_LENGTH else ''}"
                     await self.log_activity(after, "Activity Change", details)
         except Exception as e:
-            print(f"Error in on_member_update for user {after.id}: {e}")
+            self.logger.error(f"Error in on_member_update for user {after.id}: {e}", exc_info=True)
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, before, after):
+        if after.author.bot or not await self.bot_in_guild(after.guild.id):
+            return
+        try:
+            details = (f"**Server:** {after.guild.name}\n"
+                       f"**Channel:** {after.channel.mention}\n"
+                       f"**Before:** {before.content[:900]}{'...' if len(before.content) > 900 else ''}\n"
+                       f"**After:** {after.content[:900]}{'...' if len(after.content) > 900 else ''}")
+            await self.log_activity(after.author, "Message Edited", details)
+        except Exception as e:
+            self.logger.error(f"Error in on_message_edit for user {after.author.id}: {e}", exc_info=True)
+
+    @commands.Cog.listener()
+    async def on_message_delete(self, message):
+        if message.author.bot or not await self.bot_in_guild(message.guild.id):
+            return
+        try:
+            details = (f"**Server:** {message.guild.name}\n"
+                       f"**Channel:** {message.channel.mention}\n"
+                       f"**Content:** {message.content[:1900]}{'...' if len(message.content) > 1900 else ''}")
+            await self.log_activity(message.author, "Message Deleted", details)
+        except Exception as e:
+            self.logger.error(f"Error in on_message_delete for user {message.author.id}: {e}", exc_info=True)
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
@@ -480,7 +541,42 @@ class UserTracker(commands.Cog):
                 await self.config.guild(channel.guild).main_message_id.set(None)
                 print(f"Log channel {channel.name} was deleted in guild {channel.guild.name}. Log channel and thread settings have been cleared.")
         except Exception as e:
-            print(f"Error in on_guild_channel_delete for guild {channel.guild.id}: {e}")
+            self.logger.error(f"Error in on_guild_channel_delete for guild {channel.guild.id}: {e}", exc_info=True)
+
+    @track.command(name="analyze")
+    async def track_analyze(self, ctx, user: discord.User):
+        """
+        Analyze the sentiment and toxicity of a user's recent messages.
+        """
+        if not await self.is_authorized(ctx):
+            await ctx.send("You are not authorized to use UserTracker commands.")
+            return
+    
+        thread = await self.get_user_thread(ctx.guild, user)
+        if not thread:
+            await ctx.send(f"No log thread found for user {user.name}.")
+            return
+    
+        messages = []
+        async for message in thread.history(limit=100):
+            if message.author == self.bot.user and message.embeds:
+                embed = message.embeds[0]
+                if embed.title == "Message Sent":
+                    content = embed.fields[0].value.split("**Content:** ")[-1]
+                    messages.append(content)
+    
+        if not messages:
+            await ctx.send(f"No recent messages found for user {user.name}.")
+            return
+    
+        combined_text = " ".join(messages)
+        analysis = await self.analyze_text(combined_text)
+    
+        embed = discord.Embed(title=f"Analysis for {user.name}", color=discord.Color.blue())
+        embed.add_field(name="Average Sentiment", value=f"{analysis['sentiment']:.2f}", inline=True)
+        embed.add_field(name="Toxicity Detected", value="Yes" if analysis['toxicity'] else "No", inline=True)
+    
+        await ctx.send(embed=embed)
 
     @track.command(name="authorize")
     @commands.is_owner()
@@ -511,6 +607,24 @@ class UserTracker(commands.Cog):
                 await ctx.send(f"✅ User {user.name} (ID: {user.id}) has been deauthorized from using UserTracker commands in this server.")
             else:
                 await ctx.send(f"ℹ️ User {user.name} (ID: {user.id}) was not authorized to use UserTracker commands in this server.")
+
+    @track.command(name="setapikey")
+    @commands.is_owner()
+    async def track_set_api_key(self, ctx, *, api_key: str):
+        """
+        Set the Google Cloud API key for sentiment analysis (Bot Owner only).
+
+        This key is used for sentiment and toxicity analysis of messages.
+        """
+        try:
+            await self.config.google_api_key.set(api_key)
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = api_key
+            self.language_client = language_v1.LanguageServiceClient()
+            await ctx.send("✅ Google Cloud API key has been set successfully.")
+        except Exception as e:
+            await ctx.send(f"❌ Error setting Google Cloud API key: {str(e)}")
+        finally:
+            await ctx.message.delete()  # Delete the message to keep the API key secret
 
     async def is_authorized(self, ctx):
         if await self.bot.is_owner(ctx.author):
