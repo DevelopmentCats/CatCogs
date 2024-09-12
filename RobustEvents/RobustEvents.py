@@ -78,6 +78,7 @@ class BasicEventModal(ui.Modal, title=_("Create New Event - Basic Info")):
 
         view = AdvancedOptionsView(self.cog, self.original_message)
         await interaction.response.send_message(_("Basic information saved. Click the button below to set advanced options:"), view=view, ephemeral=True)
+        await self.original_message.delete()
 
 class AdvancedEventModal(ui.Modal, title=_("Create New Event - Advanced Options")):
     def __init__(self, cog, guild: discord.Guild, original_message: discord.Message):
@@ -139,7 +140,8 @@ class AdvancedEventModal(ui.Modal, title=_("Create New Event - Advanced Options"
 
             await interaction.response.send_message(embed=self.cog.success_embed(_("Event created successfully! Event ID: {event_id}").format(event_id=event_id)), ephemeral=True)
 
-            await self.original_message.delete()
+            if self.original_message:
+                await self.original_message.delete()
         except Exception as e:
             self.cog.logger.error(f"Error creating event: {e}", exc_info=True)
             await interaction.response.send_message(_("An error occurred while creating the event. Please try again."), ephemeral=True)
@@ -742,15 +744,10 @@ class RobustEventsCog(commands.Cog):
         embed = discord.Embed(title=_("📅 Create New Event"), 
                               description=_("Click the button below to start creating a new event."), 
                               color=discord.Color.blue())
-        message = await ctx.send(embed=embed, view=view)
         view.message = await ctx.send(_("Click the button below to create a new event:"), view=view)
 
         # Wait for the view to finish
         await view.wait()
-
-        # If the view timed out, clean up the message
-        if view.is_finished() and not view.is_dispatching():
-            await message.edit(content=_("Event creation timed out."), view=None)
 
     @commands.guild_only()
     @commands.command(name="eventlist")
@@ -1486,6 +1483,7 @@ class BasicEventEditModal(ui.Modal, title=_("Edit Event - Basic Info")):
 
         view = AdvancedEditOptionsView(self.cog, self.guild, self.event_name, self.event_data)
         await interaction.response.send_message(_("Basic information updated. Click the button below to edit advanced options:"), view=view, ephemeral=True)
+        await self.original_message.delete()
 
 class AdvancedEventEditModal(ui.Modal, title=_("Edit Event - Advanced Options")):
     def __init__(self, cog, guild: discord.Guild, event_name: str, event_data: dict, timezone: pytz.timezone):
