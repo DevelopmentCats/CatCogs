@@ -963,3 +963,9 @@ class UserTracker(commands.Cog):
             anim.save(image_binary, writer='pillow', format='gif', fps=1)
             image_binary.seek(0)
             return discord.File(fp=image_binary, filename='activity_heatmap.gif')
+        
+    async def clean_activity_cache(self):
+        while self is self.bot.get_cog("UserTracker"):
+            now = datetime.utcnow()
+            self.activity_cache = {k: v for k, v in self.activity_cache.items() if now - v['timestamp'] < self.cache_expiry}
+            await asyncio.sleep(300)  # Run every 5 minutes
