@@ -96,10 +96,8 @@ class UserTracker(commands.Cog):
     @commands.guild_only()
     async def track(self, ctx):
         """User tracking commands."""
-        if not await self.is_authorized(ctx):
-            await ctx.send("You are not authorized to use UserTracker commands.")
-            return
-        await ctx.send_help(ctx.command)
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
 
     @track.command(name="add")
     async def track_add(self, ctx, user: discord.User):
