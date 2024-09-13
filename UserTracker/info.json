@@ -1,14 +1,14 @@
 {
-    "author": ["Your Name"],
-    "install_msg": "Thanks for installing the User Tracker cog! Use `[p]help UserTracker` to see available commands. Only the bot owner can use these commands by default.",
+    "author": ["Cat"],
+    "install_msg": "Thanks for installing the User Tracker cog! This powerful tool allows real-time tracking and logging of user activities. Use `[p]help UserTracker` to see available commands. Note: Only authorized users can use these commands by default. Please ensure you have the necessary permissions set up.",
     "name": "UserTracker",
-    "short": "Tracks and logs activities of specified users in real-time.",
-    "description": "This cog allows you to track and log activities of specified users in real-time, including messages, voice state changes, status updates, and image attachments. It uses threads for individual user logs and maintains a main message with links to these threads.",
-    "tags": ["logging", "tracking", "utility", "moderation"],
+    "short": "Advanced user activity tracking and analysis tool.",
+    "description": "This cog provides comprehensive tracking and logging of user activities in real-time, including messages, voice state changes, status updates, and image attachments. It features individual user logs in threads, sentiment analysis, activity heatmaps, and word clouds. The cog maintains a main message with links to these threads for easy navigation.",
+    "tags": ["logging", "tracking", "utility", "moderation", "analysis"],
     "min_bot_version": "3.5.0",
-    "end_user_data_statement": "This cog stores Discord User IDs for users that are set to be tracked. It also stores message content, voice activity, status changes, and image URLs from tracked users. No personal data beyond what's visible in Discord is stored.",
+    "end_user_data_statement": "This cog stores Discord User IDs for tracked users, along with their message content, voice activity, status changes, and image URLs. It also generates and stores sentiment analysis data and activity patterns. No personal data beyond what's visible in Discord is stored or processed externally.",
     "permissions": ["manage_channels", "manage_threads", "send_messages", "embed_links", "attach_files", "read_message_history"],
     "required_cogs": {},
-    "requirements": ["vaderSentiment", "matplotlib", "wordcloud", "pillow", "numpy", "aiohttp", "plotly", "kaleido"],
+    "requirements": ["vaderSentiment", "matplotlib", "wordcloud", "pillow", "numpy", "aiohttp", "plotly", "kaleido", "seaborn", "matplotlib-animation"],
     "type": "COG"
 }
