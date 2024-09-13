@@ -92,12 +92,12 @@ class UserTracker(commands.Cog):
         if hasattr(self, 'clean_cache_task'):
             self.clean_cache_task.cancel()
 
-    @commands.group()
+    @commands.group(invoke_without_command=True)
     @commands.guild_only()
     async def track(self, ctx):
         """User tracking commands."""
         if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
+            await ctx.bot.send_help_for(ctx, self.track)
 
     @track.command(name="add")
     async def track_add(self, ctx, user: discord.User):
