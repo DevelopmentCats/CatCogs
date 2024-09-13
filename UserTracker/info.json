@@ -9,6 +9,6 @@
     "end_user_data_statement": "This cog stores Discord User IDs for tracked users, along with their message content, voice activity, status changes, and image URLs. It also generates and stores sentiment analysis data and activity patterns. No personal data beyond what's visible in Discord is stored or processed externally.",
     "permissions": ["manage_channels", "manage_threads", "send_messages", "embed_links", "attach_files", "read_message_history"],
     "required_cogs": {},
-    "requirements": ["vaderSentiment", "matplotlib", "wordcloud", "pillow", "numpy", "aiohttp", "plotly", "kaleido", "seaborn", "matplotlib-animation"],
+    "requirements": ["vaderSentiment", "matplotlib", "wordcloud", "pillow", "numpy", "aiohttp", "plotly", "kaleido", "seaborn"],
     "type": "COG"
 }
