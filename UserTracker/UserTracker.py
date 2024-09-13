@@ -5,7 +5,7 @@ import asyncio
 import logging
 from functools import lru_cache
 import time
-from google.cloud import language_v1
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import os
 
 ACTIVITY_SUMMARY_LENGTH = 50
@@ -48,19 +48,13 @@ class UserTracker(commands.Cog):
             "authorized_users": []
         }
         self.config.register_guild(**default_guild)
-        self.config.register_global(google_api_key=None)
         self.lock = asyncio.Lock()
         self.task = bot.loop.create_task(self.initialize())
         self.logger = logging.getLogger('UserTracker')
         self.rate_limiter = RateLimiter(calls=5, period=timedelta(seconds=5))
-        self.language_client = None  # We'll initialize this in initialize()
 
     async def initialize(self):
         await self.bot.wait_until_ready()
-        api_key = await self.config.google_api_key()
-        if api_key:
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = api_key
-            self.language_client = language_v1.LanguageServiceClient()
         for guild in self.bot.guilds:
             log_channel_id = await self.config.guild(guild).log_channel()
             if log_channel_id:
@@ -93,7 +87,6 @@ class UserTracker(commands.Cog):
         - channel: Set or view the log channel
         - authorize: Authorize a user to use UserTracker commands (Bot Owner only)
         - deauthorize: Remove authorization for a user (Bot Owner only)
-        - setapikey: Set the Google Cloud API key for sentiment analysis (Bot Owner only)
         """
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
@@ -413,6 +406,9 @@ class UserTracker(commands.Cog):
                                 content = details.split("**Content:** ")[-1]
                                 analysis = await self.analyze_text(content)
                                 embed.add_field(name="Sentiment", value=f"{analysis['sentiment']:.2f}", inline=True)
+                                embed.add_field(name="Positive", value=f"{analysis['positive']:.2f}", inline=True)
+                                embed.add_field(name="Neutral", value=f"{analysis['neutral']:.2f}", inline=True)
+                                embed.add_field(name="Negative", value=f"{analysis['negative']:.2f}", inline=True)
                                 embed.add_field(name="Toxicity", value="Detected" if analysis['toxicity'] else "Not Detected", inline=True)
                             
                             if image_urls:
@@ -432,23 +428,19 @@ class UserTracker(commands.Cog):
         return self.bot.get_guild(guild_id) is not None
 
     async def analyze_text(self, text):
-        if not self.language_client:
-            return {'sentiment': 0, 'toxicity': False}
-    
         try:
-            document = language_v1.Document(content=text, type_=language_v1.Document.Type.PLAIN_TEXT)
-            
-            sentiment = self.language_client.analyze_sentiment(request={'document': document}).document_sentiment
-            
-            toxicity = self.language_client.classify_text(request={'document': document}).categories
-        
+            analyzer = SentimentIntensityAnalyzer()
+            sentiment_scores = analyzer.polarity_scores(text)
             return {
-                'sentiment': sentiment.score,
-                'toxicity': any(category.name == '/Toxic' for category in toxicity)
+                'sentiment': sentiment_scores['compound'],
+                'positive': sentiment_scores['pos'],
+                'neutral': sentiment_scores['neu'],
+                'negative': sentiment_scores['neg'],
+                'toxicity': sentiment_scores['compound'] < -0.5
             }
         except Exception as e:
             self.logger.error(f"Error in analyze_text: {e}", exc_info=True)
-            return {'sentiment': 0, 'toxicity': False}
+            return {'sentiment': 0, 'positive': 0, 'neutral': 0, 'negative': 0, 'toxicity': False}
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -572,10 +564,25 @@ class UserTracker(commands.Cog):
         combined_text = " ".join(messages)
         analysis = await self.analyze_text(combined_text)
     
-        embed = discord.Embed(title=f"Analysis for {user.name}", color=discord.Color.blue())
-        embed.add_field(name="Average Sentiment", value=f"{analysis['sentiment']:.2f}", inline=True)
-        embed.add_field(name="Toxicity Detected", value="Yes" if analysis['toxicity'] else "No", inline=True)
-    
+        embed = discord.Embed(title=f"Sentiment Analysis for {user.name}", color=discord.Color.blue())
+        embed.add_field(name="Overall Sentiment", value=f"{analysis['sentiment']:.2f}", inline=False)
+        embed.add_field(name="Positive", value=f"{analysis['positive']:.2f}", inline=True)
+        embed.add_field(name="Neutral", value=f"{analysis['neutral']:.2f}", inline=True)
+        embed.add_field(name="Negative", value=f"{analysis['negative']:.2f}", inline=True)
+        embed.add_field(name="Toxicity", value="Detected" if analysis['toxicity'] else "Not Detected", inline=False)
+        
+        sentiment_description = "Very Negative"
+        if analysis['sentiment'] > -0.5:
+            sentiment_description = "Somewhat Negative"
+        if analysis['sentiment'] > -0.2:
+            sentiment_description = "Neutral"
+        if analysis['sentiment'] > 0.2:
+            sentiment_description = "Somewhat Positive"
+        if analysis['sentiment'] > 0.5:
+            sentiment_description = "Very Positive"
+        
+        embed.add_field(name="Interpretation", value=sentiment_description, inline=False)
+
         await ctx.send(embed=embed)
 
     @track.command(name="authorize")
@@ -607,24 +614,6 @@ class UserTracker(commands.Cog):
                 await ctx.send(f"✅ User {user.name} (ID: {user.id}) has been deauthorized from using UserTracker commands in this server.")
             else:
                 await ctx.send(f"ℹ️ User {user.name} (ID: {user.id}) was not authorized to use UserTracker commands in this server.")
-
-    @track.command(name="setapikey")
-    @commands.is_owner()
-    async def track_set_api_key(self, ctx, *, api_key: str):
-        """
-        Set the Google Cloud API key for sentiment analysis (Bot Owner only).
-
-        This key is used for sentiment and toxicity analysis of messages.
-        """
-        try:
-            await self.config.google_api_key.set(api_key)
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = api_key
-            self.language_client = language_v1.LanguageServiceClient()
-            await ctx.send("✅ Google Cloud API key has been set successfully.")
-        except Exception as e:
-            await ctx.send(f"❌ Error setting Google Cloud API key: {str(e)}")
-        finally:
-            await ctx.message.delete()  # Delete the message to keep the API key secret
 
     async def is_authorized(self, ctx):
         if await self.bot.is_owner(ctx.author):
