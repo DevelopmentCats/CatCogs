@@ -42,12 +42,7 @@ class RateLimiter:
         pass
 
 class UserTracker(commands.Cog):
-    """
-    Track and log activities of specified users in real-time.
-
-    This cog allows you to monitor messages, voice state changes, status updates, and image attachments of tracked users.
-    It uses threads for individual user logs and maintains a main message with links to these threads.
-    """
+    """Track and analyze user activities in real-time."""
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
@@ -97,27 +92,10 @@ class UserTracker(commands.Cog):
         if hasattr(self, 'clean_cache_task'):
             self.clean_cache_task.cancel()
 
-    @commands.group(invoke_without_command=True)
+    @commands.group()
     @commands.guild_only()
     async def track(self, ctx):
-        """
-        User tracking commands.
-
-        Use subcommands to manage tracked users, log channels, and user authorizations.
-        Only authorized users can use these commands.
-
-        Subcommands:
-        - add: Add a user to track
-        - remove: Remove a user from tracking
-        - list: List all tracked users
-        - channel: Set or view the log channel
-        - authorize: Authorize a user to use UserTracker commands (Bot Owner only)
-        - deauthorize: Remove authorization for a user (Bot Owner only)
-        - analyze: Analyze the sentiment and toxicity of a user's recent messages
-        - heatmap: Generate a 24-hour circular heatmap of user activity
-        - wordcloud: Generate a word cloud of the user's most used words and phrases
-        - theme: Set a custom color theme for a tracked user's embeds
-        """
+        """User tracking commands."""
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
@@ -125,11 +103,7 @@ class UserTracker(commands.Cog):
 
     @track.command(name="add")
     async def track_add(self, ctx, user: discord.User):
-        """
-        Add a user to track in this server.
-
-        This will create a new thread for logging the user's activities.
-        """
+        """Add a user to the tracking list."""
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
@@ -145,11 +119,7 @@ class UserTracker(commands.Cog):
 
     @track.command(name="remove")
     async def track_remove(self, ctx, user: discord.User):
-        """
-        Remove a user from tracking in this server.
-
-        This will delete the user's log thread.
-        """
+        """Remove a user from the tracking list."""
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
@@ -165,11 +135,7 @@ class UserTracker(commands.Cog):
 
     @track.command(name="list")
     async def track_list(self, ctx):
-        """
-        List all tracked users in this server.
-
-        Displays a list of tracked users with their IDs.
-        """
+        """List all tracked users."""
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
@@ -191,11 +157,7 @@ class UserTracker(commands.Cog):
 
     @track.command(name="channel")
     async def track_channel(self, ctx, channel: discord.TextChannel = None):
-        """
-        Set or view the channel for logging tracked user activities in this server.
-
-        If no channel is specified, it will display the current log channel.
-        """
+        """Set or view the log channel."""
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
@@ -591,9 +553,7 @@ class UserTracker(commands.Cog):
 
     @track.command(name="analyze")
     async def track_analyze(self, ctx, user: discord.User):
-        """
-        Analyze the sentiment and toxicity of a user's recent messages.
-        """
+        """Analyze the sentiment and toxicity of a user's messages."""
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
@@ -642,11 +602,7 @@ class UserTracker(commands.Cog):
     @track.command(name="authorize")
     @commands.is_owner()
     async def track_authorize(self, ctx, user: discord.User):
-        """
-        Authorize a user to use UserTracker commands (Bot Owner only).
-
-        This allows the specified user to use all UserTracker commands in this server.
-        """
+        """Authorize a user to use UserTracker commands (Bot Owner only)."""
         async with self.config.guild(ctx.guild).authorized_users() as authorized_users:
             if user.id not in authorized_users:
                 authorized_users.append(user.id)
@@ -657,11 +613,7 @@ class UserTracker(commands.Cog):
     @track.command(name="deauthorize")
     @commands.is_owner()
     async def track_deauthorize(self, ctx, user: discord.User):
-        """
-        Remove authorization for a user to use UserTracker commands (Bot Owner only).
-
-        This prevents the specified user from using UserTracker commands in this server.
-        """
+        """Remove authorization for a user to use UserTracker commands (Bot Owner only)."""
         async with self.config.guild(ctx.guild).authorized_users() as authorized_users:
             if user.id in authorized_users:
                 authorized_users.remove(user.id)
@@ -739,9 +691,7 @@ class UserTracker(commands.Cog):
 
     @track.command(name="heatmap")
     async def track_heatmap(self, ctx, user: discord.User):
-        """
-        Generate a 24-hour circular heatmap of user activity.
-        """
+        """Generate a 24-hour circular heatmap of user activity."""
         if not await self.is_authorized(ctx):
             await ctx.send("You are not authorized to use UserTracker commands.")
             return
