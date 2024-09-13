@@ -851,17 +851,6 @@ class UserTracker(commands.Cog):
         
         await ctx.send(f"Color theme for {user.name} set to {color}")
 
-    @track.command(name="theme")
-    async def track_theme(self, ctx, user: discord.User, color: discord.Color):
-        """Set a custom color theme for a tracked user's embeds."""
-        if not await self.is_authorized(ctx):
-            await ctx.send("You are not authorized to use UserTracker commands.")
-            return
-        
-        async with self.config.guild(ctx.guild).user_themes() as user_themes:
-            user_themes[str(user.id)] = color.value
-        
-        await ctx.send(f"Color theme for {user.name} set to {color}")
 
     @track.command(name="sentimentgraph")
     async def track_sentimentgraph(self, ctx, user: discord.User):
