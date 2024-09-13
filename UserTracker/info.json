@@ -9,6 +9,6 @@
     "end_user_data_statement": "This cog stores Discord User IDs for users that are set to be tracked. It also stores message content, voice activity, status changes, and image URLs from tracked users. No personal data beyond what's visible in Discord is stored.",
     "permissions": ["manage_channels", "manage_threads", "send_messages", "embed_links", "attach_files", "read_message_history"],
     "required_cogs": {},
-    "requirements": ["vaderSentiment"],
+    "requirements": ["vaderSentiment", "matplotlib", "wordcloud", "pillow", "numpy", "aiohttp"],
     "type": "COG"
 }
