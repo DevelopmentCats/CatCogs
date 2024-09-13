@@ -16,6 +16,8 @@ from PIL import Image
 import aiohttp
 import matplotlib.animation as animation
 import plotly.graph_objects as go
+import seaborn as sns
+import kaleido
 
 ACTIVITY_SUMMARY_LENGTH = 50
 
@@ -67,6 +69,9 @@ class UserTracker(commands.Cog):
         self.inactivity_threshold = timedelta(days=7)
         self.check_inactivity_task = bot.loop.create_task(self.check_inactivity())
         self.fill_missed_activities_task = bot.loop.create_task(self.check_and_fill_missed_activities())
+        self.activity_cache = {}
+        self.cache_expiry = timedelta(minutes=5)
+        self.clean_cache_task = bot.loop.create_task(self.clean_activity_cache())
 
     async def initialize(self):
         await self.bot.wait_until_ready()
@@ -89,6 +94,8 @@ class UserTracker(commands.Cog):
             self.check_inactivity_task.cancel()
         if hasattr(self, 'fill_missed_activities_task'):
             self.fill_missed_activities_task.cancel()
+        if hasattr(self, 'clean_cache_task'):
+            self.clean_cache_task.cancel()
 
     @commands.group(invoke_without_command=True)
     @commands.guild_only()
@@ -299,6 +306,10 @@ class UserTracker(commands.Cog):
 
         embed.set_footer(text="Last updated | May the logs be ever in your favor")
         embed.timestamp = datetime.utcnow()
+        
+        # Add a thumbnail to make the embed more visually appealing
+        embed.set_thumbnail(url="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/svgs/solid/user-secret.svg")
+        
         return embed
 
     async def get_user_field(self, guild, user_id, thread_id):
@@ -422,8 +433,10 @@ class UserTracker(commands.Cog):
             color=color,
             timestamp=datetime.utcnow()
         )
-        embed.set_author(name=f"{user.name} (ID: {user.id})", icon_url=user.display_avatar.url)
+        embed.set_author(name=user.name, icon_url=user.display_avatar.url)
         embed.add_field(name="Details", value=details, inline=False)
+        embed.set_footer(text=f"User ID: {user.id}")
+        
         return embed
 
     async def log_activity(self, user, activity_type, details, image_urls=None):
@@ -748,11 +761,20 @@ class UserTracker(commands.Cog):
                            file=discord.File(fp=image_binary, filename='time_lord_heatmap.png'))
 
     async def get_user_activity_data(self, thread):
+        now = datetime.utcnow()
+        if thread.id in self.activity_cache and now - self.activity_cache[thread.id]['timestamp'] < self.cache_expiry:
+            return self.activity_cache[thread.id]['data']
+
         activity_data = [0] * 24
-        async for message in thread.history(limit=None):
+        async for message in thread.history(limit=None, after=now - timedelta(days=7)):
             if message.author == self.bot.user and message.embeds:
                 hour = message.created_at.hour
                 activity_data[hour] += 1
+
+        self.activity_cache[thread.id] = {
+            'timestamp': now,
+            'data': activity_data
+        }
         return activity_data
 
     def generate_circular_heatmap(self, activity_data):
@@ -920,22 +942,24 @@ class UserTracker(commands.Cog):
                        file=animated_heatmap)
 
     async def generate_animated_heatmap(self, thread):
-        activity_data = [await self.get_user_activity_data(thread) for _ in range(7)]
+        activity_data = await self.get_user_activity_data(thread)
         
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(12, 6))
         
         def update(frame):
             ax.clear()
             data = activity_data[frame]
-            sns.heatmap(np.array(data).reshape(1, -1), ax=ax, cmap='viridis', cbar=False)
+            sns.heatmap(np.array(data).reshape(1, -1), ax=ax, cmap='viridis', cbar=True, vmin=0, vmax=max(max(d) for d in activity_data))
             ax.set_xticks(np.arange(0.5, 24.5))
-            ax.set_xticklabels([f"{h:02d}:00" for h in range(24)])
+            ax.set_xticklabels([f"{h:02d}:00" for h in range(24)], rotation=45, ha='right')
             ax.set_yticks([])
-            ax.set_title(f"Activity Heatmap - Day {frame + 1}")
+            ax.set_title(f"Activity Heatmap - Day {frame + 1}", fontsize=16)
+            ax.set_xlabel("Hour of the Day", fontsize=12)
+            plt.tight_layout()
         
         anim = animation.FuncAnimation(fig, update, frames=7, interval=1000)
         
         with io.BytesIO() as image_binary:
-            anim.save(image_binary, writer='pillow', format='gif')
+            anim.save(image_binary, writer='pillow', format='gif', fps=1)
             image_binary.seek(0)
             return discord.File(fp=image_binary, filename='activity_heatmap.gif')
