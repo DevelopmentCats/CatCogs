@@ -374,7 +374,7 @@ class UserTracker(commands.Cog):
             return guild.get_thread(thread_id)
         return None
 
-    def create_embed(self, user, activity_type, details):
+    async def create_embed(self, user, activity_type, details):
         emoji_map = {
             "Message Sent": "💬",
             "Voice Activity": "🎙️",
@@ -385,7 +385,7 @@ class UserTracker(commands.Cog):
         }
         emoji = emoji_map.get(activity_type, "ℹ️")
         
-        user_themes = self.config.guild(user.guild).user_themes()
+        user_themes = await self.config.guild(user.guild).user_themes()
         color = discord.Color(user_themes.get(str(user.id), discord.Color.random().value))
         
         embed = discord.Embed(
@@ -409,7 +409,7 @@ class UserTracker(commands.Cog):
                     if user.id in tracked_users:
                         thread = await self.get_user_thread(guild, user)
                         if thread:
-                            embed = self.create_embed(user, activity_type, details)
+                            embed = await self.create_embed(user, activity_type, details)
                             
                             if activity_type == "Message Sent":
                                 content = details.split("**Content:** ")[-1]
@@ -422,10 +422,14 @@ class UserTracker(commands.Cog):
                             
                             if image_urls:
                                 embed.set_image(url=image_urls[0])
+                            
                             await thread.send(embed=embed)
                             
-                            for url in image_urls[1:]:
-                                await thread.send(url)
+                            if len(image_urls) > 1:
+                                for url in image_urls[1:]:
+                                    additional_embed = discord.Embed()
+                                    additional_embed.set_image(url=url)
+                                    await thread.send(embed=additional_embed)
                             
                             self.get_last_message_cached.cache_clear()
                             await self.update_main_message(guild)
@@ -435,7 +439,7 @@ class UserTracker(commands.Cog):
                             async with self.config.guild(guild).last_logged_activities() as last_logged_activities:
                                 last_logged_activities[str(user.id)] = datetime.utcnow().isoformat()
                 except Exception as e:
-                    self.logger.error(f"Error logging activity for user {user.id} in guild {guild.id}: {e}", exc_info=True)
+                    self.logger.error(f"Error logging activity for user {user.id} in guild {guild.id}: {str(e)}", exc_info=True)
                     raise UserTrackerError(f"Failed to log activity: {str(e)}")
 
     async def bot_in_guild(self, guild_id):
