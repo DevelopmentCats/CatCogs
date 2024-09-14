@@ -667,6 +667,26 @@ class UserTracker(commands.Cog):
                         await self.fill_missed_activities(guild, user, last_logged)
             await asyncio.sleep(3600)  # Run every hour
 
+    @track.command(name="fillmissed")
+    async def track_fillmissed(self, ctx, user: discord.User):
+        """Manually fill in missed activities for a user."""
+        if not await self.is_authorized(ctx):
+            await ctx.send("You are not authorized to use UserTracker commands.")
+            return
+
+        tracked_users = await self.config.guild(ctx.guild).tracked_users()
+        if user.id not in tracked_users:
+            await ctx.send(f"User {user.name} is not being tracked in this server.")
+            return
+
+        last_logged_activities = await self.config.guild(ctx.guild).last_logged_activities()
+        last_logged_str = last_logged_activities.get(str(user.id), datetime.min.isoformat())
+        last_logged = datetime.fromisoformat(last_logged_str)
+
+        await ctx.send(f"Filling missed activities for {user.name}. This might take a while...")
+        await self.fill_missed_activities(ctx.guild, user, last_logged)
+        await ctx.send(f"Finished filling missed activities for {user.name}.")
+
     async def fill_missed_activities(self, guild, user, last_logged):
         # Check messages
         for channel in guild.text_channels:
