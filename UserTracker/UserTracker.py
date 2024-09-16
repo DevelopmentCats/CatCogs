@@ -686,8 +686,12 @@ class UserTracker(commands.Cog):
             last_logged = datetime(1970, 1, 1)  # Use Unix epoch as default
 
         await ctx.send(f"Filling missed activities for {user.name}. This might take a while...")
-        await self.fill_missed_activities(ctx.guild, user, last_logged)
-        await ctx.send(f"Finished filling missed activities for {user.name}.")
+        total_messages = await self.fill_missed_activities(ctx.guild, user, last_logged)
+
+        if total_messages > 0:
+            await ctx.send(f"✅ Successfully filled {total_messages} missed activities for {user.name}.")
+        else:
+            await ctx.send(f"ℹ️ No missed activities found for {user.name}.")
 
     async def fill_missed_activities(self, guild, user, last_logged):
         try:
@@ -695,30 +699,81 @@ class UserTracker(commands.Cog):
             discord_epoch = datetime(2015, 1, 1)
             last_logged = max(last_logged, discord_epoch)
 
+            thread = await self.get_user_thread(guild, user)
+            if not thread:
+                self.logger.error(f"No thread found for user {user.id} in guild {guild.id}")
+                return 0
+
+            # Collect existing messages
+            existing_messages = []
+            async for message in thread.history(limit=None):
+                if message.author == self.bot.user and message.embeds:
+                    existing_messages.append((message.created_at, message.embeds[0]))
+
+            # Collect new messages
+            new_messages = []
+
             # Check messages
             for channel in guild.text_channels:
                 async for message in channel.history(after=last_logged, limit=None):
                     if message.author.id == user.id:
-                        await self.log_activity(user, guild, "Message Sent", f"**Server:** {guild.name}\n**Channel:** {channel.mention}\n**Content:** {message.content[:1900]}")
+                        embed = await self.create_embed(user, guild, "Message Sent", f"**Server:** {guild.name}\n**Channel:** {channel.mention}\n**Content:** {message.content[:1900]}")
+                        new_messages.append((message.created_at, embed))
 
-            # Check voice state
+            # Check voice state, status, and activity
             member = guild.get_member(user.id)
-            if member and member.voice and member.voice.channel:
-                await self.log_activity(user, guild, "Voice Activity", f"**Server:** {guild.name}\n**Action:** Joined voice channel {member.voice.channel.name}")
-
-            # Check status and activity
             if member:
-                await self.log_activity(user, guild, "Status Change", f"**Server:** {guild.name}\n**New status:** {member.status}")
+                if member.voice and member.voice.channel:
+                    embed = await self.create_embed(user, guild, "Voice Activity", f"**Server:** {guild.name}\n**Action:** Joined voice channel {member.voice.channel.name}")
+                    new_messages.append((datetime.utcnow(), embed))
+
+                embed = await self.create_embed(user, guild, "Status Change", f"**Server:** {guild.name}\n**New status:** {member.status}")
+                new_messages.append((datetime.utcnow(), embed))
+
                 if member.activity:
                     activity_details = str(member.activity)
-                    await self.log_activity(user, guild, "Activity Change", f"**Server:** {guild.name}\n**Activity:** {activity_details[:ACTIVITY_SUMMARY_LENGTH]}")
+                    embed = await self.create_embed(user, guild, "Activity Change", f"**Server:** {guild.name}\n**Activity:** {activity_details[:ACTIVITY_SUMMARY_LENGTH]}")
+                    new_messages.append((datetime.utcnow(), embed))
 
-                # Update the last logged activity timestamp
-                async with self.config.guild(guild).last_logged_activities() as last_logged_activities:
-                    last_logged_activities[str(user.id)] = datetime.utcnow().isoformat()
+            # Combine and sort all messages
+            all_messages = existing_messages + new_messages
+            all_messages.sort(key=lambda x: x[0])
+
+            # Clear the thread
+            await thread.purge()
+
+            # Repost messages in chronological order with a progress bar
+            total_messages = len(all_messages)
+            progress_message = await thread.send("Filling missed activities... 0%")
+            for index, (timestamp, embed) in enumerate(all_messages, 1):
+                await thread.send(embed=embed)
+                if index % 10 == 0 or index == total_messages:
+                    progress = (index / total_messages) * 100
+                    await progress_message.edit(content=f"Filling missed activities... {progress:.1f}%")
+
+            # Add a summary embed
+            summary_embed = discord.Embed(
+                title="Missed Activities Summary",
+                description=f"Filled {total_messages} activities for {user.name}",
+                color=discord.Color.green()
+            )
+            summary_embed.add_field(name="Time Range", value=f"From {last_logged.strftime('%Y-%m-%d %H:%M:%S')} to {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
+            summary_embed.add_field(name="Total Messages", value=str(len(new_messages)))
+            summary_embed.set_footer(text="UserTracker - Keeping an eye on the past, present, and future!")
+            await thread.send(embed=summary_embed)
+
+            # Update the last logged activity timestamp
+            async with self.config.guild(guild).last_logged_activities() as last_logged_activities:
+                last_logged_activities[str(user.id)] = datetime.utcnow().isoformat()
+
+            # Update the main message
+            await self.update_main_message(guild)
+
+            return total_messages
 
         except Exception as e:
             self.logger.error(f"Error in fill_missed_activities for user {user.id} in guild {guild.id}: {str(e)}", exc_info=True)
+            return 0
 
     @track.command(name="heatmap")
     async def track_heatmap(self, ctx, user: discord.User):
