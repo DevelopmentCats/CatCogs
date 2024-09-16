@@ -374,7 +374,7 @@ class UserTracker(commands.Cog):
             return guild.get_thread(thread_id)
         return None
 
-    async def create_embed(self, user, activity_type, details):
+    async def create_embed(self, user, guild, activity_type, details):
         emoji_map = {
             "Message Sent": "💬",
             "Voice Activity": "🎙️",
@@ -385,7 +385,7 @@ class UserTracker(commands.Cog):
         }
         emoji = emoji_map.get(activity_type, "ℹ️")
         
-        user_themes = await self.config.guild(user.guild).user_themes()
+        user_themes = await self.config.guild(guild).user_themes()
         color = discord.Color(user_themes.get(str(user.id), discord.Color.random().value))
         
         embed = discord.Embed(
@@ -399,48 +399,45 @@ class UserTracker(commands.Cog):
         
         return embed
 
-    async def log_activity(self, user, activity_type, details, image_urls=None):
+    async def log_activity(self, user, guild, activity_type, details, image_urls=None):
         async with self.rate_limiter:
-            for guild in self.bot.guilds:
-                if user not in guild.members:
-                    continue
-                try:
-                    tracked_users = await self.config.guild(guild).tracked_users()
-                    if user.id in tracked_users:
-                        thread = await self.get_user_thread(guild, user)
-                        if thread:
-                            embed = await self.create_embed(user, activity_type, details)
-                            
-                            if activity_type == "Message Sent":
-                                content = details.split("**Content:** ")[-1]
-                                analysis = await self.analyze_text(content)
-                                embed.add_field(name="Sentiment", value=f"{analysis['sentiment']:.2f}", inline=True)
-                                embed.add_field(name="Positive", value=f"{analysis['positive']:.2f}", inline=True)
-                                embed.add_field(name="Neutral", value=f"{analysis['neutral']:.2f}", inline=True)
-                                embed.add_field(name="Negative", value=f"{analysis['negative']:.2f}", inline=True)
-                                embed.add_field(name="Toxicity", value="Detected" if analysis['toxicity'] else "Not Detected", inline=True)
-                            
-                            if image_urls:
-                                embed.set_image(url=image_urls[0])
-                            
-                            await thread.send(embed=embed)
-                            
-                            if len(image_urls) > 1:
-                                for url in image_urls[1:]:
-                                    additional_embed = discord.Embed()
-                                    additional_embed.set_image(url=url)
-                                    await thread.send(embed=additional_embed)
-                            
-                            self.get_last_message_cached.cache_clear()
-                            await self.update_main_message(guild)
-                            self.last_activity[user.id][guild.id] = datetime.utcnow()
-                            
-                            # Update the last logged activity timestamp
-                            async with self.config.guild(guild).last_logged_activities() as last_logged_activities:
-                                last_logged_activities[str(user.id)] = datetime.utcnow().isoformat()
-                except Exception as e:
+            try:
+                tracked_users = await self.config.guild(guild).tracked_users()
+                if user.id in tracked_users:
+                    thread = await self.get_user_thread(guild, user)
+                    if thread:
+                        embed = await self.create_embed(user, guild, activity_type, details)
+                        
+                        if activity_type == "Message Sent":
+                            content = details.split("**Content:** ")[-1]
+                            analysis = await self.analyze_text(content)
+                            embed.add_field(name="Sentiment", value=f"{analysis['sentiment']:.2f}", inline=True)
+                            embed.add_field(name="Positive", value=f"{analysis['positive']:.2f}", inline=True)
+                            embed.add_field(name="Neutral", value=f"{analysis['neutral']:.2f}", inline=True)
+                            embed.add_field(name="Negative", value=f"{analysis['negative']:.2f}", inline=True)
+                            embed.add_field(name="Toxicity", value="Detected" if analysis['toxicity'] else "Not Detected", inline=True)
+                        
+                        if image_urls:
+                            embed.set_image(url=image_urls[0])
+                        
+                        await thread.send(embed=embed)
+                        
+                        if len(image_urls) > 1:
+                            for url in image_urls[1:]:
+                                additional_embed = discord.Embed()
+                                additional_embed.set_image(url=url)
+                                await thread.send(embed=additional_embed)
+                        
+                        self.get_last_message_cached.cache_clear()
+                        await self.update_main_message(guild)
+                        self.last_activity[user.id][guild.id] = datetime.utcnow()
+                        
+                        # Update the last logged activity timestamp
+                        async with self.config.guild(guild).last_logged_activities() as last_logged_activities:
+                            last_logged_activities[str(user.id)] = datetime.utcnow().isoformat()
+            except Exception as e:
+                if not isinstance(e, discord.errors.NotFound):  # Only log if it's not a NotFound error
                     self.logger.error(f"Error logging activity for user {user.id} in guild {guild.id}: {str(e)}", exc_info=True)
-                    raise UserTrackerError(f"Failed to log activity: {str(e)}")
 
     async def bot_in_guild(self, guild_id):
         return self.bot.get_guild(guild_id) is not None
@@ -464,16 +461,12 @@ class UserTracker(commands.Cog):
     async def on_message(self, message):
         if message.author.bot or not await self.bot_in_guild(message.guild.id):
             return
-
         try:
-            content = message.content if message.content else "[No text content]"
-            details = (f"**Server:** {message.guild.name}\n"
-                       f"**Channel:** {message.channel.mention}\n"
-                       f"**Content:** {content[:1900]}{'...' if len(content) > 1900 else ''}")
-
-            image_urls = [attachment.url for attachment in message.attachments if attachment.content_type.startswith('image')]
-
-            await self.log_activity(message.author, "Message Sent", details, image_urls)
+            tracked_users = await self.config.guild(message.guild).tracked_users()
+            if message.author.id in tracked_users:
+                details = f"**Server:** {message.guild.name}\n**Channel:** {message.channel.mention}\n**Content:** {message.content[:1900]}{'...' if len(message.content) > 1900 else ''}"
+                image_urls = [attachment.url for attachment in message.attachments if attachment.width]
+                await self.log_activity(member, member.guild, "Voice Activity", details)
         except Exception as e:
             self.logger.error(f"Error in on_message for user {message.author.id}: {e}", exc_info=True)
 
@@ -489,7 +482,7 @@ class UserTracker(commands.Cog):
                     return
 
                 details = f"**Server:** {member.guild.name}\n**Action:** {action}"
-                await self.log_activity(member, "Voice Activity", details)
+                await self.log_activity(member, member.guild, "Voice Activity", details)
             except Exception as e:
                 self.logger.error(f"Error in on_voice_state_update for user {member.id}: {e}", exc_info=True)
 
@@ -498,7 +491,7 @@ class UserTracker(commands.Cog):
         try:
             if before.status != after.status:
                 details = f"**Server:** {after.guild.name}\n**New status:** {after.status}"
-                await self.log_activity(after, "Status Change", details)
+                await self.log_activity(after, after.guild, "Status Change", details)
 
             if before.activity != after.activity:
                 activity = after.activity
@@ -512,7 +505,7 @@ class UserTracker(commands.Cog):
                     else:
                         details = str(activity)
                     details = f"**Server:** {after.guild.name}\n**Activity:** {details[:ACTIVITY_SUMMARY_LENGTH]}{'...' if len(details) > ACTIVITY_SUMMARY_LENGTH else ''}"
-                    await self.log_activity(after, "Activity Change", details)
+                    await self.log_activity(after, after.guild, "Activity Change", details)
         except Exception as e:
             self.logger.error(f"Error in on_member_update for user {after.id}: {e}", exc_info=True)
 
@@ -525,7 +518,7 @@ class UserTracker(commands.Cog):
                        f"**Channel:** {after.channel.mention}\n"
                        f"**Before:** {before.content[:900]}{'...' if len(before.content) > 900 else ''}\n"
                        f"**After:** {after.content[:900]}{'...' if len(after.content) > 900 else ''}")
-            await self.log_activity(after.author, "Message Edited", details)
+            await self.log_activity(after.author, after.guild, "Message Edited", details)
         except Exception as e:
             self.logger.error(f"Error in on_message_edit for user {after.author.id}: {e}", exc_info=True)
 
@@ -537,7 +530,7 @@ class UserTracker(commands.Cog):
             details = (f"**Server:** {message.guild.name}\n"
                        f"**Channel:** {message.channel.mention}\n"
                        f"**Content:** {message.content[:1900]}{'...' if len(message.content) > 1900 else ''}")
-            await self.log_activity(message.author, "Message Deleted", details)
+            await self.log_activity(message.author, message.guild, "Message Deleted", details)
         except Exception as e:
             self.logger.error(f"Error in on_message_delete for user {message.author.id}: {e}", exc_info=True)
 
@@ -703,19 +696,19 @@ class UserTracker(commands.Cog):
             for channel in guild.text_channels:
                 async for message in channel.history(after=last_logged, limit=None):
                     if message.author.id == user.id:
-                        await self.log_activity(user, "Message Sent", f"**Server:** {guild.name}\n**Channel:** {channel.mention}\n**Content:** {message.content[:1900]}")
+                        await self.log_activity(user, guild, "Message Sent", f"**Server:** {guild.name}\n**Channel:** {channel.mention}\n**Content:** {message.content[:1900]}")
 
             # Check voice state
             member = guild.get_member(user.id)
             if member and member.voice and member.voice.channel:
-                await self.log_activity(user, "Voice Activity", f"**Server:** {guild.name}\n**Action:** Joined voice channel {member.voice.channel.name}")
+                await self.log_activity(user, guild, "Voice Activity", f"**Server:** {guild.name}\n**Action:** Joined voice channel {member.voice.channel.name}")
 
             # Check status and activity
             if member:
-                await self.log_activity(user, "Status Change", f"**Server:** {guild.name}\n**New status:** {member.status}")
+                await self.log_activity(user, guild, "Status Change", f"**Server:** {guild.name}\n**New status:** {member.status}")
                 if member.activity:
                     activity_details = str(member.activity)
-                    await self.log_activity(user, "Activity Change", f"**Server:** {guild.name}\n**Activity:** {activity_details[:ACTIVITY_SUMMARY_LENGTH]}")
+                    await self.log_activity(user, guild, "Activity Change", f"**Server:** {guild.name}\n**Activity:** {activity_details[:ACTIVITY_SUMMARY_LENGTH]}")
 
                 # Update the last logged activity timestamp
                 async with self.config.guild(guild).last_logged_activities() as last_logged_activities:
