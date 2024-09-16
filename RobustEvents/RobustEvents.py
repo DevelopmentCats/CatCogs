@@ -676,20 +676,20 @@ class RobustEventsCog(commands.Cog):
             self.logger.error(f"Channel not found for event {event_id} in guild {guild.id}.")
             return
 
-        role = guild.get_role(event['role_id']) if event['role_id'] else None
+        role = guild.get_role(event['role_id']) if event.get('role_id') else None
         role_mention = role.mention if role else "@everyone"
-        
+    
         embed = discord.Embed(
-            title=f"🔔 {role_mention} Event Reminder: {event['name']}",
+            title=f"🔔 Event Reminder: {event['name']}",
             description=_("The event '{event_name}' is starting in {minutes} minutes!").format(event_name=event['name'], minutes=notification_time),
             color=discord.Color.blue()
         )
         embed.add_field(name=_("Description"), value=event['description'], inline=False)
         embed.add_field(name=_("Start Time"), value=f"<t:{int(event_time.astimezone(guild_tz).timestamp())}:F>", inline=False)
         embed.set_footer(text=_("This message will be automatically deleted in 30 minutes."))
-        
+    
         try:
-            message = await channel.send(embed=embed)
+            message = await channel.send(content=role_mention, embed=embed)
             self.bot.loop.create_task(self.delete_message_after(message, delay=1800))
         except discord.HTTPException as e:
             self.logger.error(f"Failed to send notification message: {e}")
@@ -1038,10 +1038,14 @@ class RobustEventsCog(commands.Cog):
 
     @tasks.loop(minutes=15)
     async def sync_event_cache(self):
+        changes_made = False
         for guild in self.bot.guilds:
             events = await self.config.guild(guild).events()
-            self.guild_events[guild.id] = events
-        self.logger.info("Event cache synced")
+            if self.guild_events.get(guild.id) != events:
+                self.guild_events[guild.id] = events
+                changes_made = True
+        if changes_made:
+            self.logger.info("Event cache synced with changes")
 
     @tasks.loop(minutes=5)
     async def update_event_embeds(self):
