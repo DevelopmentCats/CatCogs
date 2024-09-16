@@ -418,16 +418,19 @@ class UserTracker(commands.Cog):
                             embed.add_field(name="Toxicity", value="Detected" if analysis['toxicity'] else "Not Detected", inline=True)
                         
                         if image_urls:
-                            embed.set_image(url=image_urls[0])
+                            if isinstance(image_urls, list) and len(image_urls) > 0:
+                                embed.set_image(url=image_urls[0])
+                            elif isinstance(image_urls, str):
+                                embed.set_image(url=image_urls)
                         
                         await thread.send(embed=embed)
                         
-                        if len(image_urls) > 1:
+                        if isinstance(image_urls, list) and len(image_urls) > 1:
                             for url in image_urls[1:]:
                                 additional_embed = discord.Embed()
                                 additional_embed.set_image(url=url)
                                 await thread.send(embed=additional_embed)
-                        
+
                         self.get_last_message_cached.cache_clear()
                         await self.update_main_message(guild)
                         self.last_activity[user.id][guild.id] = datetime.utcnow()
@@ -466,7 +469,7 @@ class UserTracker(commands.Cog):
             if message.author.id in tracked_users:
                 details = f"**Server:** {message.guild.name}\n**Channel:** {message.channel.mention}\n**Content:** {message.content[:1900]}{'...' if len(message.content) > 1900 else ''}"
                 image_urls = [attachment.url for attachment in message.attachments if attachment.width]
-                await self.log_activity(member, member.guild, "Voice Activity", details)
+                await self.log_activity(message.author, message.guild, "Message Sent", details, image_urls)
         except Exception as e:
             self.logger.error(f"Error in on_message for user {message.author.id}: {e}", exc_info=True)
 
