@@ -708,7 +708,9 @@ class UserTracker(commands.Cog):
             existing_messages = []
             async for message in thread.history(limit=None):
                 if message.author == self.bot.user and message.embeds:
-                    existing_messages.append((message.created_at.replace(tzinfo=timezone.utc), message.embeds[0]))
+                    # Ensure the message timestamp is timezone-aware
+                    message_time = message.created_at.replace(tzinfo=timezone.utc)
+                    existing_messages.append((message_time, message.embeds[0]))
 
             # Collect new messages
             new_messages = []
@@ -730,10 +732,10 @@ class UserTracker(commands.Cog):
                 embed = await self.create_embed(user, guild, "Status Change", f"**Server:** {guild.name}\n**New status:** {member.status}")
                 new_messages.append((datetime.now(timezone.utc), embed))
 
-            if member.activity:
-                activity_details = str(member.activity)
-                embed = await self.create_embed(user, guild, "Activity Change", f"**Server:** {guild.name}\n**Activity:** {activity_details[:ACTIVITY_SUMMARY_LENGTH]}")
-                new_messages.append((datetime.now(timezone.utc), embed))
+                if member and member.activity:
+                    activity_details = str(member.activity)
+                    embed = await self.create_embed(user, guild, "Activity Change", f"**Server:** {guild.name}\n**Activity:** {activity_details[:ACTIVITY_SUMMARY_LENGTH]}")
+                    new_messages.append((datetime.now(timezone.utc), embed))
 
             # Combine and sort all messages
             all_messages = existing_messages + new_messages
@@ -749,7 +751,12 @@ class UserTracker(commands.Cog):
                 await thread.send(embed=embed)
                 if index % 10 == 0 or index == total_messages:
                     progress = (index / total_messages) * 100
-                    await progress_message.edit(content=f"Filling missed activities... {progress:.1f}%")
+                    try:
+                        if progress_message:
+                            await progress_message.edit(content=f"Filling missed activities... {progress:.1f}%")
+                    except discord.NotFound:
+                        # If the message was deleted, send a new one
+                        progress_message = await thread.send(f"Filling missed activities... {progress:.1f}%")
 
             # Add a summary embed
             summary_embed = discord.Embed(
