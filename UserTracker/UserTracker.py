@@ -695,6 +695,10 @@ class UserTracker(commands.Cog):
 
     async def fill_missed_activities(self, guild, user, last_logged):
         try:
+            # Ensure last_logged is not before the Discord epoch
+            discord_epoch = datetime(2015, 1, 1)
+            last_logged = max(last_logged, discord_epoch)
+
             # Check messages
             for channel in guild.text_channels:
                 async for message in channel.history(after=last_logged, limit=None):
@@ -702,12 +706,11 @@ class UserTracker(commands.Cog):
                         await self.log_activity(user, "Message Sent", f"**Server:** {guild.name}\n**Channel:** {channel.mention}\n**Content:** {message.content[:1900]}")
 
             # Check voice state
-            voice_state = user.voice
-            if voice_state and voice_state.channel:
-                await self.log_activity(user, "Voice Activity", f"**Server:** {guild.name}\n**Action:** Joined voice channel {voice_state.channel.name}")
+            member = guild.get_member(user.id)
+            if member and member.voice and member.voice.channel:
+                await self.log_activity(user, "Voice Activity", f"**Server:** {guild.name}\n**Action:** Joined voice channel {member.voice.channel.name}")
 
             # Check status and activity
-            member = guild.get_member(user.id)
             if member:
                 await self.log_activity(user, "Status Change", f"**Server:** {guild.name}\n**New status:** {member.status}")
                 if member.activity:
