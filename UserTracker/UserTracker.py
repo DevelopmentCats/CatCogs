@@ -1,6 +1,6 @@
 from redbot.core import commands, Config
 import discord
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 import logging
 from functools import lru_cache
@@ -695,9 +695,9 @@ class UserTracker(commands.Cog):
 
     async def fill_missed_activities(self, guild, user, last_logged):
         try:
-            # Ensure last_logged is not before the Discord epoch
-            discord_epoch = datetime(2015, 1, 1)
-            last_logged = max(last_logged, discord_epoch)
+            # Ensure last_logged is not before the Discord epoch and is UTC aware
+            discord_epoch = datetime(2015, 1, 1, tzinfo=timezone.utc)
+            last_logged = max(last_logged.replace(tzinfo=timezone.utc), discord_epoch)
 
             thread = await self.get_user_thread(guild, user)
             if not thread:
@@ -708,7 +708,7 @@ class UserTracker(commands.Cog):
             existing_messages = []
             async for message in thread.history(limit=None):
                 if message.author == self.bot.user and message.embeds:
-                    existing_messages.append((message.created_at, message.embeds[0]))
+                    existing_messages.append((message.created_at.replace(tzinfo=timezone.utc), message.embeds[0]))
 
             # Collect new messages
             new_messages = []
@@ -718,22 +718,22 @@ class UserTracker(commands.Cog):
                 async for message in channel.history(after=last_logged, limit=None):
                     if message.author.id == user.id:
                         embed = await self.create_embed(user, guild, "Message Sent", f"**Server:** {guild.name}\n**Channel:** {channel.mention}\n**Content:** {message.content[:1900]}")
-                        new_messages.append((message.created_at, embed))
+                        new_messages.append((message.created_at.replace(tzinfo=timezone.utc), embed))
 
             # Check voice state, status, and activity
             member = guild.get_member(user.id)
             if member:
                 if member.voice and member.voice.channel:
                     embed = await self.create_embed(user, guild, "Voice Activity", f"**Server:** {guild.name}\n**Action:** Joined voice channel {member.voice.channel.name}")
-                    new_messages.append((datetime.utcnow(), embed))
+                    new_messages.append((datetime.now(timezone.utc), embed))
 
                 embed = await self.create_embed(user, guild, "Status Change", f"**Server:** {guild.name}\n**New status:** {member.status}")
-                new_messages.append((datetime.utcnow(), embed))
+                new_messages.append((datetime.now(timezone.utc), embed))
 
-                if member.activity:
-                    activity_details = str(member.activity)
-                    embed = await self.create_embed(user, guild, "Activity Change", f"**Server:** {guild.name}\n**Activity:** {activity_details[:ACTIVITY_SUMMARY_LENGTH]}")
-                    new_messages.append((datetime.utcnow(), embed))
+            if member.activity:
+                activity_details = str(member.activity)
+                embed = await self.create_embed(user, guild, "Activity Change", f"**Server:** {guild.name}\n**Activity:** {activity_details[:ACTIVITY_SUMMARY_LENGTH]}")
+                new_messages.append((datetime.now(timezone.utc), embed))
 
             # Combine and sort all messages
             all_messages = existing_messages + new_messages
@@ -757,14 +757,14 @@ class UserTracker(commands.Cog):
                 description=f"Filled {total_messages} activities for {user.name}",
                 color=discord.Color.green()
             )
-            summary_embed.add_field(name="Time Range", value=f"From {last_logged.strftime('%Y-%m-%d %H:%M:%S')} to {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}")
+            summary_embed.add_field(name="Time Range", value=f"From {last_logged.strftime('%Y-%m-%d %H:%M:%S')} to {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}")
             summary_embed.add_field(name="Total Messages", value=str(len(new_messages)))
             summary_embed.set_footer(text="UserTracker - Keeping an eye on the past, present, and future!")
             await thread.send(embed=summary_embed)
 
             # Update the last logged activity timestamp
             async with self.config.guild(guild).last_logged_activities() as last_logged_activities:
-                last_logged_activities[str(user.id)] = datetime.utcnow().isoformat()
+                last_logged_activities[str(user.id)] = datetime.now(timezone.utc).isoformat()
 
             # Update the main message
             await self.update_main_message(guild)
