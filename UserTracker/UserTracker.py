@@ -662,8 +662,11 @@ class UserTracker(commands.Cog):
                 for user_id in tracked_users:
                     user = self.bot.get_user(user_id)
                     if user:
-                        last_logged_str = last_logged_activities.get(str(user_id), datetime.min.isoformat())
-                        last_logged = datetime.fromisoformat(last_logged_str)
+                        last_logged_str = last_logged_activities.get(str(user_id))
+                        if last_logged_str:
+                            last_logged = datetime.fromisoformat(last_logged_str)
+                        else:
+                            last_logged = datetime(1970, 1, 1)  # Use Unix epoch as default
                         await self.fill_missed_activities(guild, user, last_logged)
             await asyncio.sleep(3600)  # Run every hour
 
@@ -680,36 +683,43 @@ class UserTracker(commands.Cog):
             return
 
         last_logged_activities = await self.config.guild(ctx.guild).last_logged_activities()
-        last_logged_str = last_logged_activities.get(str(user.id), datetime.min.isoformat())
-        last_logged = datetime.fromisoformat(last_logged_str)
+        last_logged_str = last_logged_activities.get(str(user.id))
+        if last_logged_str:
+            last_logged = datetime.fromisoformat(last_logged_str)
+        else:
+            last_logged = datetime(1970, 1, 1)  # Use Unix epoch as default
 
         await ctx.send(f"Filling missed activities for {user.name}. This might take a while...")
         await self.fill_missed_activities(ctx.guild, user, last_logged)
         await ctx.send(f"Finished filling missed activities for {user.name}.")
 
     async def fill_missed_activities(self, guild, user, last_logged):
-        # Check messages
-        for channel in guild.text_channels:
-            async for message in channel.history(after=last_logged, limit=None):
-                if message.author.id == user.id:
-                    await self.log_activity(user, "Message Sent", f"**Server:** {guild.name}\n**Channel:** {channel.mention}\n**Content:** {message.content[:1900]}")
+        try:
+            # Check messages
+            for channel in guild.text_channels:
+                async for message in channel.history(after=last_logged, limit=None):
+                    if message.author.id == user.id:
+                        await self.log_activity(user, "Message Sent", f"**Server:** {guild.name}\n**Channel:** {channel.mention}\n**Content:** {message.content[:1900]}")
 
-        # Check voice state
-        voice_state = user.voice
-        if voice_state and voice_state.channel:
-            await self.log_activity(user, "Voice Activity", f"**Server:** {guild.name}\n**Action:** Joined voice channel {voice_state.channel.name}")
+            # Check voice state
+            voice_state = user.voice
+            if voice_state and voice_state.channel:
+                await self.log_activity(user, "Voice Activity", f"**Server:** {guild.name}\n**Action:** Joined voice channel {voice_state.channel.name}")
 
-        # Check status and activity
-        member = guild.get_member(user.id)
-        if member:
-            await self.log_activity(user, "Status Change", f"**Server:** {guild.name}\n**New status:** {member.status}")
-            if member.activity:
-                activity_details = str(member.activity)
-                await self.log_activity(user, "Activity Change", f"**Server:** {guild.name}\n**Activity:** {activity_details[:ACTIVITY_SUMMARY_LENGTH]}")
+            # Check status and activity
+            member = guild.get_member(user.id)
+            if member:
+                await self.log_activity(user, "Status Change", f"**Server:** {guild.name}\n**New status:** {member.status}")
+                if member.activity:
+                    activity_details = str(member.activity)
+                    await self.log_activity(user, "Activity Change", f"**Server:** {guild.name}\n**Activity:** {activity_details[:ACTIVITY_SUMMARY_LENGTH]}")
 
-        # Update the last logged activity timestamp
-        async with self.config.guild(guild).last_logged_activities() as last_logged_activities:
-            last_logged_activities[str(user.id)] = datetime.utcnow().isoformat()
+                # Update the last logged activity timestamp
+                async with self.config.guild(guild).last_logged_activities() as last_logged_activities:
+                    last_logged_activities[str(user.id)] = datetime.utcnow().isoformat()
+
+        except Exception as e:
+            self.logger.error(f"Error in fill_missed_activities for user {user.id} in guild {guild.id}: {str(e)}", exc_info=True)
 
     @track.command(name="heatmap")
     async def track_heatmap(self, ctx, user: discord.User):
@@ -737,11 +747,16 @@ class UserTracker(commands.Cog):
         if thread.id in self.activity_cache and now - self.activity_cache[thread.id]['timestamp'] < self.cache_expiry:
             return self.activity_cache[thread.id]['data']
 
-        activity_data = [0] * 24
+        activity_data = [[0] * 24 for _ in range(7)]  # 7 days, 24 hours each
         async for message in thread.history(limit=None, after=now - timedelta(days=7)):
             if message.author == self.bot.user and message.embeds:
+                day = (now - message.created_at).days
                 hour = message.created_at.hour
-                activity_data[hour] += 1
+                if 0 <= day < 7:  # Ensure we're within the last 7 days
+                    activity_data[day][hour] += 1
+
+        if all(sum(day) == 0 for day in activity_data):
+            return None  # No activity data found
 
         self.activity_cache[thread.id] = {
             'timestamp': now,
@@ -909,15 +924,19 @@ class UserTracker(commands.Cog):
             return
 
         animated_heatmap = await self.generate_animated_heatmap(thread)
-
-        await ctx.send(f"Behold, the temporal tapestry of {user.name}'s existence!",
-                       file=animated_heatmap)
+        if animated_heatmap:
+            await ctx.send(f"Behold, the temporal tapestry of {user.name}'s existence!",
+                           file=animated_heatmap)
+        else:
+            await ctx.send(f"No activity data found for {user.name} in the past week.")
 
     async def generate_animated_heatmap(self, thread):
         activity_data = await self.get_user_activity_data(thread)
-        
+        if not activity_data:
+            return None  # No activity data to generate heatmap
+
         fig, ax = plt.subplots(figsize=(12, 6))
-        
+    
         def update(frame):
             ax.clear()
             data = activity_data[frame]
@@ -928,9 +947,9 @@ class UserTracker(commands.Cog):
             ax.set_title(f"Activity Heatmap - Day {frame + 1}", fontsize=16)
             ax.set_xlabel("Hour of the Day", fontsize=12)
             plt.tight_layout()
-        
+    
         anim = animation.FuncAnimation(fig, update, frames=7, interval=1000)
-        
+    
         with io.BytesIO() as image_binary:
             anim.save(image_binary, writer='pillow', format='gif', fps=1)
             image_binary.seek(0)
