@@ -132,11 +132,10 @@ class AIResponder(commands.Cog):
         await ctx.send(f"Ollama API URL set to: {url}")
 
     @airesponder.command()
-    async def setmodel(self, ctx: commands.Context, model: str):
-        """Set the AI model to use."""
+    async def setmodel(self, ctx: commands.Context, model: str = None):
+        """Set the AI model to use or list available models."""
         api_url = await self.config.api_url()
-        base_url = api_url.rsplit('/', 1)[0]  # Remove '/generate' from the end
-        models_url = f"{base_url}/api/tags"
+        models_url = f"{api_url.rsplit('/', 2)[0]}/api/tags"
         
         async with aiohttp.ClientSession() as session:
             try:
@@ -144,6 +143,11 @@ class AIResponder(commands.Cog):
                     if resp.status == 200:
                         data = await resp.json()
                         available_models = [m['name'] for m in data['models']]
+                        
+                        if not model:
+                            await ctx.send(f"Available models: {', '.join(available_models)}")
+                            return
+                        
                         if model in available_models:
                             await self.config.model.set(model)
                             await ctx.send(f"AI model set to: {model}")
