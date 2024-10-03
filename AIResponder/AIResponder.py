@@ -7,6 +7,7 @@ from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from typing import Dict, List
 import asyncio
 from datetime import datetime, timedelta
+import json
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -103,13 +104,20 @@ class AIResponder(commands.Cog):
                 async with session.post(api_url, json={
                     "model": model,
                     "prompt": full_prompt,
-                    "max_tokens": max_tokens,
+                    "stream": False,
                 }, timeout=api_timeout) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
                         raise Exception(f"API request failed with status {resp.status}. Error: {error_text}")
-                    data = await resp.json()
-                    return data.get("response", "Sorry, I couldn't generate a response.")
+                
+                    response = ""
+                    async for line in resp.content:
+                        if line:
+                            data = json.loads(line)
+                            if 'response' in data:
+                                response += data['response']
+                
+                    return response.strip() or "Sorry, I couldn't generate a response."
         except asyncio.TimeoutError:
             raise Exception(f"The AI is taking too long to respond (timeout: {api_timeout} seconds). Please try again later or contact an administrator.")
         except aiohttp.ClientError as e:
@@ -211,18 +219,21 @@ class AIResponder(commands.Cog):
         try:
             api_url = await self.config.api_url()
             model = await self.config.model()
-            max_tokens = await self.config.max_tokens()
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(api_url, json={
                     "model": model,
                     "prompt": "Hello, this is a test.",
-                    "max_tokens": max_tokens,
+                    "stream": False,
                 }) as resp:
                     if resp.status == 200:
-                        data = await resp.json()
-                        response = data.get("response", "No response received")
-                        await ctx.send(f"API test successful. Response: {box(response)}")
+                        response = ""
+                        async for line in resp.content:
+                            if line:
+                                data = json.loads(line)
+                                if 'response' in data:
+                                    response += data['response']
+                        await ctx.send(f"API test successful. Response: {box(response.strip())}")
                     else:
                         error_text = await resp.text()
                         await ctx.send(f"API test failed. Status: {resp.status}, Error: {error_text}")
