@@ -45,23 +45,42 @@ class AIResponder(commands.Cog):
             await message.channel.send("You mentioned me, but didn't ask anything. How can I help you?")
             return
 
-        try:
-            custom_personality = await self.config.custom_personality()
-            full_prompt = f"{custom_personality}\n\nUser question: {content}"
-            
-            response = await self.get_ai_response(full_prompt)
+        async with message.channel.typing():
+            try:
+                custom_personality = await self.config.custom_personality()
+                server_context = f"You are in the Discord server '{message.guild.name}'. "
+                user_context = f"You are talking to {message.author.name}#{message.author.discriminator}. "
+                channel_context = f"This conversation is happening in the #{message.channel.name} channel. "
+                bot_context = f"You are a Discord bot named {self.bot.user.name}. "
+                
+                discord_formatting = (
+                    "Use Discord-specific formatting in your responses:\n"
+                    "**bold** for emphasis, *italic* for subtle emphasis, \n"
+                    "__underline__ for titles, ~~strikethrough~~ for corrections, \n"
+                    "`code` for short code snippets, and ```language\ncode block\n``` for longer code snippets.\n"
+                    "Use emojis 😊 sparingly to convey emotion when appropriate."
+                )
 
-            if len(response) > 2000:
-                pages = [page for page in pagify(response, delims=["\n", " "], page_length=1990)]
-                await menu(message.channel, pages, DEFAULT_CONTROLS)
-            else:
-                await message.channel.send(box(response))
-        except asyncio.TimeoutError:
-            await message.channel.send("The AI is taking too long to respond. Please try again later.")
-        except Exception as e:
-            await message.channel.send(f"An error occurred while processing your request: {str(e)}")
-            fallback_response = "I'm sorry, but I'm having trouble connecting to my AI brain right now. Please try again later or contact an administrator if the problem persists."
-            await message.channel.send(fallback_response)
+                full_prompt = (
+                    f"{custom_personality}\n\n"
+                    f"{server_context}{user_context}{channel_context}{bot_context}\n"
+                    f"{discord_formatting}\n\n"
+                    f"Respond in a friendly, intelligent, and context-aware manner to the following:\n"
+                    f"User question: {content}"
+                )
+                
+                response = await self.get_ai_response(full_prompt)
+
+                if len(response) > 2000:
+                    pages = [page for page in pagify(response, delims=["\n", " "], page_length=1990)]
+                    await menu(message.channel, pages, DEFAULT_CONTROLS)
+                else:
+                    await message.channel.send(response)
+            except asyncio.TimeoutError:
+                await message.channel.send("I'm taking longer than expected to respond. Please try again in a moment.")
+            except Exception as e:
+                await message.channel.send("I encountered an unexpected issue while processing your request. Please try again later.")
+                self.bot.logger.error(f"Error in AI response: {str(e)}")
 
     async def check_rate_limit(self, user_id: int) -> bool:
         if await self.bot.is_owner(discord.Object(id=user_id)):
@@ -69,20 +88,10 @@ class AIResponder(commands.Cog):
         
         now = datetime.now()
         if user_id in self.user_cooldowns:
-            if now - self.user_cooldowns[user_id] < timedelta(minutes=5):
+            if now - self.user_cooldowns[user_id] < timedelta(seconds=10):
                 return False
         self.user_cooldowns[user_id] = now
         return True
-
-    def update_conversation_history(self, channel_id: int, role: str, content: str):
-        if channel_id not in self.conversation_history:
-            self.conversation_history[channel_id] = []
-        self.conversation_history[channel_id].append({"role": role, "content": content})
-        # Keep only the last 10 messages
-        self.conversation_history[channel_id] = self.conversation_history[channel_id][-10:]
-
-    def get_conversation_history(self, channel_id: int) -> List[Dict[str, str]]:
-        return self.conversation_history.get(channel_id, [])
 
     async def get_ai_response(self, prompt: str) -> str:
         api_url = await self.config.api_url()
@@ -90,20 +99,11 @@ class AIResponder(commands.Cog):
         max_tokens = await self.config.max_tokens()
         api_timeout = await self.config.api_timeout()
 
-        discord_requirements = (
-            "Please provide a concise response suitable for a Discord chat. "
-            "Keep your answer under 2000 characters if possible, and use "
-            "formatting like **bold** or *italic* for emphasis when appropriate. "
-            "If a longer response is necessary, structure it in clear, short paragraphs."
-        )
-
-        full_prompt = f"{discord_requirements}\n\n{prompt}"
-
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(api_url, json={
                     "model": model,
-                    "prompt": full_prompt,
+                    "prompt": prompt,
                     "stream": False,
                 }, timeout=api_timeout) as resp:
                     if resp.status != 200:
@@ -117,12 +117,12 @@ class AIResponder(commands.Cog):
                             if 'response' in data:
                                 response += data['response']
                 
-                    return response.strip() or "Sorry, I couldn't generate a response."
+                    return response.strip() or "I apologize, but I couldn't generate a response to that."
         except asyncio.TimeoutError:
-            raise Exception(f"The AI is taking too long to respond (timeout: {api_timeout} seconds). Please try again later or contact an administrator.")
+            raise Exception(f"I'm taking longer than expected to respond (timeout: {api_timeout} seconds). Please try again later.")
         except aiohttp.ClientError as e:
             self.bot.logger.error(f"Error connecting to Ollama API: {str(e)}")
-            raise Exception(f"Failed to connect to the AI service. Error: {str(e)}")
+            raise Exception(f"I'm having trouble connecting to my knowledge base. Please try again later.")
 
     @commands.group()
     @commands.is_owner()
