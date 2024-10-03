@@ -73,6 +73,16 @@ class AIResponder(commands.Cog):
         self.user_cooldowns[user_id] = now
         return True
 
+    def update_conversation_history(self, channel_id: int, role: str, content: str):
+        if channel_id not in self.conversation_history:
+            self.conversation_history[channel_id] = []
+        self.conversation_history[channel_id].append({"role": role, "content": content})
+        # Keep only the last 10 messages
+        self.conversation_history[channel_id] = self.conversation_history[channel_id][-10:]
+
+    def get_conversation_history(self, channel_id: int) -> List[Dict[str, str]]:
+        return self.conversation_history.get(channel_id, [])
+
     async def get_ai_response(self, prompt: str) -> str:
         api_url = await self.config.api_url()
         model = await self.config.model()
@@ -96,14 +106,15 @@ class AIResponder(commands.Cog):
                     "max_tokens": max_tokens,
                 }, timeout=api_timeout) as resp:
                     if resp.status != 200:
-                        raise Exception(f"API request failed with status {resp.status}")
+                        error_text = await resp.text()
+                        raise Exception(f"API request failed with status {resp.status}. Error: {error_text}")
                     data = await resp.json()
                     return data.get("response", "Sorry, I couldn't generate a response.")
         except asyncio.TimeoutError:
             raise Exception(f"The AI is taking too long to respond (timeout: {api_timeout} seconds). Please try again later or contact an administrator.")
         except aiohttp.ClientError as e:
             self.bot.logger.error(f"Error connecting to Ollama API: {str(e)}")
-            raise Exception("Failed to connect to the AI service. Please try again later.")
+            raise Exception(f"Failed to connect to the AI service. Error: {str(e)}")
 
     @commands.group()
     @commands.is_owner()
@@ -123,8 +134,25 @@ class AIResponder(commands.Cog):
     @airesponder.command()
     async def setmodel(self, ctx: commands.Context, model: str):
         """Set the AI model to use."""
-        await self.config.model.set(model)
-        await ctx.send(f"AI model set to: {model}")
+        api_url = await self.config.api_url()
+        base_url = api_url.rsplit('/', 1)[0]  # Remove '/generate' from the end
+        models_url = f"{base_url}/api/tags"
+        
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(models_url) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        available_models = [m['name'] for m in data['models']]
+                        if model in available_models:
+                            await self.config.model.set(model)
+                            await ctx.send(f"AI model set to: {model}")
+                        else:
+                            await ctx.send(f"Model '{model}' not found. Available models: {', '.join(available_models)}")
+                    else:
+                        await ctx.send(f"Failed to fetch available models. Status: {resp.status}")
+            except Exception as e:
+                await ctx.send(f"Error fetching models: {str(e)}")
 
     @airesponder.command()
     async def setmaxtokens(self, ctx: commands.Context, max_tokens: int):
@@ -177,8 +205,23 @@ class AIResponder(commands.Cog):
     async def testapi(self, ctx: commands.Context):
         """Test the connection to the Ollama API."""
         try:
-            response = await self.get_ai_response("Hello, this is a test.")
-            await ctx.send(f"API test successful. Response: {box(response)}")
+            api_url = await self.config.api_url()
+            model = await self.config.model()
+            max_tokens = await self.config.max_tokens()
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, json={
+                    "model": model,
+                    "prompt": "Hello, this is a test.",
+                    "max_tokens": max_tokens,
+                }) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        response = data.get("response", "No response received")
+                        await ctx.send(f"API test successful. Response: {box(response)}")
+                    else:
+                        error_text = await resp.text()
+                        await ctx.send(f"API test failed. Status: {resp.status}, Error: {error_text}")
         except Exception as e:
             await ctx.send(f"API test failed: {str(e)}")
 
