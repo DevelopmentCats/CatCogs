@@ -123,10 +123,12 @@ class AIResponder(commands.Cog):
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
 
                 # Process the AI's response
-                if any(keyword in response.lower() for keyword in ["remind", "reminder", "event"]):
+                if any(keyword in response.lower() for keyword in ["remind", "reminder"]):
                     # Extract time and message from the AI's response
                     time_match = re.search(r'(\d+)\s*(minute|hour|day)', response.lower())
-                    if time_match:
+                    message_match = re.search(r'remind.*?(?:to|about)\s+(.*?)(?:\s+in\s+\d+|$)', response, re.IGNORECASE | re.DOTALL)
+                    
+                    if time_match and message_match:
                         amount, unit = time_match.groups()
                         amount = int(amount)
                         if unit == "hour":
@@ -137,16 +139,10 @@ class AIResponder(commands.Cog):
                             delta = timedelta(minutes=amount)
                         
                         reminder_time = datetime.now() + delta
-                        
-                        # Extract the reminder message
-                        message_match = re.search(r'(?:that|to|about)\s+(.+?)(?:\s+in\s+\d+|$)', response, re.IGNORECASE)
-                        if message_match:
-                            reminder_message = message_match.group(1).strip()
-                        else:
-                            reminder_message = "You asked me to remind you about something."
+                        reminder_message = message_match.group(1).strip()
                         
                         reminder_id = await self.create_reminder(message.author.id, message.channel.id, reminder_message, reminder_time)
-                        response = f"Alright, I've set a reminder for you. I'll remind you about '{reminder_message}' {time_match.group(0)} from now."
+                        response = f"Alright, I've set a reminder for you. I'll remind you to '{reminder_message}' in {amount} {unit}{'s' if amount > 1 else ''} from now."
                 elif "EVENT|" in response:
                     # Existing code for handling explicit EVENT format
                     event_info, natural_response = response.split("\n", 1)
