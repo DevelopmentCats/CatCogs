@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import json
 from asyncio import Queue
 import logging
+import re
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -54,38 +55,43 @@ class AIResponder(commands.Cog):
         async with message.channel.typing():
             try:
                 custom_personality = await self.config.custom_personality()
-                recent_messages = await self.get_recent_messages(message.channel)
-                user_history = self.get_user_history(message.author.id)
+                channel_context = await self.get_recent_messages(message.channel, message)
+                user_conversation_history = self.get_user_conversation_history(message.author.id)
 
                 full_prompt = (
                     f"System: You are {self.bot.user.name}, an AI assistant in the Discord server '{message.guild.name}', "
                     f"channel '#{message.channel.name}'. Your primary goal is to provide helpful, friendly, and context-aware responses.\n\n"
                     f"Instructions:\n"
-                    f"1. Always start your response by mentioning the user: <@{message.author.id}>\n"
-                    f"2. Use Discord formatting appropriately: **bold** (emphasis), *italic* (subtle emphasis), "
+                    f"1. Use Discord formatting appropriately: **bold** (emphasis), *italic* (subtle emphasis), "
                     f"__underline__ (titles), ~~strikethrough~~ (corrections), `code` (short snippets), "
                     f"```language\ncode block\n``` (longer code snippets).\n"
-                    f"3. Use emojis sparingly to convey emotion when appropriate.\n"
-                    f"4. Keep responses concise, ideally under 2000 characters.\n"
-                    f"5. Provide code-related answers only when explicitly requested.\n"
-                    f"6. For programming questions without a code request, offer conceptual explanations.\n"
-                    f"7. Use the following context only if directly relevant to the user's question:\n"
-                    f"   Recent conversation:\n{recent_messages}\n"
-                    f"   User history:\n{user_history}\n"
-                    f"8. If the context is not relevant, ignore it entirely.\n"
+                    f"2. Use emojis sparingly to convey emotion when appropriate.\n"
+                    f"3. Keep responses concise, ideally under 2000 characters.\n"
+                    f"4. Provide code-related answers only when explicitly requested.\n"
+                    f"5. For programming questions without a code request, offer conceptual explanations.\n"
+                    f"6. Recent channel context (use if relevant):\n{channel_context}\n"
+                    f"7. User's previous conversation history with the bot (use if relevant):\n{user_conversation_history}\n"
+                    f"8. If the channel context or conversation history is not relevant to the current question, ignore it.\n"
                     f"9. If the query is unclear, ask for clarification before providing a full answer.\n"
                     f"10. Maintain a conversational tone while staying informative and helpful.\n"
                     f"11. Remember, you are an AI assistant and should not claim capabilities beyond your programming.\n"
                     f"12. Base your personality on this description: {custom_personality}\n\n"
                     f"Human: {content}\n\n"
                     f"AI: Analyze the human's message carefully. Formulate a relevant, helpful response that adheres to all instructions above. "
-                    f"Begin your response with the user's mention tag, and ensure your answer is contextually appropriate and aligns with your role as an AI assistant."
+                    f"Ensure your answer is contextually appropriate and aligns with your role as an AI assistant. "
+                    f"If the user's question relates to previous interactions, reference them appropriately."
                 )
                 
                 api_timeout = await self.config.api_timeout()
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
 
-                self.update_user_history(message.author.id, content, response)
+                # Remove any user mentions from the AI's response
+                response = re.sub(r'<@!?\d+>', '', response).strip()
+
+                # Add the user mention to the beginning of the response
+                response = f"<@{message.author.id}> {response}"
+
+                self.update_user_conversation_history(message.author.id, content, response)
 
                 if len(response) > 2000:
                     for page in pagify(response, delims=["\n", " "], page_length=1990):
@@ -93,9 +99,9 @@ class AIResponder(commands.Cog):
                 else:
                     await message.channel.send(response)
             except asyncio.TimeoutError:
-                await message.channel.send(f"I'm taking longer than expected to respond (timeout: {api_timeout} seconds). Please try again later or contact an administrator.")
+                await message.channel.send(f"<@{message.author.id}> I'm taking longer than expected to respond (timeout: {api_timeout} seconds). Please try again later or contact an administrator.")
             except Exception as e:
-                await message.channel.send("I encountered an unexpected issue while processing your request. Please try again later.")
+                await message.channel.send(f"<@{message.author.id}> I encountered an unexpected issue while processing your request. Please try again later.")
                 logging.error(f"Error in AI response: {str(e)}")
 
     async def check_rate_limit(self, user_id: int) -> bool:
@@ -287,21 +293,25 @@ class AIResponder(commands.Cog):
         await self.config.api_timeout.set(timeout)
         await ctx.send(f"API timeout set to: {timeout} seconds")
 
-    async def get_recent_messages(self, channel: discord.TextChannel, limit: int = 5) -> str:
+    async def get_recent_messages(self, channel: discord.TextChannel, current_message: discord.Message, limit: int = 5) -> str:
         messages = []
-        async for msg in channel.history(limit=limit):
-            if msg.author == self.bot.user:
-                messages.append(f"Bot: {msg.content}")
-            else:
-                messages.append(f"{msg.author.name}: {msg.content}")
+        async for msg in channel.history(limit=limit + 1):  # +1 to account for the current message
+            if msg.id != current_message.id:  # Exclude the current message
+                if msg.author == self.bot.user:
+                    messages.append(f"Bot: {msg.content}")
+                else:
+                    messages.append(f"{msg.author.name}: {msg.content}")
+            if len(messages) == limit:
+                break
         return "\n".join(reversed(messages))
 
-    def get_user_history(self, user_id: int) -> str:
+    def get_user_conversation_history(self, user_id: int) -> str:
         if user_id not in self.user_history:
-            return "No previous conversation."
-        return "\n".join([f"User: {item['user']}\nAI: {item['ai']}" for item in self.user_history[user_id]])
+            return "No previous conversation with this user."
+        history = "\n".join([f"User: {item['user']}\nBot: {item['ai']}" for item in self.user_history[user_id]])
+        return f"Previous conversations with this user:\n{history}"
 
-    def update_user_history(self, user_id: int, user_message: str, ai_response: str):
+    def update_user_conversation_history(self, user_id: int, user_message: str, ai_response: str):
         if user_id not in self.user_history:
             self.user_history[user_id] = []
         self.user_history[user_id].append({"user": user_message, "ai": ai_response})
@@ -317,12 +327,12 @@ class AIResponder(commands.Cog):
     @commands.command()
     async def aicontext(self, ctx: commands.Context):
         """Display the current AI context for the user."""
-        user_history = self.get_user_history(ctx.author.id)
-        recent_messages = await self.get_recent_messages(ctx.channel)
+        user_conversation_history = self.get_user_conversation_history(ctx.author.id)
+        channel_context = await self.get_recent_messages(ctx.channel, ctx.message)
         
         embed = discord.Embed(title="AI Context", color=discord.Color.blue())
-        embed.add_field(name="Recent Channel Messages", value=recent_messages[:1000] + "..." if len(recent_messages) > 1000 else recent_messages, inline=False)
-        embed.add_field(name="Your Conversation History", value=user_history[:1000] + "..." if len(user_history) > 1000 else user_history, inline=False)
+        embed.add_field(name="Recent Channel Messages", value=channel_context[:1000] + "..." if len(channel_context) > 1000 else channel_context, inline=False)
+        embed.add_field(name="Your Conversation History", value=user_conversation_history[:1000] + "..." if len(user_conversation_history) > 1000 else user_conversation_history, inline=False)
         
         await ctx.send(embed=embed)
 
