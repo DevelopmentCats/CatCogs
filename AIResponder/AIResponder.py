@@ -9,6 +9,7 @@ import asyncio
 from datetime import datetime, timedelta
 import json
 from asyncio import Queue
+import logging
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -83,15 +84,15 @@ class AIResponder(commands.Cog):
                 self.update_user_history(message.author.id, content, response)
 
                 if len(response) > 2000:
-                    pages = [page for page in pagify(response, delims=["\n", " "], page_length=1990)]
-                    await menu(message.channel, pages, DEFAULT_CONTROLS)
+                    for page in pagify(response, delims=["\n", " "], page_length=1990):
+                        await message.channel.send(page)
                 else:
                     await message.channel.send(response)
             except asyncio.TimeoutError:
                 await message.channel.send(f"I'm taking longer than expected to respond (timeout: {api_timeout} seconds). Please try again later or contact an administrator.")
             except Exception as e:
                 await message.channel.send("I encountered an unexpected issue while processing your request. Please try again later.")
-                self.bot.logger.error(f"Error in AI response: {str(e)}")
+                logging.error(f"Error in AI response: {str(e)}")
 
     async def check_rate_limit(self, user_id: int) -> bool:
         if await self.bot.is_owner(discord.Object(id=user_id)):
