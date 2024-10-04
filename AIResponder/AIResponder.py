@@ -39,6 +39,7 @@ class AIResponder(commands.Cog):
         self.events = {}
         self.scheduler = AsyncIOScheduler(jobstores={'default': MemoryJobStore()})
         self.scheduler.start()
+        logging.info("Scheduler started")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -118,10 +119,20 @@ class AIResponder(commands.Cog):
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
 
                 # Process the AI's response
-                if "REMINDER|" in response:
-                    # Extract reminder details and create a reminder
+                if "remind" in response.lower() and "minute" in response.lower():
+                    # Extract time and message from the AI's response
+                    time_match = re.search(r'(\d+)\s*minute', response.lower())
+                    if time_match:
+                        minutes = int(time_match.group(1))
+                        reminder_time = datetime.now() + timedelta(minutes=minutes)
+                        reminder_message = re.sub(r'.*?remind.*?in.*?minute.*?that\s*', '', response, flags=re.IGNORECASE).strip()
+                        
+                        reminder_id = await self.create_reminder(message.author.id, message.channel.id, reminder_message, reminder_time)
+                        response = f"Alright, I've set a reminder for you. I'll remind you about '{reminder_message}' in {minutes} minutes."
+                elif "REMINDER|" in response:
+                    # Existing code for handling explicit REMINDER format
                     reminder_info, natural_response = response.split("\n", 1)
-                    _, user_or_role_id, channel_id, time_str, message = reminder_info.split("|", 4)
+                    _, user_or_role_id, channel_id, time_str, reminder_message = reminder_info.split("|", 4)
                     time = datetime.fromisoformat(time_str)
                     
                     # If the user_or_role_id is not a number, it's probably a username or role name
@@ -136,7 +147,7 @@ class AIResponder(commands.Cog):
                         else:
                             user_or_role_id = message.author.id  # Default to the message author if not found
                     
-                    reminder_id = await self.create_reminder(int(user_or_role_id), int(channel_id), message, time)
+                    reminder_id = await self.create_reminder(int(user_or_role_id), int(channel_id), reminder_message, time)
                     response = f"{natural_response}\n\nReminder created with ID: {reminder_id}"
                 elif "EVENT|" in response:
                     # Extract event details and create an event
@@ -489,12 +500,13 @@ class AIResponder(commands.Cog):
             'message': message,
             'time': time
         }
-        self.scheduler.add_job(
+        job = self.scheduler.add_job(
             self.send_reminder,
             trigger=DateTrigger(run_date=time),
             args=[reminder_id],
             id=f'reminder_{reminder_id}'
         )
+        logging.info(f"Created reminder with ID {reminder_id} for time {time}. Job: {job}")
         return reminder_id
 
     async def create_event(self, name: str, description: str, channel_id: int, time: datetime, recurrence: str = None):
