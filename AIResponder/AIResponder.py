@@ -96,8 +96,8 @@ class AIResponder(commands.Cog):
                     f"12. Base your personality on this description: {custom_personality}\n\n"
                     f"13. For reminders and events:\n"
                     f"    - If a user asks for a reminder, first respond with a natural language confirmation that "
-                    f"    includes the time and message for the reminder. Then, on a new line, provide the reminder details in this format:\n"
-                    f"    REMINDER|user_id|channel_id|time|message\n"
+                    f"    includes the time and message for the reminder. Then, on a new line, provide the reminder details in this exact format:\n"
+                    f"    REMINDER|user_id|channel_id|YYYY-MM-DDTHH:MM:SS|message\n"
                     f"    - If a user asks for an event, first respond with a natural language confirmation that "
                     f"    includes the name, description, channel, time, and recurrence for the event. Then, on a new line, provide the event details in this format:\n"
                     f"    EVENT|name|description|channel_id|time|recurrence\n"
@@ -125,26 +125,28 @@ class AIResponder(commands.Cog):
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
 
                 # Process the AI's response
-                if "REMINDER|" in response:
-                    reminder_info, natural_response = response.split("\n", 1)
-                    _, user_or_role_id, channel_id, time_str, reminder_message = reminder_info.split("|", 4)
-                    time = datetime.fromisoformat(time_str)
-                    
-                    # Use the actual channel ID instead of 'general'
-                    channel_id = message.channel.id
-                    
-                    reminder_id = await self.create_reminder(message.author.id, channel_id, reminder_message, time)
-                    response = natural_response  # Use only the natural language part of the response
+                reminder_match = re.search(r'REMINDER\|(.*?)\|(.*?)\|(.*?)\|(.*)', response, re.DOTALL)
+                if reminder_match:
+                    user_id, channel_id, time_str, reminder_message = reminder_match.groups()
+                    try:
+                        time = datetime.fromisoformat(time_str)
+                        reminder_id = await self.create_reminder(int(user_id), int(channel_id), reminder_message, time)
+                        response = re.sub(r'REMINDER\|.*', '', response, flags=re.DOTALL).strip()
+                        response += f"\n\nReminder created with ID: {reminder_id}"
+                    except ValueError as e:
+                        logging.error(f"Error creating reminder: {str(e)}")
+                        response = "I'm sorry, I couldn't create the reminder due to an error. Please try again with a different format."
                 elif "EVENT|" in response:
+                    # Existing code for handling explicit EVENT format
                     event_info, natural_response = response.split("\n", 1)
                     _, name, description, channel_id, time_str, recurrence = event_info.split("|", 5)
-                    time = datetime.fromisoformat(time_str)
-                    
-                    # Use the actual channel ID
-                    channel_id = message.channel.id
-                    
-                    event_id = await self.create_event(name, description, channel_id, time, recurrence)
-                    response = natural_response  # Use only the natural language part of the response
+                    try:
+                        time = datetime.fromisoformat(time_str)
+                        event_id = await self.create_event(name, description, int(channel_id), time, recurrence)
+                        response = f"{natural_response}\n\nEvent created with ID: {event_id}"
+                    except ValueError as e:
+                        logging.error(f"Error creating event: {str(e)}")
+                        response = "I'm sorry, I couldn't create the event due to an error. Please try again with a different format."
 
                 # Remove any user mentions from the AI's response
                 response = re.sub(r'<@!?\d+>', '', response).strip()
