@@ -95,10 +95,12 @@ class AIResponder(commands.Cog):
                     f"11. Remember, you are an AI assistant and should not claim capabilities beyond your programming.\n"
                     f"12. Base your personality on this description: {custom_personality}\n\n"
                     f"13. For reminders and events:\n"
-                    f"    - If a user asks for a reminder, respond with a natural language confirmation that "
-                    f"includes the time and message for the reminder.\n"
-                    f"    - If a user asks for an event, respond with a natural language confirmation that "
-                    f"includes the name, description, channel, time, and recurrence for the event.\n"
+                    f"    - If a user asks for a reminder, first respond with a natural language confirmation that "
+                    f"    includes the time and message for the reminder. Then, on a new line, provide the reminder details in this format:\n"
+                    f"    REMINDER|user_id|channel_id|time|message\n"
+                    f"    - If a user asks for an event, first respond with a natural language confirmation that "
+                    f"    includes the name, description, channel, time, and recurrence for the event. Then, on a new line, provide the event details in this format:\n"
+                    f"    EVENT|name|description|channel_id|time|recurrence\n"
                     f"14. Current date and time: {current_time}\n"
                     f"15. Available channels:\n{channels_info}\n"
                     f"16. Available roles:\n{roles_info}\n"
@@ -123,33 +125,26 @@ class AIResponder(commands.Cog):
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
 
                 # Process the AI's response
-                if any(keyword in response.lower() for keyword in ["remind", "reminder"]):
-                    # Extract time and message from the AI's response
-                    time_match = re.search(r'(\d+)\s*(minute|hour|day)', response.lower())
-                    message_match = re.search(r'remind.*?(?:to|about)\s+(.*?)(?:\s+in\s+\d+|$)', response, re.IGNORECASE | re.DOTALL)
+                if "REMINDER|" in response:
+                    reminder_info, natural_response = response.split("\n", 1)
+                    _, user_or_role_id, channel_id, time_str, reminder_message = reminder_info.split("|", 4)
+                    time = datetime.fromisoformat(time_str)
                     
-                    if time_match and message_match:
-                        amount, unit = time_match.groups()
-                        amount = int(amount)
-                        if unit == "hour":
-                            delta = timedelta(hours=amount)
-                        elif unit == "day":
-                            delta = timedelta(days=amount)
-                        else:
-                            delta = timedelta(minutes=amount)
-                        
-                        reminder_time = datetime.now() + delta
-                        reminder_message = message_match.group(1).strip()
-                        
-                        reminder_id = await self.create_reminder(message.author.id, message.channel.id, reminder_message, reminder_time)
-                        response = f"Alright, I've set a reminder for you. I'll remind you to '{reminder_message}' in {amount} {unit}{'s' if amount > 1 else ''} from now."
+                    # Use the actual channel ID instead of 'general'
+                    channel_id = message.channel.id
+                    
+                    reminder_id = await self.create_reminder(message.author.id, channel_id, reminder_message, time)
+                    response = natural_response  # Use only the natural language part of the response
                 elif "EVENT|" in response:
-                    # Existing code for handling explicit EVENT format
                     event_info, natural_response = response.split("\n", 1)
                     _, name, description, channel_id, time_str, recurrence = event_info.split("|", 5)
                     time = datetime.fromisoformat(time_str)
-                    event_id = await self.create_event(name, description, int(channel_id), time, recurrence)
-                    response = f"{natural_response}\n\nEvent created with ID: {event_id}"
+                    
+                    # Use the actual channel ID
+                    channel_id = message.channel.id
+                    
+                    event_id = await self.create_event(name, description, channel_id, time, recurrence)
+                    response = natural_response  # Use only the natural language part of the response
 
                 # Remove any user mentions from the AI's response
                 response = re.sub(r'<@!?\d+>', '', response).strip()
