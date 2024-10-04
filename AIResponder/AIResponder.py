@@ -23,6 +23,7 @@ class AIResponder(commands.Cog):
         }
         self.config.register_global(**default_global)
         self.user_cooldowns: Dict[int, datetime] = {}
+        self.user_history: Dict[int, List[Dict[str, str]]] = {}
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -48,28 +49,34 @@ class AIResponder(commands.Cog):
         async with message.channel.typing():
             try:
                 custom_personality = await self.config.custom_personality()
-                server_context = f"You are in the Discord server '{message.guild.name}'. "
-                user_context = f"You are talking to {message.author.name}#{message.author.discriminator}. "
-                channel_context = f"This conversation is happening in the #{message.channel.name} channel. "
-                bot_context = f"You are a Discord bot named {self.bot.user.name}. "
-                
-                discord_formatting = (
-                    "Use Discord-specific formatting in your responses:\n"
-                    "**bold** for emphasis, *italic* for subtle emphasis, \n"
-                    "__underline__ for titles, ~~strikethrough~~ for corrections, \n"
-                    "`code` for short code snippets, and ```language\ncode block\n``` for longer code snippets.\n"
-                    "Use emojis 😊 sparingly to convey emotion when appropriate."
-                )
+                recent_messages = await self.get_recent_messages(message.channel)
+                user_history = self.get_user_history(message.author.id)
 
                 full_prompt = (
-                    f"{custom_personality}\n\n"
-                    f"{server_context}{user_context}{channel_context}{bot_context}\n"
-                    f"{discord_formatting}\n\n"
-                    f"Respond in a friendly, intelligent, and context-aware manner to the following:\n"
-                    f"User question: {content}"
+                    f"System: You are an AI assistant in a Discord server. Your responses should be helpful, friendly, and context-aware. "
+                    f"You are currently in the '{message.guild.name}' server, in the '#{message.channel.name}' channel. "
+                    f"Your name is {self.bot.user.name}.\n\n"
+                    f"Instructions:\n"
+                    f"1. Use Discord-specific formatting in your responses:\n"
+                    f"   - **bold** for emphasis\n"
+                    f"   - *italic* for subtle emphasis\n"
+                    f"   - __underline__ for titles\n"
+                    f"   - ~~strikethrough~~ for corrections\n"
+                    f"   - `code` for short code snippets\n"
+                    f"   - ```language\ncode block\n``` for longer code snippets\n"
+                    f"2. Use emojis 😊 sparingly to convey emotion when appropriate.\n"
+                    f"3. To mention the user you're responding to, use: <@{message.author.id}>\n"
+                    f"4. Keep your responses concise and under 2000 characters when possible.\n\n"
+                    f"Recent conversation context:\n{recent_messages}\n\n"
+                    f"User conversation history:\n{user_history}\n\n"
+                    f"Custom personality: {custom_personality}\n\n"
+                    f"Human: {content}\n\n"
+                    f"AI: Respond to the human's message, taking into account the context and instructions provided above."
                 )
                 
                 response = await self.get_ai_response(full_prompt)
+
+                self.update_user_history(message.author.id, content, response)
 
                 if len(response) > 2000:
                     pages = [page for page in pagify(response, delims=["\n", " "], page_length=1990)]
@@ -270,6 +277,52 @@ class AIResponder(commands.Cog):
             return
         await self.config.api_timeout.set(timeout)
         await ctx.send(f"API timeout set to: {timeout} seconds")
+
+    async def get_recent_messages(self, channel: discord.TextChannel, limit: int = 5) -> str:
+        messages = []
+        async for msg in channel.history(limit=limit):
+            if msg.author == self.bot.user:
+                messages.append(f"Bot: {msg.content}")
+            else:
+                messages.append(f"{msg.author.name}: {msg.content}")
+        return "\n".join(reversed(messages))
+
+    def get_user_history(self, user_id: int) -> str:
+        if user_id not in self.user_history:
+            return "No previous conversation."
+        return "\n".join([f"User: {item['user']}\nAI: {item['ai']}" for item in self.user_history[user_id]])
+
+    def update_user_history(self, user_id: int, user_message: str, ai_response: str):
+        if user_id not in self.user_history:
+            self.user_history[user_id] = []
+        self.user_history[user_id].append({"user": user_message, "ai": ai_response})
+        self.user_history[user_id] = self.user_history[user_id][-3:]  # Keep only the last 3 interactions
+
+    @commands.command()
+    async def ai(self, ctx: commands.Context, *, question: str):
+        """Ask the AI a question without mentioning the bot."""
+        message = ctx.message
+        message.content = f"{self.bot.user.mention} {question}"
+        await self.respond_to_mention(message)
+
+    @commands.command()
+    async def aicontext(self, ctx: commands.Context):
+        """Display the current AI context for the user."""
+        user_history = self.get_user_history(ctx.author.id)
+        recent_messages = await self.get_recent_messages(ctx.channel)
+        
+        embed = discord.Embed(title="AI Context", color=discord.Color.blue())
+        embed.add_field(name="Recent Channel Messages", value=recent_messages[:1000] + "..." if len(recent_messages) > 1000 else recent_messages, inline=False)
+        embed.add_field(name="Your Conversation History", value=user_history[:1000] + "..." if len(user_history) > 1000 else user_history, inline=False)
+        
+        await ctx.send(embed=embed)
+
+    @commands.command()
+    async def aiclear(self, ctx: commands.Context):
+        """Clear your AI conversation history."""
+        if ctx.author.id in self.user_history:
+            del self.user_history[ctx.author.id]
+        await ctx.send("Your AI conversation history has been cleared.")
 
 async def setup(bot: Red):
     await bot.add_cog(AIResponder(bot))
