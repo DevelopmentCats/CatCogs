@@ -10,7 +10,12 @@ from datetime import datetime, timedelta
 import json
 from asyncio import Queue
 import logging
-import re
+import pytz
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.jobstores.memory import MemoryJobStore
+from apscheduler.triggers.date import DateTrigger
+from apscheduler.triggers.cron import CronTrigger
+from dateutil.parser import parse
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -29,6 +34,10 @@ class AIResponder(commands.Cog):
         self.user_history: Dict[int, List[Dict[str, str]]] = {}
         self.request_queue: Queue = Queue()
         self.processing_lock = asyncio.Lock()
+        self.reminders = {}
+        self.events = {}
+        self.scheduler = AsyncIOScheduler(jobstores={'default': MemoryJobStore()})
+        self.scheduler.start()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -58,6 +67,13 @@ class AIResponder(commands.Cog):
                 channel_context = await self.get_recent_messages(message.channel, message)
                 user_conversation_history = self.get_user_conversation_history(message.author.id)
 
+                # Get context about channels, roles, and users
+                channels_info = "\n".join([f"#{channel.name} (ID: {channel.id})" for channel in message.guild.channels])
+                roles_info = "\n".join([f"@{role.name} (ID: {role.id})" for role in message.guild.roles])
+                users_info = "\n".join([f"{member.name}#{member.discriminator} (ID: {member.id})" for member in message.guild.members])
+
+                current_time = datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")
+
                 full_prompt = (
                     f"System: You are {self.bot.user.name}, an AI assistant in the Discord server '{message.guild.name}', "
                     f"channel '#{message.channel.name}'. Your primary goal is to provide helpful, friendly, and context-aware responses.\n\n"
@@ -76,14 +92,37 @@ class AIResponder(commands.Cog):
                     f"10. Maintain a conversational tone while staying informative and helpful.\n"
                     f"11. Remember, you are an AI assistant and should not claim capabilities beyond your programming.\n"
                     f"12. Base your personality on this description: {custom_personality}\n\n"
+                    f"13. You can create reminders and events. If a user asks to create a reminder or event, process the request and use the appropriate function.\n"
+                    f"14. Current date and time: {current_time}\n"
+                    f"15. Available channels:\n{channels_info}\n"
+                    f"16. Available roles:\n{roles_info}\n"
+                    f"17. Server members:\n{users_info}\n"
+                    f"18. When creating reminders or events, use the channel, role, or user IDs provided in the context.\n"
                     f"Human: {content}\n\n"
-                    f"AI: Analyze the human's message carefully. Formulate a relevant, helpful response that adheres to all instructions above. "
+                    f"AI: Analyze the human's message carefully. If it's a request for a reminder or event, process it accordingly. "
+                    f"Otherwise, formulate a relevant, helpful response that adheres to all instructions above. "
                     f"Ensure your answer is contextually appropriate and aligns with your role as an AI assistant. "
                     f"If the user's question relates to previous interactions, reference them appropriately."
                 )
                 
                 api_timeout = await self.config.api_timeout()
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
+
+                # Process the AI's response
+                if "CREATE_REMINDER" in response:
+                    # Extract reminder details and create a reminder
+                    # Example: CREATE_REMINDER|user_id|channel_id|time|message
+                    _, user_id, channel_id, time_str, message = response.split("|", 4)
+                    time = datetime.fromisoformat(time_str)
+                    reminder_id = await self.create_reminder(int(user_id), int(channel_id), message, time)
+                    response = f"Reminder created with ID: {reminder_id}"
+                elif "CREATE_EVENT" in response:
+                    # Extract event details and create an event
+                    # Example: CREATE_EVENT|name|description|channel_id|time|recurrence
+                    _, name, description, channel_id, time_str, recurrence = response.split("|", 5)
+                    time = datetime.fromisoformat(time_str)
+                    event_id = await self.create_event(name, description, int(channel_id), time, recurrence)
+                    response = f"Event created with ID: {event_id}"
 
                 # Remove any user mentions from the AI's response
                 response = re.sub(r'<@!?\d+>', '', response).strip()
@@ -146,14 +185,22 @@ class AIResponder(commands.Cog):
             self.bot.logger.error(f"Error connecting to Ollama API: {str(e)}")
             raise Exception(f"I'm having trouble connecting to my knowledge base. Please try again later.")
 
-    @commands.group()
-    @commands.is_owner()
-    async def airesponder(self, ctx: commands.Context):
-        """Configure the AI Responder cog."""
-        pass
+    @commands.group(name="air")
+    async def air(self, ctx: commands.Context):
+        """AIResponder commands for managing AI, reminders, and events."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
 
-    @airesponder.command()
-    async def setapiurl(self, ctx: commands.Context, url: str):
+    @air.group(name="config")
+    @commands.is_owner()
+    async def air_config(self, ctx: commands.Context):
+        """Configure the AIResponder cog (Bot Owner only)."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+
+    @air_config.command(name="setapiurl")
+    @commands.is_owner()
+    async def air_setapiurl(self, ctx: commands.Context, url: str):
         """Set the Ollama API URL."""
         if not url.startswith(("http://", "https://")):
             await ctx.send("Invalid URL. Please provide a valid HTTP or HTTPS URL.")
@@ -161,8 +208,9 @@ class AIResponder(commands.Cog):
         await self.config.api_url.set(url)
         await ctx.send(f"Ollama API URL set to: {url}")
 
-    @airesponder.command()
-    async def setmodel(self, ctx: commands.Context, model: str = None):
+    @air_config.command(name="setmodel")
+    @commands.is_owner()
+    async def air_setmodel(self, ctx: commands.Context, model: str = None):
         """Set the AI model to use or list available models."""
         api_url = await self.config.api_url()
         models_url = f"{api_url.rsplit('/', 2)[0]}/api/tags"
@@ -188,8 +236,9 @@ class AIResponder(commands.Cog):
             except Exception as e:
                 await ctx.send(f"Error fetching models: {str(e)}")
 
-    @airesponder.command()
-    async def setmaxtokens(self, ctx: commands.Context, max_tokens: int):
+    @air_config.command(name="setmaxtokens")
+    @commands.is_owner()
+    async def air_setmaxtokens(self, ctx: commands.Context, max_tokens: int):
         """Set the maximum number of tokens for the AI response."""
         if max_tokens < 1 or max_tokens > 2048:
             await ctx.send("Invalid token count. Please choose a number between 1 and 2048.")
@@ -197,8 +246,9 @@ class AIResponder(commands.Cog):
         await self.config.max_tokens.set(max_tokens)
         await ctx.send(f"Maximum tokens set to: {max_tokens}")
 
-    @airesponder.command()
-    async def enable(self, ctx: commands.Context, channel: discord.TextChannel = None):
+    @air_config.command(name="enable")
+    @commands.is_owner()
+    async def air_enable(self, ctx: commands.Context, channel: discord.TextChannel = None):
         """Enable the AI responder in a specific channel or the current channel."""
         channel = channel or ctx.channel
         async with self.config.enabled_channels() as channels:
@@ -206,8 +256,9 @@ class AIResponder(commands.Cog):
                 channels.append(channel.id)
         await ctx.send(f"AI responder enabled in {channel.mention}")
 
-    @airesponder.command()
-    async def disable(self, ctx: commands.Context, channel: discord.TextChannel = None):
+    @air_config.command(name="disable")
+    @commands.is_owner()
+    async def air_disable(self, ctx: commands.Context, channel: discord.TextChannel = None):
         """Disable the AI responder in a specific channel or the current channel."""
         channel = channel or ctx.channel
         async with self.config.enabled_channels() as channels:
@@ -215,8 +266,9 @@ class AIResponder(commands.Cog):
                 channels.remove(channel.id)
         await ctx.send(f"AI responder disabled in {channel.mention}")
 
-    @airesponder.command()
-    async def settings(self, ctx: commands.Context):
+    @air_config.command(name="settings")
+    @commands.is_owner()
+    async def air_settings(self, ctx: commands.Context):
         """Display current AI responder settings."""
         api_url = await self.config.api_url()
         model = await self.config.model()
@@ -235,8 +287,9 @@ class AIResponder(commands.Cog):
 
         await ctx.send(embed=embed)
 
-    @airesponder.command()
-    async def testapi(self, ctx: commands.Context):
+    @air_config.command(name="testapi")
+    @commands.is_owner()
+    async def air_testapi(self, ctx: commands.Context):
         """Test the connection to the Ollama API."""
         try:
             api_url = await self.config.api_url()
@@ -262,36 +315,117 @@ class AIResponder(commands.Cog):
         except Exception as e:
             await ctx.send(f"API test failed: {str(e)}")
 
-    @airesponder.command()
-    async def setpersonality(self, ctx: commands.Context, *, personality: str):
+    @air_config.command(name="setpersonality")
+    @commands.is_owner()
+    async def air_setpersonality(self, ctx: commands.Context, *, personality: str):
         """Set a custom AI personality/prompt."""
         await self.config.custom_personality.set(personality)
         await ctx.send(f"Custom AI personality set to: {personality}")
 
-    @commands.command()
-    async def aihelp(self, ctx: commands.Context):
-        """Get help on how to use the AI responder."""
-        help_text = (
-            "**AI Responder Help**\n\n"
-            "To use the AI responder, simply mention the bot and ask your question. For example:\n"
-            f"{self.bot.user.mention} What is the capital of France?\n\n"
-            "The AI will then respond to your question.\n\n"
-            "**Additional Information:**\n"
-            "- The AI responder may be enabled only in specific channels. Ask an admin if you're unsure where it can be used.\n"
-            "- There's a cooldown period between uses to prevent spam.\n"
-            "- Admins can configure various aspects of the AI responder using the `airesponder` command group.\n\n"
-            "For more information, contact a server administrator."
-        )
-        await ctx.send(help_text)
-
-    @airesponder.command()
-    async def settimeout(self, ctx: commands.Context, timeout: int):
+    @air_config.command(name="settimeout")
+    @commands.is_owner()
+    async def air_settimeout(self, ctx: commands.Context, timeout: int):
         """Set the API timeout in seconds."""
         if timeout < 60 or timeout > 600:
             await ctx.send("Invalid timeout. Please choose a number between 60 and 600 seconds.")
             return
         await self.config.api_timeout.set(timeout)
         await ctx.send(f"API timeout set to: {timeout} seconds")
+
+    @air.command(name="help")
+    async def air_help(self, ctx: commands.Context):
+        """Get help on how to use the AI responder."""
+        help_text = (
+            "**AIResponder Help**\n\n"
+            "The AIResponder cog allows you to interact with an AI assistant, set reminders, and manage events.\n\n"
+            "**General Usage:**\n"
+            f"- To chat with the AI, mention the bot or use `{ctx.prefix}air chat <your message>`\n"
+            f"- To set a reminder: `{ctx.prefix}air reminder add <time> <message>`\n"
+            f"- To create an event: `{ctx.prefix}air event create <name> <time> <description>`\n\n"
+            f"**Available Commands:**\n"
+            f"`{ctx.prefix}air config` - Configure the AIResponder (Bot Owner only)\n"
+            f"`{ctx.prefix}air chat` - Chat with the AI\n"
+            f"`{ctx.prefix}air reminder` - Manage reminders\n"
+            f"`{ctx.prefix}air event` - Manage events\n"
+            f"`{ctx.prefix}air help` - Show this help message\n\n"
+            f"Use `{ctx.prefix}help air <command>` for more information on a specific command."
+        )
+        await ctx.send(help_text)
+
+    @air.command(name="chat")
+    async def air_chat(self, ctx: commands.Context, *, message: str):
+        """Chat with the AI without mentioning the bot."""
+        fake_message = ctx.message
+        fake_message.content = f"{self.bot.user.mention} {message}"
+        await self.respond_to_mention(fake_message)
+
+    @air.group(name="reminder")
+    async def air_reminder(self, ctx: commands.Context):
+        """Manage reminders."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+
+    @air_reminder.command(name="add")
+    async def air_reminder_add(self, ctx: commands.Context, time: str, *, message: str):
+        """Add a new reminder."""
+        try:
+            reminder_time = parse(time)
+            reminder_id = await self.create_reminder(ctx.author.id, ctx.channel.id, message, reminder_time)
+            await ctx.send(f"Reminder set for {reminder_time.strftime('%Y-%m-%d %H:%M:%S')} with ID: {reminder_id}")
+        except ValueError:
+            await ctx.send("Invalid time format. Please use a recognizable date and time.")
+
+    @air_reminder.command(name="list")
+    async def air_reminder_list(self, ctx: commands.Context):
+        """List your reminders."""
+        reminders = await self.list_reminders(ctx.author.id)
+        if reminders:
+            reminder_list = "\n".join([f"ID: {k}, Message: {v['message']}, Time: {v['time']}" for k, v in reminders.items()])
+            await ctx.send(f"Your reminders:\n{reminder_list}")
+        else:
+            await ctx.send("You have no reminders.")
+
+    @air_reminder.command(name="delete")
+    async def air_reminder_delete(self, ctx: commands.Context, reminder_id: int):
+        """Delete a reminder."""
+        if await self.delete_reminder(reminder_id):
+            await ctx.send(f"Reminder {reminder_id} deleted.")
+        else:
+            await ctx.send(f"Reminder {reminder_id} not found.")
+
+    @air.group(name="event")
+    async def air_event(self, ctx: commands.Context):
+        """Manage events."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+
+    @air_event.command(name="create")
+    async def air_event_create(self, ctx: commands.Context, name: str, time: str, *, description: str):
+        """Create a new event."""
+        try:
+            event_time = parse(time)
+            event_id = await self.create_event(name, description, ctx.channel.id, event_time)
+            await ctx.send(f"Event '{name}' created for {event_time.strftime('%Y-%m-%d %H:%M:%S')} with ID: {event_id}")
+        except ValueError:
+            await ctx.send("Invalid time format. Please use a recognizable date and time.")
+
+    @air_event.command(name="list")
+    async def air_event_list(self, ctx: commands.Context):
+        """List all events."""
+        events = await self.list_events()
+        if events:
+            event_list = "\n".join([f"ID: {k}, Name: {v['name']}, Time: {v['time']}" for k, v in events.items()])
+            await ctx.send(f"Events:\n{event_list}")
+        else:
+            await ctx.send("There are no events.")
+
+    @air_event.command(name="delete")
+    async def air_event_delete(self, ctx: commands.Context, event_id: int):
+        """Delete an event."""
+        if await self.delete_event(event_id):
+            await ctx.send(f"Event {event_id} deleted.")
+        else:
+            await ctx.send(f"Event {event_id} not found.")
 
     async def get_recent_messages(self, channel: discord.TextChannel, current_message: discord.Message, limit: int = 5) -> str:
         messages = []
@@ -317,32 +451,6 @@ class AIResponder(commands.Cog):
         self.user_history[user_id].append({"user": user_message, "ai": ai_response})
         self.user_history[user_id] = self.user_history[user_id][-3:]  # Keep only the last 3 interactions
 
-    @commands.command()
-    async def ai(self, ctx: commands.Context, *, question: str):
-        """Ask the AI a question without mentioning the bot."""
-        message = ctx.message
-        message.content = f"{self.bot.user.mention} {question}"
-        await self.respond_to_mention(message)
-
-    @commands.command()
-    async def aicontext(self, ctx: commands.Context):
-        """Display the current AI context for the user."""
-        user_conversation_history = self.get_user_conversation_history(ctx.author.id)
-        channel_context = await self.get_recent_messages(ctx.channel, ctx.message)
-        
-        embed = discord.Embed(title="AI Context", color=discord.Color.blue())
-        embed.add_field(name="Recent Channel Messages", value=channel_context[:1000] + "..." if len(channel_context) > 1000 else channel_context, inline=False)
-        embed.add_field(name="Your Conversation History", value=user_conversation_history[:1000] + "..." if len(user_conversation_history) > 1000 else user_conversation_history, inline=False)
-        
-        await ctx.send(embed=embed)
-
-    @commands.command()
-    async def aiclear(self, ctx: commands.Context):
-        """Clear your AI conversation history."""
-        if ctx.author.id in self.user_history:
-            del self.user_history[ctx.author.id]
-        await ctx.send("Your AI conversation history has been cleared.")
-
     async def process_queue(self):
         if self.processing_lock.locked():
             return
@@ -352,5 +460,78 @@ class AIResponder(commands.Cog):
                 message = await self.request_queue.get()
                 await self.respond_to_mention(message)
 
+    async def create_reminder(self, user_id: int, channel_id: int, message: str, time: datetime):
+        reminder_id = len(self.reminders) + 1
+        self.reminders[reminder_id] = {
+            'user_id': user_id,
+            'channel_id': channel_id,
+            'message': message,
+            'time': time
+        }
+        self.scheduler.add_job(
+            self.send_reminder,
+            trigger=DateTrigger(run_date=time),
+            args=[reminder_id],
+            id=f'reminder_{reminder_id}'
+        )
+        return reminder_id
+
+    async def create_event(self, name: str, description: str, channel_id: int, time: datetime, recurrence: str = None):
+        event_id = len(self.events) + 1
+        self.events[event_id] = {
+            'name': name,
+            'description': description,
+            'channel_id': channel_id,
+            'time': time,
+            'recurrence': recurrence
+        }
+        if recurrence:
+            trigger = CronTrigger.from_crontab(recurrence)
+        else:
+            trigger = DateTrigger(run_date=time)
+        self.scheduler.add_job(
+            self.send_event,
+            trigger=trigger,
+            args=[event_id],
+            id=f'event_{event_id}'
+        )
+        return event_id
+
+    async def send_reminder(self, reminder_id: int):
+        reminder = self.reminders.pop(reminder_id, None)
+        if reminder:
+            channel = self.bot.get_channel(reminder['channel_id'])
+            if channel:
+                await channel.send(f"<@{reminder['user_id']}> Reminder: {reminder['message']}")
+
+    async def send_event(self, event_id: int):
+        event = self.events.get(event_id)
+        if event:
+            channel = self.bot.get_channel(event['channel_id'])
+            if channel:
+                await channel.send(f"Event: {event['name']}\nDescription: {event['description']}")
+
+    async def delete_reminder(self, reminder_id: int):
+        if reminder_id in self.reminders:
+            del self.reminders[reminder_id]
+            self.scheduler.remove_job(f'reminder_{reminder_id}')
+            return True
+        return False
+
+    async def delete_event(self, event_id: int):
+        if event_id in self.events:
+            del self.events[event_id]
+            self.scheduler.remove_job(f'event_{event_id}')
+            return True
+        return False
+
+    async def list_reminders(self, user_id: int):
+        return {k: v for k, v in self.reminders.items() if v['user_id'] == user_id}
+
+    async def list_events(self):
+        return self.events
+
 async def setup(bot: Red):
-    await bot.add_cog(AIResponder(bot))
+    cog = AIResponder(bot)
+    await bot.add_cog(cog)
+    bot.add_listener(cog.on_message)
