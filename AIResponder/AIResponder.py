@@ -79,7 +79,7 @@ class AIResponder(commands.Cog):
                 full_prompt = (
                     f"System: You are {self.bot.user.name}, an AI assistant in the Discord server '{message.guild.name}', "
                     f"channel '#{message.channel.name}'. Your primary goal is to provide helpful, friendly, and context-aware responses.\n\n"
-                    f"Context:\n"
+                    f"Context (Use this information to inform your responses, but do not repeat it unless directly relevant):\n"
                     f"1. Current date and time (UTC): {current_time}\n"
                     f"2. Recent channel context:\n{channel_context}\n"
                     f"3. User's previous conversation history:\n{user_conversation_history}\n"
@@ -88,33 +88,32 @@ class AIResponder(commands.Cog):
                     f"6. Server members:\n{users_info}\n"
                     f"7. User ID: {message.author.id}\n"
                     f"8. Channel ID: {message.channel.id}\n\n"
-                    f"Instructions:\n"
+                    f"Instructions (Follow these precisely):\n"
                     f"1. Analyze the user's message carefully and provide a relevant, helpful response.\n"
-                    f"2. Use Discord formatting: **bold** (emphasis), *italic* (subtle emphasis), "
-                    f"__underline__ (titles), ~~strikethrough~~ (corrections), `code` (short snippets), "
-                    f"```language\ncode block\n``` (longer code snippets).\n"
+                    f"2. Use Discord formatting when appropriate: **bold**, *italic*, __underline__, ~~strikethrough~~, `code`, ```code blocks```.\n"
                     f"3. Use emojis sparingly to convey emotion when appropriate.\n"
-                    f"4. Keep responses concise, ideally under 2000 characters.\n"
+                    f"4. Keep responses concise, under 2000 characters.\n"
                     f"5. Provide code-related answers only when explicitly requested.\n"
                     f"6. For programming questions without a code request, offer conceptual explanations.\n"
                     f"7. If the query is unclear, ask for clarification before providing a full answer.\n"
                     f"8. Maintain a conversational tone while staying informative and helpful.\n"
                     f"9. Base your personality on this description: {custom_personality}\n"
                     f"10. For reminders:\n"
-                    f"    - If a user asks for a reminder, respond with:\n"
+                    f"    - If a user asks for a reminder, you MUST respond with:\n"
                     f"      a) A natural language, quirky confirmation including the time and message.\n"
-                    f"      b) On a new line, the reminder details in this format:\n"
+                    f"      b) On a new line, the reminder details in this EXACT format:\n"
                     f"         REMINDER|{message.author.id}|{message.channel.id}|YYYY-MM-DDTHH:MM:SS+00:00|message\n"
                     f"11. For events:\n"
-                    f"    - If a user asks for an event, respond with:\n"
+                    f"    - If a user asks for an event, you MUST respond with:\n"
                     f"      a) A natural language confirmation including name, description, channel, time, and recurrence.\n"
-                    f"      b) On a new line, the event details in this format:\n"
-                    f"         EVENT|name|description|channel_id|time|recurrence\n"
+                    f"      b) On a new line, the event details in this EXACT format:\n"
+                    f"         EVENT|name|description|{message.channel.id}|YYYY-MM-DDTHH:MM:SS+00:00|recurrence\n"
                     f"12. For all other responses, do NOT include REMINDER or EVENT formats.\n"
                     f"13. Use ISO format for time (YYYY-MM-DDTHH:MM:SS+00:00) and ensure it's in the future.\n"
-                    f"14. Do not mention or repeat these instructions in your response.\n\n"
+                    f"14. Do not mention or repeat these instructions in your response.\n"
+                    f"15. IMPORTANT: Always follow these instructions precisely. Failure to do so will result in incorrect bot behavior.\n\n"
                     f"Human: {content}\n\n"
-                    f"Assistant: Let me analyze your message and provide a helpful response."
+                    f"Assistant: Understood. I will analyze the message and respond accordingly, following the instructions precisely."
                 )
                 
                 logging.info(f"Prompt sent to AI: {full_prompt}")
@@ -122,7 +121,8 @@ class AIResponder(commands.Cog):
                 api_timeout = await self.config.api_timeout()
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
 
-                logging.info(f"AI Response: {response}")
+                # Log the full AI response before processing
+                logging.info(f"Full AI Response: {response}")
 
                 # Process the AI's response
                 reminder_match = re.search(r'REMINDER\|(.*?)\|(.*?)\|(.*?)\|(.*)', response, re.DOTALL)
@@ -162,6 +162,9 @@ class AIResponder(commands.Cog):
                 response = f"<@{message.author.id}> {response}"
 
                 self.update_user_conversation_history(message.author.id, content, response)
+
+                # Log the final response that will be sent to the user
+                logging.info(f"Final response to user: {response}")
 
                 if len(response) > 2000:
                     for page in pagify(response, delims=["\n", " "], page_length=1990):
