@@ -211,7 +211,7 @@ class AIResponder(commands.Cog):
         )
         await ctx.send(help_text)
 
-    @air.command(name="config")
+    @air.group(name="config")
     @commands.is_owner()
     async def air_config(self, ctx: commands.Context):
         """Configure the AIResponder cog (Bot Owner only)."""
