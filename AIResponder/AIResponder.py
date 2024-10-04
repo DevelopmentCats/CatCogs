@@ -98,6 +98,8 @@ class AIResponder(commands.Cog):
                     f"    - If a user asks for a reminder, first respond with a natural language confirmation that "
                     f"    includes the time and message for the reminder. Then, on a new line, provide the reminder details in this exact format:\n"
                     f"    REMINDER|user_id|channel_id|YYYY-MM-DDTHH:MM:SS|message\n"
+                    f"    Replace {{user_id}} with the ID of the user who sent the message, {{channel_id}} with the current channel ID, "
+                    f"    and {{message}} with the reminder message.\n"
                     f"    - If a user asks for an event, first respond with a natural language confirmation that "
                     f"    includes the name, description, channel, time, and recurrence for the event. Then, on a new line, provide the event details in this format:\n"
                     f"    EVENT|name|description|channel_id|time|recurrence\n"
@@ -124,13 +126,15 @@ class AIResponder(commands.Cog):
                 api_timeout = await self.config.api_timeout()
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
 
+                logging.info(f"AI Response: {response}")
+
                 # Process the AI's response
                 reminder_match = re.search(r'REMINDER\|(.*?)\|(.*?)\|(.*?)\|(.*)', response, re.DOTALL)
                 if reminder_match:
                     user_id, channel_id, time_str, reminder_message = reminder_match.groups()
                     try:
                         time = datetime.fromisoformat(time_str)
-                        reminder_id = await self.create_reminder(int(user_id), int(channel_id), reminder_message, time)
+                        reminder_id = await self.create_reminder(message.author.id, message.channel.id, reminder_message, time)
                         response = re.sub(r'REMINDER\|.*', '', response, flags=re.DOTALL).strip()
                         response += f"\n\nReminder created with ID: {reminder_id}"
                     except ValueError as e:
@@ -491,14 +495,19 @@ class AIResponder(commands.Cog):
             'message': message,
             'time': time
         }
-        job = self.scheduler.add_job(
-            self.send_reminder,
-            trigger=DateTrigger(run_date=time),
-            args=[reminder_id],
-            id=f'reminder_{reminder_id}'
-        )
-        logging.info(f"Created reminder with ID {reminder_id} for time {time}. Job: {job}")
-        return reminder_id
+        try:
+            job = self.scheduler.add_job(
+                self.send_reminder,
+                trigger=DateTrigger(run_date=time),
+                args=[reminder_id],
+                id=f'reminder_{reminder_id}'
+            )
+            logging.info(f"Created reminder with ID {reminder_id} for time {time}. Job: {job}")
+            return reminder_id
+        except Exception as e:
+            logging.error(f"Error scheduling reminder: {str(e)}")
+            del self.reminders[reminder_id]
+            raise
 
     async def create_event(self, name: str, description: str, channel_id: int, time: datetime, recurrence: str = None):
         event_id = len(self.events) + 1
