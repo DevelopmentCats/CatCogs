@@ -19,11 +19,13 @@ class AIResponder(commands.Cog):
             "max_tokens": 300,
             "enabled_channels": [],
             "custom_personality": "You are a helpful AI assistant.",
-            "api_timeout": 120,  # Default timeout of 120 seconds (2 minutes)
+            "api_timeout": 300,  # Increased default timeout to 5 minutes
         }
         self.config.register_global(**default_global)
         self.user_cooldowns: Dict[int, datetime] = {}
         self.user_history: Dict[int, List[Dict[str, str]]] = {}
+        self.request_queue: Queue = Queue()
+        self.processing_lock = asyncio.Lock()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -33,7 +35,8 @@ class AIResponder(commands.Cog):
         if self.bot.user in message.mentions:
             enabled_channels = await self.config.enabled_channels()
             if not enabled_channels or message.channel.id in enabled_channels:
-                await self.respond_to_mention(message)
+                await self.request_queue.put(message)
+                await self.process_queue()
 
     @commands.cooldown(1, 30, commands.BucketType.user)
     async def respond_to_mention(self, message: discord.Message):
@@ -53,28 +56,28 @@ class AIResponder(commands.Cog):
                 user_history = self.get_user_history(message.author.id)
 
                 full_prompt = (
-                    f"System: You are an AI assistant in a Discord server. Your responses should be helpful, friendly, and context-aware. "
-                    f"You are currently in the '{message.guild.name}' server, in the '#{message.channel.name}' channel. "
-                    f"Your name is {self.bot.user.name}.\n\n"
+                    f"System: You are {self.bot.user.name}, an AI assistant in the Discord server '{message.guild.name}', "
+                    f"channel '#{message.channel.name}'. Respond to users in a helpful, friendly, and context-aware manner.\n\n"
                     f"Instructions:\n"
-                    f"1. Use Discord-specific formatting in your responses:\n"
-                    f"   - **bold** for emphasis\n"
-                    f"   - *italic* for subtle emphasis\n"
-                    f"   - __underline__ for titles\n"
-                    f"   - ~~strikethrough~~ for corrections\n"
-                    f"   - `code` for short code snippets\n"
-                    f"   - ```language\ncode block\n``` for longer code snippets\n"
-                    f"2. Use emojis 😊 sparingly to convey emotion when appropriate.\n"
+                    f"1. Use Discord formatting: **bold** for emphasis, *italic* for subtle emphasis, "
+                    f"__underline__ for titles, ~~strikethrough~~ for corrections, `code` for short snippets, "
+                    f"and ```language\ncode block\n``` for longer code snippets.\n"
+                    f"2. Use emojis sparingly to convey emotion when appropriate.\n"
                     f"3. To mention the user you're responding to, use: <@{message.author.id}>\n"
-                    f"4. Keep your responses concise and under 2000 characters when possible.\n\n"
+                    f"4. Keep responses concise and under 2000 characters when possible.\n"
+                    f"5. Always start your response by mentioning the user who asked the question.\n"
+                    f"6. Do not provide code-related answers unless specifically requested in the user's question.\n"
+                    f"7. If asked about coding or programming without a specific request for code, provide conceptual explanations instead.\n\n"
                     f"Recent conversation context:\n{recent_messages}\n\n"
                     f"User conversation history:\n{user_history}\n\n"
                     f"Custom personality: {custom_personality}\n\n"
                     f"Human: {content}\n\n"
-                    f"AI: Respond to the human's message, taking into account the context and instructions provided above."
+                    f"AI: Respond to the human's message, addressing them directly using their mention tag. "
+                    f"Take into account the context and instructions provided above, especially regarding code-related responses."
                 )
                 
-                response = await self.get_ai_response(full_prompt)
+                api_timeout = await self.config.api_timeout()
+                response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
 
                 self.update_user_history(message.author.id, content, response)
 
@@ -84,7 +87,7 @@ class AIResponder(commands.Cog):
                 else:
                     await message.channel.send(response)
             except asyncio.TimeoutError:
-                await message.channel.send("I'm taking longer than expected to respond. Please try again in a moment.")
+                await message.channel.send(f"I'm taking longer than expected to respond (timeout: {api_timeout} seconds). Please try again later or contact an administrator.")
             except Exception as e:
                 await message.channel.send("I encountered an unexpected issue while processing your request. Please try again later.")
                 self.bot.logger.error(f"Error in AI response: {str(e)}")
@@ -272,8 +275,8 @@ class AIResponder(commands.Cog):
     @airesponder.command()
     async def settimeout(self, ctx: commands.Context, timeout: int):
         """Set the API timeout in seconds."""
-        if timeout < 10 or timeout > 300:
-            await ctx.send("Invalid timeout. Please choose a number between 10 and 300 seconds.")
+        if timeout < 60 or timeout > 600:
+            await ctx.send("Invalid timeout. Please choose a number between 60 and 600 seconds.")
             return
         await self.config.api_timeout.set(timeout)
         await ctx.send(f"API timeout set to: {timeout} seconds")
@@ -323,6 +326,15 @@ class AIResponder(commands.Cog):
         if ctx.author.id in self.user_history:
             del self.user_history[ctx.author.id]
         await ctx.send("Your AI conversation history has been cleared.")
+
+    async def process_queue(self):
+        if self.processing_lock.locked():
+            return
+
+        async with self.processing_lock:
+            while not self.request_queue.empty():
+                message = await self.request_queue.get()
+                await self.respond_to_mention(message)
 
 async def setup(bot: Red):
     await bot.add_cog(AIResponder(bot))
