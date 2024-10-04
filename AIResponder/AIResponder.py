@@ -8,6 +8,7 @@ from typing import Dict, List
 import asyncio
 from datetime import datetime, timedelta
 import json
+from asyncio import Queue
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
