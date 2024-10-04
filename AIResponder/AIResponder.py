@@ -94,16 +94,16 @@ class AIResponder(commands.Cog):
                     f"10. Maintain a conversational tone while staying informative and helpful.\n"
                     f"11. Remember, you are an AI assistant and should not claim capabilities beyond your programming.\n"
                     f"12. Base your personality on this description: {custom_personality}\n\n"
-                    f"13. For reminders:\n"
-                    f"    - If a user asks for a reminder, first respond with a quirky, humorous confirmation that "
-                    f"    includes the time and message for the reminder. Be creative and funny, relating to the reminder content if possible.\n"
-                    f"    - Then, on a new line, provide the reminder details in this exact format:\n"
-                    f"    REMINDER|{{user_id}}|{{channel_id}}|YYYY-MM-DDTHH:MM:SS+00:00|{{message}}\n"
-                    f"    Replace {{user_id}} with the ID of the user who sent the message ({message.author.id}), "
-                    f"    {{channel_id}} with the current channel ID ({message.channel.id}), "
-                    f"    and {{message}} with the reminder message.\n"
-                    f"    - IMPORTANT: Use the current time provided below to calculate the correct future time for the reminder. "
-                    f"    Do not use any other time reference.\n"
+                    f"13. For reminders and events:\n"
+                    f"    - If a user asks for a reminder, you MUST respond in two parts:\n"
+                    f"      1) A natural language, quirky confirmation that includes the time and message for the reminder.\n"
+                    f"      2) On a new line, the reminder details in this exact format:\n"
+                    f"         REMINDER|{{user_id}}|{{channel_id}}|YYYY-MM-DDTHH:MM:SS+00:00|{{message}}\n"
+                    f"    - If a user asks for an event, you MUST respond in two parts:\n"
+                    f"      1) A natural language confirmation that includes the name, description, channel, time, and recurrence for the event.\n"
+                    f"      2) On a new line, the event details in this exact format:\n"
+                    f"         EVENT|name|description|channel_id|time|recurrence\n"
+                    f"    - For all other responses, do NOT include REMINDER or EVENT formats.\n"
                     f"14. Current date and time (UTC): {current_time}\n"
                     f"15. Available channels:\n{channels_info}\n"
                     f"16. Available roles:\n{roles_info}\n"
@@ -130,19 +130,12 @@ class AIResponder(commands.Cog):
 
                 # Process the AI's response
                 reminder_match = re.search(r'REMINDER\|(.*?)\|(.*?)\|(.*?)\|(.*)', response, re.DOTALL)
+                event_match = re.search(r'EVENT\|(.*?)\|(.*?)\|(.*?)\|(.*?)\|(.*)', response, re.DOTALL)
+
                 if reminder_match:
                     user_id, channel_id, time_str, reminder_message = reminder_match.groups()
                     try:
-                        # Parse the time string and convert it to UTC
                         time = datetime.fromisoformat(time_str)
-                        utc = pytz.UTC
-                        time = time.replace(tzinfo=utc)
-                        
-                        # Check if the reminder time is in the future
-                        current_time = datetime.now(utc)
-                        if time <= current_time:
-                            raise ValueError("Reminder time must be in the future")
-                        
                         reminder_id = await self.create_reminder(int(user_id), int(channel_id), reminder_message, time)
                         
                         # Extract the quirky confirmation message (everything before the REMINDER| line)
@@ -152,17 +145,19 @@ class AIResponder(commands.Cog):
                     except ValueError as e:
                         logging.error(f"Error creating reminder: {str(e)}")
                         response = f"I'm sorry, I couldn't create the reminder due to an error: {str(e)}. Please try again with a different time format or duration."
-                elif "EVENT|" in response:
-                    # Existing code for handling explicit EVENT format
-                    event_info, natural_response = response.split("\n", 1)
-                    _, name, description, channel_id, time_str, recurrence = event_info.split("|", 5)
+                elif event_match:
+                    name, description, channel_id, time_str, recurrence = event_match.groups()
                     try:
                         time = datetime.fromisoformat(time_str)
                         event_id = await self.create_event(name, description, int(channel_id), time, recurrence)
-                        response = f"{natural_response}\n\nEvent created with ID: {event_id}"
+                        
+                        # Extract the confirmation message (everything before the EVENT| line)
+                        confirmation_message = re.sub(r'\nEVENT\|.*', '', response, flags=re.DOTALL).strip()
+                        
+                        response = f"{confirmation_message}\n\nEvent created with ID: {event_id}"
                     except ValueError as e:
                         logging.error(f"Error creating event: {str(e)}")
-                        response = "I'm sorry, I couldn't create the event due to an error. Please try again with a different format."
+                        response = f"I'm sorry, I couldn't create the event due to an error: {str(e)}. Please try again with a different format."
 
                 # Remove any user mentions from the AI's response
                 response = re.sub(r'<@!?\d+>', '', response).strip()
