@@ -94,7 +94,11 @@ class AIResponder(commands.Cog):
                     f"10. Maintain a conversational tone while staying informative and helpful.\n"
                     f"11. Remember, you are an AI assistant and should not claim capabilities beyond your programming.\n"
                     f"12. Base your personality on this description: {custom_personality}\n\n"
-                    f"13. You can create reminders and events. If a user asks to create a reminder or event, process the request and use the appropriate function.\n"
+                    f"13. For reminders and events:\n"
+                    f"    - If a user asks for a reminder, respond with a natural language confirmation that "
+                    f"includes the time and message for the reminder.\n"
+                    f"    - If a user asks for an event, respond with a natural language confirmation that "
+                    f"includes the name, description, channel, time, and recurrence for the event.\n"
                     f"14. Current date and time: {current_time}\n"
                     f"15. Available channels:\n{channels_info}\n"
                     f"16. Available roles:\n{roles_info}\n"
@@ -119,38 +123,32 @@ class AIResponder(commands.Cog):
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
 
                 # Process the AI's response
-                if "remind" in response.lower() and "minute" in response.lower():
+                if any(keyword in response.lower() for keyword in ["remind", "reminder", "event"]):
                     # Extract time and message from the AI's response
-                    time_match = re.search(r'(\d+)\s*minute', response.lower())
+                    time_match = re.search(r'(\d+)\s*(minute|hour|day)', response.lower())
                     if time_match:
-                        minutes = int(time_match.group(1))
-                        reminder_time = datetime.now() + timedelta(minutes=minutes)
-                        reminder_message = re.sub(r'.*?remind.*?in.*?minute.*?that\s*', '', response, flags=re.IGNORECASE).strip()
+                        amount, unit = time_match.groups()
+                        amount = int(amount)
+                        if unit == "hour":
+                            delta = timedelta(hours=amount)
+                        elif unit == "day":
+                            delta = timedelta(days=amount)
+                        else:
+                            delta = timedelta(minutes=amount)
+                        
+                        reminder_time = datetime.now() + delta
+                        
+                        # Extract the reminder message
+                        message_match = re.search(r'(?:that|to|about)\s+(.+?)(?:\s+in\s+\d+|$)', response, re.IGNORECASE)
+                        if message_match:
+                            reminder_message = message_match.group(1).strip()
+                        else:
+                            reminder_message = "You asked me to remind you about something."
                         
                         reminder_id = await self.create_reminder(message.author.id, message.channel.id, reminder_message, reminder_time)
-                        response = f"Alright, I've set a reminder for you. I'll remind you about '{reminder_message}' in {minutes} minutes."
-                elif "REMINDER|" in response:
-                    # Existing code for handling explicit REMINDER format
-                    reminder_info, natural_response = response.split("\n", 1)
-                    _, user_or_role_id, channel_id, time_str, reminder_message = reminder_info.split("|", 4)
-                    time = datetime.fromisoformat(time_str)
-                    
-                    # If the user_or_role_id is not a number, it's probably a username or role name
-                    if not user_or_role_id.isdigit():
-                        # Try to find the user or role
-                        user = discord.utils.get(message.guild.members, name=user_or_role_id)
-                        role = discord.utils.get(message.guild.roles, name=user_or_role_id)
-                        if user:
-                            user_or_role_id = user.id
-                        elif role:
-                            user_or_role_id = role.id
-                        else:
-                            user_or_role_id = message.author.id  # Default to the message author if not found
-                    
-                    reminder_id = await self.create_reminder(int(user_or_role_id), int(channel_id), reminder_message, time)
-                    response = f"{natural_response}\n\nReminder created with ID: {reminder_id}"
+                        response = f"Alright, I've set a reminder for you. I'll remind you about '{reminder_message}' {time_match.group(0)} from now."
                 elif "EVENT|" in response:
-                    # Extract event details and create an event
+                    # Existing code for handling explicit EVENT format
                     event_info, natural_response = response.split("\n", 1)
                     _, name, description, channel_id, time_str, recurrence = event_info.split("|", 5)
                     time = datetime.fromisoformat(time_str)
