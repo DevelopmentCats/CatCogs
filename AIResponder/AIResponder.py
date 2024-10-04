@@ -94,12 +94,13 @@ class AIResponder(commands.Cog):
                     f"10. Maintain a conversational tone while staying informative and helpful.\n"
                     f"11. Remember, you are an AI assistant and should not claim capabilities beyond your programming.\n"
                     f"12. Base your personality on this description: {custom_personality}\n\n"
-                    f"13. For reminders and events:\n"
-                    f"    - If a user asks for a reminder, first respond with a natural language confirmation that "
-                    f"    includes the time and message for the reminder. Then, on a new line, provide the reminder details in this exact format:\n"
-                    f"    REMINDER|user_id|channel_id|YYYY-MM-DDTHH:MM:SS|message\n"
+                    f"13. For reminders:\n"
+                    f"    - If a user asks for a reminder, first respond with a quirky, humorous confirmation that "
+                    f"    includes the time and message for the reminder. Be creative and funny, relating to the reminder content if possible.\n"
+                    f"    - Then, on a new line, provide the reminder details in this exact format:\n"
+                    f"    REMINDER|{{user_id}}|{{channel_id}}|YYYY-MM-DDTHH:MM:SS|{{message}}\n"
                     f"    Replace {{user_id}} with the ID of the user who sent the message, {{channel_id}} with the current channel ID, "
-                    f"    and {{message}} with the reminder message.\n"
+                    f"    and {{message}} with the reminder message. Use the current time provided to calculate the correct future time for the reminder.\n"
                     f"    - If a user asks for an event, first respond with a natural language confirmation that "
                     f"    includes the name, description, channel, time, and recurrence for the event. Then, on a new line, provide the event details in this format:\n"
                     f"    EVENT|name|description|channel_id|time|recurrence\n"
@@ -133,10 +134,17 @@ class AIResponder(commands.Cog):
                 if reminder_match:
                     user_id, channel_id, time_str, reminder_message = reminder_match.groups()
                     try:
+                        # Parse the time string and convert it to CST
                         time = datetime.fromisoformat(time_str)
+                        cst = pytz.timezone('America/Chicago')
+                        time = time.replace(tzinfo=pytz.UTC).astimezone(cst)
+                        
                         reminder_id = await self.create_reminder(message.author.id, message.channel.id, reminder_message, time)
-                        response = re.sub(r'REMINDER\|.*', '', response, flags=re.DOTALL).strip()
-                        response += f"\n\nReminder created with ID: {reminder_id}"
+                        
+                        # Extract the quirky confirmation message (everything before the REMINDER| line)
+                        confirmation_message = re.sub(r'\nREMINDER\|.*', '', response, flags=re.DOTALL).strip()
+                        
+                        response = f"{confirmation_message}\n\nReminder created with ID: {reminder_id}"
                     except ValueError as e:
                         logging.error(f"Error creating reminder: {str(e)}")
                         response = "I'm sorry, I couldn't create the reminder due to an error. Please try again with a different format."
@@ -488,6 +496,11 @@ class AIResponder(commands.Cog):
                 await self.respond_to_mention(message)
 
     async def create_reminder(self, user_or_role_id: int, channel_id: int, message: str, time: datetime):
+        cst = pytz.timezone('America/Chicago')
+        current_time = datetime.now(cst)
+        if time < current_time:
+            raise ValueError("Reminder time is in the past")
+        
         reminder_id = len(self.reminders) + 1
         self.reminders[reminder_id] = {
             'user_or_role_id': user_or_role_id,
