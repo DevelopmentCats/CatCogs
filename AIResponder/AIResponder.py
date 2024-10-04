@@ -16,6 +16,7 @@ from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.cron import CronTrigger
 from dateutil.parser import parse
+import re
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -185,13 +186,32 @@ class AIResponder(commands.Cog):
             self.bot.logger.error(f"Error connecting to Ollama API: {str(e)}")
             raise Exception(f"I'm having trouble connecting to my knowledge base. Please try again later.")
 
-    @commands.group(name="air")
+    @commands.group(name="air", invoke_without_command=True)
     async def air(self, ctx: commands.Context):
         """AIResponder commands for managing AI, reminders, and events."""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
+        await self.air_help(ctx)
 
-    @air.group(name="config")
+    @air.command(name="help")
+    async def air_help(self, ctx: commands.Context):
+        """Get help on how to use the AI responder."""
+        help_text = (
+            "**AIResponder Help**\n\n"
+            "The AIResponder cog allows you to interact with an AI assistant, set reminders, and manage events.\n\n"
+            "**General Usage:**\n"
+            f"- To chat with the AI, mention the bot or use `{ctx.prefix}air chat <your message>`\n"
+            f"- To set a reminder: `{ctx.prefix}air reminder add <time> <message>`\n"
+            f"- To create an event: `{ctx.prefix}air event create <name> <time> <description>`\n\n"
+            f"**Available Commands:**\n"
+            f"`{ctx.prefix}air config` - Configure the AIResponder (Bot Owner only)\n"
+            f"`{ctx.prefix}air chat` - Chat with the AI\n"
+            f"`{ctx.prefix}air reminder` - Manage reminders\n"
+            f"`{ctx.prefix}air event` - Manage events\n"
+            f"`{ctx.prefix}air help` - Show this help message\n\n"
+            f"Use `{ctx.prefix}help air <command>` for more information on a specific command."
+        )
+        await ctx.send(help_text)
+
+    @air.command(name="config")
     @commands.is_owner()
     async def air_config(self, ctx: commands.Context):
         """Configure the AIResponder cog (Bot Owner only)."""
@@ -331,26 +351,6 @@ class AIResponder(commands.Cog):
             return
         await self.config.api_timeout.set(timeout)
         await ctx.send(f"API timeout set to: {timeout} seconds")
-
-    @air.command(name="help")
-    async def air_help(self, ctx: commands.Context):
-        """Get help on how to use the AI responder."""
-        help_text = (
-            "**AIResponder Help**\n\n"
-            "The AIResponder cog allows you to interact with an AI assistant, set reminders, and manage events.\n\n"
-            "**General Usage:**\n"
-            f"- To chat with the AI, mention the bot or use `{ctx.prefix}air chat <your message>`\n"
-            f"- To set a reminder: `{ctx.prefix}air reminder add <time> <message>`\n"
-            f"- To create an event: `{ctx.prefix}air event create <name> <time> <description>`\n\n"
-            f"**Available Commands:**\n"
-            f"`{ctx.prefix}air config` - Configure the AIResponder (Bot Owner only)\n"
-            f"`{ctx.prefix}air chat` - Chat with the AI\n"
-            f"`{ctx.prefix}air reminder` - Manage reminders\n"
-            f"`{ctx.prefix}air event` - Manage events\n"
-            f"`{ctx.prefix}air help` - Show this help message\n\n"
-            f"Use `{ctx.prefix}help air <command>` for more information on a specific command."
-        )
-        await ctx.send(help_text)
 
     @air.command(name="chat")
     async def air_chat(self, ctx: commands.Context, *, message: str):
