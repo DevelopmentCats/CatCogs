@@ -193,12 +193,12 @@ class AIResponder(commands.Cog):
                                     token = data.get('response', '')
                                     if token:
                                         buffer += token
-                                        if '[TOOL]' in buffer:
-                                            tool_call = buffer[buffer.index('[TOOL]'):]
-                                            if '[/TOOL]' in tool_call:
-                                                full_tool_call = tool_call[:tool_call.index('[/TOOL]') + 7]
-                                                tool_result = await self.process_tool_call(full_tool_call)
-                                                buffer = buffer.replace(full_tool_call, tool_result)
+                                        while '[TOOL]' in buffer and '[/TOOL]' in buffer:
+                                            start = buffer.index('[TOOL]')
+                                            end = buffer.index('[/TOOL]') + 7
+                                            tool_call = buffer[start:end]
+                                            tool_result = await self.process_tool_call(tool_call)
+                                            buffer = buffer[:start] + tool_result + buffer[end:]
                                         if len(buffer) >= 100:
                                             yield buffer
                                             buffer = ""
@@ -214,8 +214,17 @@ class AIResponder(commands.Cog):
                     raise  # Re-raise the last exception if all retries failed
 
     async def process_tool_call(self, tool_call: str) -> str:
-        tool_name, args = tool_call.strip('[TOOL]').strip('[/TOOL]').split(':', 1)
-        return await self.execute_tool(tool_name.strip(), args.strip())
+        try:
+            tool_content = tool_call.strip('[TOOL]').strip('[/TOOL]')
+            if ':' in tool_content:
+                tool_name, args = tool_content.split(':', 1)
+            else:
+                tool_name = tool_content
+                args = ""
+            return await self.execute_tool(tool_name.strip(), args.strip())
+        except Exception as e:
+            logging.error(f"Error processing tool call: {str(e)}")
+            return f"Error processing tool call: {tool_call}"
 
     @commands.group(name="air", invoke_without_command=True)
     async def air(self, ctx: commands.Context):
@@ -575,21 +584,26 @@ class AIResponder(commands.Cog):
 
     async def execute_tool(self, tool_name: str, args: str) -> str:
         logging.info(f"Tool call: {tool_name} with args: {args}")
-        result = ""
-        if tool_name == "web_search":
-            result = await self.web_search(args)
-        elif tool_name == "calculator":
-            result = self.calculate(args)
-        elif tool_name == "weather":
-            result = await self.get_weather(args)
-        elif tool_name == "datetime":
-            result = self.get_datetime_info(args)
-        elif tool_name == "server_info":
-            result = self.get_server_info(args)
-        else:
-            result = f"Error: Unknown tool '{tool_name}'"
-        logging.info(f"Tool response: {result}")
-        return result
+        try:
+            result = ""
+            if tool_name == "web_search":
+                result = await self.web_search(args)
+            elif tool_name == "calculator":
+                result = self.calculate(args)
+            elif tool_name == "weather":
+                result = await self.get_weather(args)
+            elif tool_name == "datetime":
+                result = self.get_datetime_info(args)
+            elif tool_name == "server_info":
+                result = self.get_server_info(args)
+            else:
+                result = f"Error: Unknown tool '{tool_name}'"
+            logging.info(f"Tool response: {result}")
+            return result
+        except Exception as e:
+            error_message = f"Error executing tool '{tool_name}': {str(e)}"
+            logging.error(error_message)
+            return error_message
 
     async def web_search(self, query: str) -> str:
         try:
