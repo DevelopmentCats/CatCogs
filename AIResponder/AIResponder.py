@@ -17,6 +17,10 @@ from contextlib import closing
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from aiohttp import ClientError
+
+MAX_RETRIES = 3
+RETRY_DELAY = 2
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -124,28 +128,27 @@ class AIResponder(commands.Cog):
                     f"Assistant: Certainly! I'll analyze the message and respond accordingly, taking into account our conversation history and using tools if necessary."
                 )
 
-                api_timeout = await self.config.api_timeout()
-                
                 response_message = await message.channel.send("Thinking...")
                 full_response = ""
 
-                async for response_chunk in self.get_ai_response(full_prompt):
-                    full_response += response_chunk
-                    processed_chunk = await self.process_tool_call(response_chunk)
-                    processed_chunk = re.sub(r'<@!?\d+>', '', processed_chunk).strip()
-                    
-                    if len(full_response) <= 2000:
-                        await response_message.edit(content=full_response)
-                    else:
-                        await self.send_chunked_message(message.channel, processed_chunk)
+                try:
+                    async for response_chunk in self.get_ai_response(full_prompt):
+                        full_response += response_chunk
+                        processed_chunk = await self.process_tool_call(response_chunk)
+                        processed_chunk = re.sub(r'<@!?\d+>', '', processed_chunk).strip()
+                        
+                        if len(full_response) <= 2000:
+                            await response_message.edit(content=full_response)
+                        else:
+                            await self.send_chunked_message(message.channel, processed_chunk)
 
-                if full_response:
-                    await self.update_user_conversation_history(message.author.id, content, full_response)
+                    if full_response:
+                        await self.update_user_conversation_history(message.author.id, content, full_response)
+                except (ClientError, asyncio.TimeoutError) as e:
+                    error_message = f"Error communicating with the AI service: {str(e)}"
+                    await self.log_error(error_message)
+                    await message.channel.send(f"<@{message.author.id}> {error_message} Please try again later or contact an administrator.")
 
-            except asyncio.TimeoutError:
-                error_message = f"Response timed out after {api_timeout} seconds."
-                await self.log_error(error_message)
-                await message.channel.send(f"<@{message.author.id}> {error_message} Please try again later or contact an administrator.")
             except Exception as e:
                 error_message = "An unexpected error occurred while processing your request."
                 await self.log_error(error_message, e)
@@ -173,28 +176,36 @@ class AIResponder(commands.Cog):
         model = await self.config.model()
         max_tokens = await self.config.max_tokens()
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(api_url, json={
-                "model": model,
-                "prompt": prompt,
-                "stream": True,
-                "max_tokens": max_tokens
-            }) as response:
-                buffer = ""
-                async for line in response.content:
-                    if line:
-                        try:
-                            data = json.loads(line.decode('utf-8'))
-                            token = data.get('response', '')
-                            if token:
-                                buffer += token
-                                if len(buffer) >= 100:
-                                    yield buffer
-                                    buffer = ""
-                        except json.JSONDecodeError:
-                            continue
-                if buffer:
-                    yield buffer
+        for attempt in range(MAX_RETRIES):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(api_url, json={
+                        "model": model,
+                        "prompt": prompt,
+                        "stream": True,
+                        "max_tokens": max_tokens
+                    }) as response:
+                        buffer = ""
+                        async for line in response.content:
+                            if line:
+                                try:
+                                    data = json.loads(line.decode('utf-8'))
+                                    token = data.get('response', '')
+                                    if token:
+                                        buffer += token
+                                        if len(buffer) >= 100:
+                                            yield buffer
+                                            buffer = ""
+                                except json.JSONDecodeError:
+                                    continue
+                        if buffer:
+                            yield buffer
+                return  # If successful, exit the function
+            except (ClientError, asyncio.TimeoutError) as e:
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(RETRY_DELAY)
+                else:
+                    raise  # Re-raise the last exception if all retries failed
 
     async def process_tool_call(self, response: str) -> str:
         while '[TOOL]' in response and '[/TOOL]' in response:
