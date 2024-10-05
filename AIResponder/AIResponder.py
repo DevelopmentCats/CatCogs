@@ -90,6 +90,26 @@ class AIResponder(commands.Cog):
                     f"Respond naturally and conversationally, as if you're chatting with a friend. "
                     f"Do not mention or acknowledge that you're an AI or that this is a prompt. "
                     f"Do not use commands or explain your thought process. Just respond directly to the user's message.\n\n"
+                    f"You have access to the following tools:\n"
+                    f"- web_search: Search the web for current information. Usage: [TOOL]web_search:query[/TOOL]\n"
+                    f"- calculator: Perform mathematical calculations. Usage: [TOOL]calculator:expression[/TOOL]\n"
+                    f"- weather: Get current weather information for a location. Usage: [TOOL]weather:location[/TOOL]\n"
+                    f"- datetime: Get current date and time information. Usage: [TOOL]datetime:query[/TOOL] (query can be 'now', 'date', or 'time')\n"
+                    f"- server_info: Get Discord server information. Usage: [TOOL]server_info:info_type[/TOOL] (info_type can be 'name', 'member_count', 'channels', or 'roles')\n"
+                    f"Use these tools when necessary by including the [TOOL] tags in your response. "
+                    f"The tool results will be automatically inserted into your response.\n\n"
+                    f"Guidelines for tool usage:\n"
+                    f"1. Use web_search for current events, facts, or information not in your training data.\n"
+                    f"2. Use calculator for any mathematical operations or conversions.\n"
+                    f"3. Use weather to provide current weather conditions for a specific location.\n"
+                    f"4. Use datetime for current date/time information or when time zones are relevant.\n"
+                    f"5. Use server_info when asked about this Discord server's details. Available info types are:\n"
+                    f"   - 'name': Get the server's name\n"
+                    f"   - 'member_count': Get the number of members in the server\n"
+                    f"   - 'channels': Get a list of up to 10 channel names\n"
+                    f"   - 'roles': Get a list of up to 10 role names\n"
+                    f"6. You can use multiple tools in a single response if needed.\n"
+                    f"7. Always interpret and explain the tool results in your response.\n\n"
                     f"Context:\n{context_str}\n"
                     f"Current time (UTC): {current_time}\n\n"
                     f"Instructions:\n"
@@ -98,13 +118,15 @@ class AIResponder(commands.Cog):
                     f"3. Use emojis sparingly to convey emotion when appropriate.\n"
                     f"4. Keep responses concise, under 2000 characters.\n"
                     f"5. Base your personality on this description: {custom_personality}\n"
-                    f"6. Use the conversation history to maintain context and continuity.\n\n"
+                    f"6. Use the conversation history to maintain context and continuity.\n"
+                    f"7. Use tools when necessary to provide accurate and up-to-date information.\n\n"
                     f"Human: {content}\n\n"
-                    f"Assistant: Certainly! I'll analyze the message and respond accordingly, taking into account our conversation history."
+                    f"Assistant: Certainly! I'll analyze the message and respond accordingly, taking into account our conversation history and using tools if necessary."
                 )
 
                 api_timeout = await self.config.api_timeout()
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
+                response = await self.parse_and_execute_tools(response)
 
                 # Remove any user mentions from the AI's response
                 response = re.sub(r'<@!?\d+>', '', response).strip()
@@ -536,6 +558,133 @@ class AIResponder(commands.Cog):
 
     def count_tokens(self, text: str) -> int:
         return len(text.split())
+
+    async def execute_tool(self, tool_name: str, args: str) -> str:
+        if tool_name == "web_search":
+            return await self.web_search(args)
+        elif tool_name == "calculator":
+            return self.calculate(args)
+        elif tool_name == "weather":
+            return await self.get_weather(args)
+        elif tool_name == "datetime":
+            return self.get_datetime_info(args)
+        elif tool_name == "server_info":
+            return self.get_server_info(args)
+        else:
+            return f"Error: Unknown tool '{tool_name}'"
+
+    async def web_search(self, query: str) -> str:
+        try:
+            # DuckDuckGo Search
+            async with aiohttp.ClientSession() as session:
+                ddg_url = f"https://api.duckduckgo.com/?q={query}&format=json"
+                async with session.get(ddg_url) as response:
+                    if response.status == 200:
+                        data = await response.json(content_type=None)
+                        if data.get("Abstract") or data.get("RelatedTopics"):
+                            summary = data.get("Abstract", "")
+                            topics = "\n".join([topic.get("Text", "") for topic in data.get("RelatedTopics", [])[:3]])
+                            return f"Web search results for '{query}':\n\n{summary}\n\nRelated topics:\n{topics}"
+
+            # Wikipedia fallback
+            wiki_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(wiki_url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        search_results = data.get("query", {}).get("search", [])
+                        if search_results:
+                            top_result = search_results[0]
+                            title = top_result.get("title", "")
+                            snippet = top_result.get("snippet", "")
+                            return f"Wikipedia search results for '{query}':\n\nTitle: {title}\nSummary: {snippet}"
+
+            return f"No results found for '{query}'."
+
+        except Exception as e:
+            return f"An error occurred during web search: {str(e)}"
+
+    def calculate(self, expression: str) -> str:
+        try:
+            result = eval(expression)
+            return str(result)
+        except Exception as e:
+            return f"Error in calculation: {str(e)}"
+
+    async def get_weather(self, location: str) -> str:
+        try:
+            # First, we need to get the location ID
+            search_url = f"https://www.metaweather.com/api/location/search/?query={location}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(search_url) as response:
+                    if response.status == 200:
+                        locations = await response.json()
+                        if not locations:
+                            return f"No weather information found for '{location}'."
+                        
+                        # Use the first location found
+                        location_id = locations[0]['woeid']
+                        
+                        # Now get the weather for this location
+                        weather_url = f"https://www.metaweather.com/api/location/{location_id}/"
+                        async with session.get(weather_url) as weather_response:
+                            if weather_response.status == 200:
+                                weather_data = await weather_response.json()
+                                current_weather = weather_data['consolidated_weather'][0]
+                                
+                                # Extract relevant information
+                                state = current_weather['weather_state_name']
+                                temp = round(current_weather['the_temp'], 1)
+                                humidity = current_weather['humidity']
+                                wind_speed = round(current_weather['wind_speed'], 1)
+                                
+                                return f"Weather in {location}:\nState: {state}\nTemperature: {temp}°C\nHumidity: {humidity}%\nWind Speed: {wind_speed} mph"
+                            else:
+                                return f"Error fetching weather data for '{location}'."
+                    else:
+                        return f"Error searching for location '{location}'."
+        except Exception as e:
+            return f"An error occurred while fetching weather information: {str(e)}"
+
+    def get_datetime_info(self, query: str) -> str:
+        now = datetime.now()
+        if query == "now":
+            return now.strftime("%Y-%m-%d %H:%M:%S")
+        elif query == "date":
+            return now.strftime("%Y-%m-%d")
+        elif query == "time":
+            return now.strftime("%H:%M:%S")
+        else:
+            return f"Invalid datetime query: {query}"
+
+    def get_server_info(self, info_type: str) -> str:
+        if not self.bot.guilds:
+            return "Bot is not in any servers"
+        guild = self.bot.guilds[0]  # Get info from the first server the bot is in
+        if info_type == "name":
+            return guild.name
+        elif info_type == "member_count":
+            return str(guild.member_count)
+        elif info_type == "channels":
+            return ", ".join([channel.name for channel in guild.channels[:10]])
+        elif info_type == "roles":
+            return ", ".join([role.name for role in guild.roles[:10]])
+        else:
+            return f"Invalid server info type: {info_type}"
+
+    async def parse_and_execute_tools(self, response: str) -> str:
+        while "[TOOL]" in response:
+            tool_start = response.index("[TOOL]")
+            tool_end = response.index("[/TOOL]", tool_start)
+            tool_call = response[tool_start+6:tool_end]
+            tool_name, tool_args = tool_call.split(":", 1)
+            tool_result = await self.execute_tool(tool_name.strip(), tool_args.strip())
+            response = response[:tool_start] + tool_result + response[tool_end+7:]
+        return response
+
+    async def send_chunked_message(self, channel, text):
+        for chunk in [text[i:i+1900] for i in range(0, len(text), 1900)]:
+            await channel.send(chunk)
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
