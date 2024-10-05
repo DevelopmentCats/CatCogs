@@ -50,13 +50,14 @@ class CustomMemory(BaseMemory):
             "context": self.context,
             "current_time": self.current_time,
             "human_input": self.human_input,
-            "personality": self.personality
+            "personality": self.personality,
+            "input": inputs.get("input", "")  # Add this line
         }
 
     def save_context(self, inputs: Dict[str, Any], outputs: Dict[str, str]) -> None:
         self.human_input = inputs.get('human_input', '')
         self.chat_history.append(f"Human: {self.human_input}")
-        self.chat_history.append(f"AI: {outputs['text']}")
+        self.chat_history.append(f"AI: {outputs['response']}")  # Change 'text' to 'response'
         if len(self.chat_history) > 10:  # Keep only last 5 exchanges
             self.chat_history = self.chat_history[-10:]
 
@@ -125,7 +126,7 @@ class AIResponder(commands.Cog):
         memory.personality = custom_personality
         
         prompt = PromptTemplate(
-            input_variables=["chat_history", "context", "current_time", "human_input", "personality"],
+            input_variables=["chat_history", "context", "current_time", "human_input", "personality", "input"],
             template="""
             System: You are an AI assistant with the following personality: {personality}
             You are in a Discord server, responding to user messages.
@@ -141,7 +142,7 @@ class AIResponder(commands.Cog):
 
             Human: {human_input}
 
-            Assistant: """
+            Assistant: {input}"""
         )
         
         self.conversation_chain = ConversationChain(
@@ -768,7 +769,7 @@ class AIResponder(commands.Cog):
         memory.personality = custom_personality
         
         prompt = PromptTemplate(
-            input_variables=["chat_history", "context", "current_time", "human_input", "personality"],
+            input_variables=["chat_history", "context", "current_time", "human_input", "personality", "input"],
             template="""
             System: You are an AI assistant with the following personality: {personality}
             You are in a Discord server, responding to user messages.
@@ -784,7 +785,7 @@ class AIResponder(commands.Cog):
 
             Human: {human_input}
 
-            Assistant: """
+            Assistant: {input}"""
         )
         
         self.conversation_chain = ConversationChain(
