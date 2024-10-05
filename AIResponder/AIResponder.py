@@ -193,6 +193,12 @@ class AIResponder(commands.Cog):
                                     token = data.get('response', '')
                                     if token:
                                         buffer += token
+                                        if '[TOOL]' in buffer:
+                                            tool_call = buffer[buffer.index('[TOOL]'):]
+                                            if '[/TOOL]' in tool_call:
+                                                full_tool_call = tool_call[:tool_call.index('[/TOOL]') + 7]
+                                                tool_result = await self.process_tool_call(full_tool_call)
+                                                buffer = buffer.replace(full_tool_call, tool_result)
                                         if len(buffer) >= 100:
                                             yield buffer
                                             buffer = ""
@@ -207,14 +213,9 @@ class AIResponder(commands.Cog):
                 else:
                     raise  # Re-raise the last exception if all retries failed
 
-    async def process_tool_call(self, response: str) -> str:
-        while '[TOOL]' in response and '[/TOOL]' in response:
-            tool_start = response.index('[TOOL]')
-            tool_end = response.index('[/TOOL]', tool_start) + 7
-            tool_call = response[tool_start:tool_end]
-            tool_result = await self.parse_and_execute_tools(tool_call)
-            response = response[:tool_start] + tool_result + response[tool_end:]
-        return response
+    async def process_tool_call(self, tool_call: str) -> str:
+        tool_name, args = tool_call.strip('[TOOL]').strip('[/TOOL]').split(':', 1)
+        return await self.execute_tool(tool_name.strip(), args.strip())
 
     @commands.group(name="air", invoke_without_command=True)
     async def air(self, ctx: commands.Context):
