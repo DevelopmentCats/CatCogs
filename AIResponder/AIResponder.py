@@ -3,7 +3,7 @@ import discord
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, pagify
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 import asyncio
 from datetime import datetime, timedelta
 import json
@@ -19,6 +19,16 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from aiohttp import ClientError
 
+# Langchain imports
+from langchain.llms import Ollama
+from langchain.prompts import PromptTemplate
+from langchain.chains import ConversationChain
+from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory
+from langchain.agents import Tool, AgentExecutor, LLMSingleActionAgent
+from langchain.schema import AgentAction, AgentFinish, OutputParserException
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from langchain.callbacks import AsyncIteratorCallbackHandler
+
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 
@@ -27,8 +37,8 @@ class AIResponder(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         default_global = {
-            "api_url": "http://localhost:11434/api/generate",
-            "model": "llama2",
+            "api_url": "http://localhost:11434",
+            "model": "llama3.2:latest",
             "max_tokens": 300,
             "enabled_channels": [],
             "custom_personality": "You are a helpful AI assistant.",
@@ -41,6 +51,12 @@ class AIResponder(commands.Cog):
         self.request_queue: Queue = Queue()
         self.processing_lock = asyncio.Lock()
         asyncio.create_task(self.setup_database())
+        
+        # Initialize Langchain components
+        self.llm = None
+        self.conversation_chain = None
+        self.agent_executor = None
+        self.setup_langchain()
 
     async def setup_database(self):
         db_path = await self.config.db_path()
@@ -57,6 +73,86 @@ class AIResponder(commands.Cog):
                     )
                 ''')
                 conn.commit()
+
+    async def setup_langchain(self):
+        api_url = await self.config.api_url()
+        model = await self.config.model()
+        
+        self.llm = Ollama(base_url=api_url, model=model)
+        
+        memory = ConversationTokenBufferMemory(llm=self.llm, memory_key="chat_history", return_messages=True, max_token_limit=1000)
+        
+        custom_personality = await self.config.custom_personality()
+        
+        prompt = PromptTemplate(
+            input_variables=["personality", "context", "current_time", "chat_history", "human_input"],
+            template="""
+            System: You are an AI assistant with the following personality: {personality}
+            You are in a Discord server, responding to user messages.
+            Respond naturally and conversationally, as if you're chatting with a friend.
+            Do not mention that you're an AI or that this is a prompt.
+
+            Context:
+            {context}
+            Current time (UTC): {current_time}
+
+            Chat History:
+            {chat_history}
+
+            Human: {human_input}
+
+            Assistant: """
+        )
+        
+        self.conversation_chain = ConversationChain(
+            llm=self.llm,
+            memory=memory,
+            prompt=prompt,
+            verbose=True
+        )
+        
+        tools = self.setup_tools()
+        
+        self.agent_executor = AgentExecutor.from_agent_and_tools(
+            agent=LLMSingleActionAgent(
+                llm_chain=self.conversation_chain,
+                output_parser=self.CustomOutputParser(),
+                stop=["\nObservation:"],
+                allowed_tools=[tool.name for tool in tools]
+            ),
+            tools=tools,
+            memory=memory,
+            verbose=True
+        )
+
+    def setup_tools(self):
+        return [
+            Tool(
+                name="web_search",
+                func=self.web_search,
+                description="Search the web for current information. Use this when you need to find up-to-date information about a topic."
+            ),
+            Tool(
+                name="calculator",
+                func=self.calculate,
+                description="Perform mathematical calculations. Use this when you need to compute numerical results."
+            ),
+            Tool(
+                name="weather",
+                func=self.get_weather,
+                description="Get current weather information for a location. Use this when asked about weather conditions in a specific place."
+            ),
+            Tool(
+                name="datetime",
+                func=self.get_datetime_info,
+                description="Get current date and time information. Use this when asked about the current date, time, or both."
+            ),
+            Tool(
+                name="server_info",
+                func=self.get_server_info,
+                description="Get Discord server information. Use this when asked about the current server's name, member count, channels, or roles."
+            )
+        ]
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -86,72 +182,45 @@ class AIResponder(commands.Cog):
                 relevant_context = await self.get_relevant_context(message, content)
                 
                 current_time = datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")
-
+                
                 context_str = "\n".join([f"{k}: {v}" for k, v in relevant_context.items()])
-
-                full_prompt = (
-                    f"System: You are {self.bot.user.name}, an AI assistant in a Discord server. "
-                    f"Respond naturally and conversationally, as if you're chatting with a friend. "
-                    f"Do not mention or acknowledge that you're an AI or that this is a prompt. "
-                    f"Do not use commands or explain your thought process. Just respond directly to the user's message.\n\n"
-                    f"You have access to the following tools:\n"
-                    f"- web_search: Search the web for current information. Usage: [TOOL]web_search:query[/TOOL]\n"
-                    f"- calculator: Perform mathematical calculations. Usage: [TOOL]calculator:expression[/TOOL]\n"
-                    f"- weather: Get current weather information for a location. Usage: [TOOL]weather:location[/TOOL]\n"
-                    f"- datetime: Get current date and time information. Usage: [TOOL]datetime:query[/TOOL] (query can be 'now', 'date', or 'time')\n"
-                    f"- server_info: Get Discord server information. Usage: [TOOL]server_info:info_type[/TOOL] (info_type can be 'name', 'member_count', 'channels', or 'roles')\n"
-                    f"Use these tools when necessary by including the [TOOL] tags in your response. "
-                    f"The tool results will be automatically inserted into your response.\n\n"
-                    f"Guidelines for tool usage:\n"
-                    f"1. Use web_search for current events, facts, or information not in your training data.\n"
-                    f"2. Use calculator for any mathematical operations or conversions.\n"
-                    f"3. Use weather to provide current weather conditions for a specific location.\n"
-                    f"4. Use datetime for current date/time information or when time zones are relevant.\n"
-                    f"5. Use server_info when asked about this Discord server's details.\n"
-                    f"6. You can use multiple tools in a single response if needed.\n"
-                    f"7. Always interpret and explain the tool results in your response.\n"
-                    f"8. Place tool calls at the point in your response where you need the information. For example:\n"
-                    f"   'The weather in New York is [TOOL]weather:New York[/TOOL]. Based on this, I recommend...'\n"
-                    f"9. After making a tool call, wait for the result before continuing your response.\n\n"
-                    f"Context:\n{context_str}\n"
-                    f"Current time (UTC): {current_time}\n\n"
-                    f"Instructions:\n"
-                    f"1. Analyze the user's message and provide a relevant, helpful response.\n"
-                    f"2. Use Discord formatting when appropriate: **bold**, *italic*, __underline__, ~~strikethrough~~, `code`, ```code blocks```.\n"
-                    f"3. Use emojis sparingly to convey emotion when appropriate.\n"
-                    f"4. Keep responses concise, under 2000 characters.\n"
-                    f"5. Base your personality on this description: {custom_personality}\n"
-                    f"6. Consider the conversation history only if it's directly relevant to the current query. If the current query is unrelated to previous conversations, there's no need to reference them.\n"
-                    f"7. Use tools when necessary to provide accurate and up-to-date information.\n\n"
-                    f"Human: {content}\n\n"
-                    f"Assistant: Certainly! I'll analyze the message and respond accordingly, using relevant context and tools if necessary."
-                )
-
-                response_message = await message.channel.send("Thinking...")
+                
+                input_dict = {
+                    "personality": custom_personality,
+                    "context": context_str,
+                    "current_time": current_time,
+                    "human_input": content
+                }
+                
+                thinking_emoji = "🤔"
+                response_message = await message.channel.send(f"{thinking_emoji} Thinking...")
+                
                 full_response = ""
-
-                try:
-                    async for response_chunk in self.get_ai_response(full_prompt):
-                        full_response += response_chunk
-                        processed_chunk = await self.process_tool_call(response_chunk)
-                        processed_chunk = re.sub(r'<@!?\d+>', '', processed_chunk).strip()
-                        
-                        if len(full_response) <= 2000:
-                            await response_message.edit(content=full_response)
-                        else:
-                            await self.send_chunked_message(message.channel, processed_chunk)
-
-                    if full_response:
-                        await self.update_user_conversation_history(message.author.id, content, full_response)
-                except (ClientError, asyncio.TimeoutError) as e:
-                    error_message = f"Error communicating with the AI service: {str(e)}"
-                    await self.log_error(error_message)
-                    await message.channel.send(f"<@{message.author.id}> {error_message} Please try again later or contact an administrator.")
-
+                async for response_chunk in self.stream_agent_response(input_dict):
+                    full_response += response_chunk
+                    if len(full_response) > 1900:
+                        await response_message.edit(content=full_response[:1900])
+                        full_response = full_response[1900:]
+                        response_message = await message.channel.send(full_response)
+                    else:
+                        await response_message.edit(content=full_response)
+                
+                if full_response:
+                    await response_message.edit(content=full_response)
+                
+                await self.update_user_conversation_history(message.author.id, content, full_response)
+                
             except Exception as e:
                 error_message = "An unexpected error occurred while processing your request."
                 await self.log_error(error_message, e)
                 await message.channel.send(f"<@{message.author.id}> {error_message} Please try again later.")
+
+    async def stream_agent_response(self, input_dict):
+        full_response = ""
+        async for chunk in self.agent_executor.astream(input_dict):
+            if 'output' in chunk:
+                full_response += chunk['output']
+                yield full_response
 
     async def check_rate_limit(self, user_id: int) -> bool:
         if await self.bot.is_owner(discord.Object(id=user_id)):
@@ -170,65 +239,228 @@ class AIResponder(commands.Cog):
             self.user_cooldowns[user_id] = (now, 1)
         return True
 
-    async def get_ai_response(self, prompt: str):
-        api_url = await self.config.api_url()
-        model = await self.config.model()
-        max_tokens = await self.config.max_tokens()
+    async def process_queue(self):
+        if self.processing_lock.locked():
+            return
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(api_url, json={
-                        "model": model,
-                        "prompt": prompt,
-                        "stream": True,
-                        "max_tokens": max_tokens
-                    }) as response:
-                        buffer = ""
-                        async for line in response.content:
-                            if line:
-                                try:
-                                    data = json.loads(line.decode('utf-8'))
-                                    token = data.get('response', '')
-                                    if token:
-                                        buffer += token
-                                        if '[TOOL]' in buffer and '[/TOOL]' in buffer:
-                                            tool_result = await self.parse_and_execute_tools(buffer)
-                                            yield f"[TOOL_RESULT]{tool_result}[/TOOL_RESULT]"
-                                            buffer = buffer.split('[/TOOL]', 1)[-1]
-                                        elif len(buffer) >= 100:
-                                            yield buffer
-                                            buffer = ""
-                                except json.JSONDecodeError:
-                                    continue
-                        if buffer:
-                            yield buffer
-                return  # If successful, exit the function
-            except (ClientError, asyncio.TimeoutError) as e:
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(RETRY_DELAY)
-                else:
-                    raise  # Re-raise the last exception if all retries failed
+        async with self.processing_lock:
+            while not self.request_queue.empty():
+                message = await self.request_queue.get()
+                await self.respond_to_mention(message)
 
-    async def process_tool_call(self, content: str) -> str:
-        tool_pattern = r'\[TOOL\](.*?)\[/TOOL\]'
-        tool_match = re.search(tool_pattern, content, re.DOTALL)
+    async def log_error(self, error_message: str, error: Exception = None):
+        logging.error(f"AIResponder Error: {error_message}")
+        if error:
+            logging.error(f"Exception details: {str(error)}")
         
-        if tool_match:
-            tool_call = tool_match.group(1)
-            parts = tool_call.split(':', 1)
-            if len(parts) == 2:
-                tool_name, args = parts
-                tool_name = tool_name.strip()
-                args = args.strip()
-            else:
-                tool_name = tool_call.strip()
-                args = ""
-            
-            result = await self.execute_tool(tool_name, args)
-            return result
+        # You can add additional error reporting here, such as sending to a Discord channel
+        error_channel_id = await self.config.error_channel_id()
+        if error_channel_id:
+            channel = self.bot.get_channel(error_channel_id)
+            if channel:
+                await channel.send(f"AIResponder Error: {error_message}")
+
+    async def get_relevant_context(self, message: discord.Message, content: str) -> dict:
+        context = {}
+        
+        # Always include basic user and channel info
+        context['user_id'] = message.author.id
+        context['channel_id'] = message.channel.id
+        
+        # Get conversation history using semantic similarity
+        context['conversation_history'] = await self.get_user_conversation_history(message.author.id, content)
+        
+        # Include recent messages if the query seems to reference them
+        if any(word in content.lower() for word in ['earlier', 'before', 'previous', 'last message']):
+            context['recent_messages'] = await self.get_recent_messages(message.channel, message)
+        
+        # Include server info if the query is about the server or roles
+        if any(word in content.lower() for word in ['server', 'channel', 'role', 'permission']):
+            context['server_info'] = self.get_compressed_server_info(message.guild)
+        
+        return context
+
+    def get_compressed_server_info(self, guild: discord.Guild) -> str:
+        channels = f"Channels: {', '.join([c.name for c in guild.channels[:10]])}"
+        roles = f"Roles: {', '.join([r.name for r in guild.roles[:10]])}"
+        return f"{guild.name} | Members: {guild.member_count} | {channels} | {roles}"
+
+    def count_tokens(self, text: str) -> int:
+        return len(text.split())
+
+    async def web_search(self, query: str) -> str:
+        try:
+            # DuckDuckGo Search
+            async with aiohttp.ClientSession() as session:
+                ddg_url = f"https://api.duckduckgo.com/?q={query}&format=json"
+                async with session.get(ddg_url) as response:
+                    if response.status == 200:
+                        data = await response.json(content_type=None)
+                        if data.get("Abstract") or data.get("RelatedTopics"):
+                            summary = data.get("Abstract", "")
+                            topics = "\n".join([topic.get("Text", "") for topic in data.get("RelatedTopics", [])[:3]])
+                            return f"Web search results for '{query}':\n\n{summary}\n\nRelated topics:\n{topics}"
+
+            # Wikipedia fallback
+            wiki_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(wiki_url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        search_results = data.get("query", {}).get("search", [])
+                        if search_results:
+                            top_result = search_results[0]
+                            title = top_result.get("title", "")
+                            snippet = top_result.get("snippet", "")
+                            return f"Wikipedia search results for '{query}':\n\nTitle: {title}\nSummary: {snippet}"
+
+            return f"No results found for '{query}'."
+
+        except Exception as e:
+            return f"An error occurred during web search: {str(e)}"
+
+    def calculate(self, expression: str) -> str:
+        try:
+            result = eval(expression)
+            return f"The result of {expression} is {result}"
+        except Exception as e:
+            return f"Error in calculation: {str(e)}"
+
+    async def get_weather(self, location: str) -> str:
+        try:
+            # Keep your existing implementation
+            search_url = f"https://www.metaweather.com/api/location/search/?query={location}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(search_url) as response:
+                    if response.status == 200:
+                        locations = await response.json()
+                        if not locations:
+                            return f"No weather information found for '{location}'."
+                        
+                        location_id = locations[0]['woeid']
+                        
+                        weather_url = f"https://www.metaweather.com/api/location/{location_id}/"
+                        async with session.get(weather_url) as weather_response:
+                            if weather_response.status == 200:
+                                weather_data = await weather_response.json()
+                                current_weather = weather_data['consolidated_weather'][0]
+                                
+                                state = current_weather['weather_state_name']
+                                temp = round(current_weather['the_temp'], 1)
+                                humidity = current_weather['humidity']
+                                wind_speed = round(current_weather['wind_speed'], 1)
+                                
+                                return f"Weather in {location}:\nState: {state}\nTemperature: {temp}°C\nHumidity: {humidity}%\nWind Speed: {wind_speed} mph"
+                            else:
+                                return f"Error fetching weather data for '{location}'."
+                    else:
+                        return f"Error searching for location '{location}'."
+        except Exception as e:
+            return f"An error occurred while fetching weather information: {str(e)}"
+
+    def get_datetime_info(self, query: str) -> str:
+        now = datetime.now()
+        if query == "now":
+            return f"Current date and time: {now.strftime('%Y-%m-%d %H:%M:%S')}"
+        elif query == "date":
+            return f"Current date: {now.strftime('%Y-%m-%d')}"
+        elif query == "time":
+            return f"Current time: {now.strftime('%H:%M:%S')}"
         else:
-            return content
+            return f"Invalid datetime query: {query}"
+
+    def get_server_info(self, info_type: str) -> str:
+        if not self.bot.guilds:
+            return "Bot is not in any servers"
+        guild = self.bot.guilds[0]  # Get info from the first server the bot is in
+        if info_type == "name":
+            return f"Server name: {guild.name}"
+        elif info_type == "member_count":
+            return f"Number of members: {guild.member_count}"
+        elif info == "channels":
+            channels = ", ".join([channel.name for channel in guild.channels[:10]])
+            return f"Channels: {channels}"
+        elif info_type == "roles":
+            roles = ", ".join([role.name for role in guild.roles[:10]])
+            return f"Roles: {roles}"
+        else:
+            return f"Invalid server info type: {info_type}"
+
+    async def get_recent_messages(self, channel: discord.TextChannel, current_message: discord.Message, limit: int = 5) -> str:
+        messages = []
+        async for msg in channel.history(limit=limit + 1):  # +1 to account for the current message
+            if msg.id != current_message.id:  # Exclude the current message
+                if msg.author == self.bot.user:
+                    messages.append(f"Bot: {msg.content}")
+                else:
+                    messages.append(f"{msg.author.name}: {msg.content}")
+            if len(messages) == limit:
+                break
+        return "\n".join(reversed(messages))
+
+    async def get_user_conversation_history(self, user_id: int, current_message: str) -> str:
+        db_path = await self.config.db_path()
+        with closing(sqlite3.connect(db_path)) as conn:
+            with closing(conn.cursor()) as cursor:
+                cursor.execute('''
+                    SELECT message, response, relevance FROM conversation_history
+                    WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10
+                ''', (user_id,))
+                rows = cursor.fetchall()
+        
+        if not rows:
+            return "No previous conversation with this user."
+        
+        # Calculate semantic similarity
+        vectorizer = TfidfVectorizer().fit_transform([current_message] + [row[0] for row in rows])
+        cosine_similarities = cosine_similarity(vectorizer[0:1], vectorizer[1:]).flatten()
+        
+        # Combine semantic similarity with existing relevance scores
+        combined_scores = [sim * row[2] for sim, row in zip(cosine_similarities, rows)]
+        
+        # Sort by combined score and select top 3
+        sorted_history = sorted(zip(combined_scores, rows), key=lambda x: x[0], reverse=True)[:3]
+        
+        history = "\n".join([f"User: {row[1][0]}\nBot: {row[1][1]}" for row in sorted_history])
+        return f"Previous relevant conversations with this user:\n{history}"
+
+    async def update_user_conversation_history(self, user_id: int, user_message: str, ai_response: str):
+        db_path = await self.config.db_path()
+        with closing(sqlite3.connect(db_path)) as conn:
+            with closing(conn.cursor()) as cursor:
+                # Insert new conversation entry
+                cursor.execute('''
+                    INSERT INTO conversation_history (user_id, message, response, relevance)
+                    VALUES (?, ?, ?, 1.0)
+                ''', (user_id, user_message, ai_response))
+                
+                # Apply relevance decay to existing entries
+                cursor.execute('''
+                    UPDATE conversation_history
+                    SET relevance = relevance * 0.9
+                    WHERE user_id = ? AND id != last_insert_rowid()
+                ''', (user_id,))
+                
+                conn.commit()
+
+    class CustomOutputParser:
+        def parse(self, llm_output: str) -> Union[AgentAction, AgentFinish]:
+            if "Final Answer:" in llm_output:
+                return AgentFinish(
+                    return_values={"output": llm_output.split("Final Answer:")[-1].strip()},
+                    log=llm_output,
+                )
+            
+            action_match = re.search(r"Action: (.*?)[\n]*Action Input: (.*)", llm_output, re.DOTALL)
+            if action_match:
+                action = action_match.group(1).strip()
+                action_input = action_match.group(2).strip()
+                return AgentAction(tool=action, tool_input=action_input, log=llm_output)
+            
+            return AgentFinish(
+                return_values={"output": llm_output.strip()},
+                log=llm_output,
+            )
 
     @commands.group(name="air", invoke_without_command=True)
     async def air(self, ctx: commands.Context):
@@ -266,6 +498,7 @@ class AIResponder(commands.Cog):
             await ctx.send("Invalid URL. Please provide a valid HTTP or HTTPS URL.")
             return
         await self.config.api_url.set(url)
+        await self.update_langchain_components()
         await ctx.send(f"Ollama API URL set to: {url}")
 
     @air_config.command(name="setmodel")
@@ -288,6 +521,7 @@ class AIResponder(commands.Cog):
                         
                         if model in available_models:
                             await self.config.model.set(model)
+                            await self.update_langchain_components()
                             await ctx.send(f"AI model set to: {model}")
                         else:
                             await ctx.send(f"Model '{model}' not found. Available models: {', '.join(available_models)}")
@@ -480,250 +714,56 @@ class AIResponder(commands.Cog):
         for page in pagify("\n".join(history), delims=["\n\n"], page_length=1900):
             await ctx.send(page)
 
-    async def get_recent_messages(self, channel: discord.TextChannel, current_message: discord.Message, limit: int = 5) -> str:
-        messages = []
-        async for msg in channel.history(limit=limit + 1):  # +1 to account for the current message
-            if msg.id != current_message.id:  # Exclude the current message
-                if msg.author == self.bot.user:
-                    messages.append(f"Bot: {msg.content}")
-                else:
-                    messages.append(f"{msg.author.name}: {msg.content}")
-            if len(messages) == limit:
-                break
-        return "\n".join(reversed(messages))
-
-    async def get_user_conversation_history(self, user_id: int, current_message: str) -> str:
-        db_path = await self.config.db_path()
-        with closing(sqlite3.connect(db_path)) as conn:
-            with closing(conn.cursor()) as cursor:
-                cursor.execute('''
-                    SELECT message, response, relevance FROM conversation_history
-                    WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10
-                ''', (user_id,))
-                rows = cursor.fetchall()
+    async def update_langchain_components(self):
+        api_url = await self.config.api_url()
+        model = await self.config.model()
         
-        if not rows:
-            return "No previous conversation with this user."
+        self.llm = Ollama(base_url=api_url, model=model)
         
-        # Calculate semantic similarity
-        vectorizer = TfidfVectorizer().fit_transform([current_message] + [row[0] for row in rows])
-        cosine_similarities = cosine_similarity(vectorizer[0:1], vectorizer[1:]).flatten()
+        memory = ConversationTokenBufferMemory(llm=self.llm, memory_key="chat_history", return_messages=True, max_token_limit=1000)
         
-        # Combine semantic similarity with existing relevance scores
-        combined_scores = [sim * row[2] for sim, row in zip(cosine_similarities, rows)]
+        custom_personality = await self.config.custom_personality()
         
-        # Sort by combined score and select top 3
-        sorted_history = sorted(zip(combined_scores, rows), key=lambda x: x[0], reverse=True)[:3]
+        prompt = PromptTemplate(
+            input_variables=["personality", "context", "current_time", "chat_history", "human_input"],
+            template="""
+            System: You are an AI assistant with the following personality: {personality}
+            You are in a Discord server, responding to user messages.
+            Respond naturally and conversationally, as if you're chatting with a friend.
+            Do not mention that you're an AI or that this is a prompt.
+
+            Context:
+            {context}
+            Current time (UTC): {current_time}
+
+            Chat History:
+            {chat_history}
+
+            Human: {human_input}
+
+            Assistant: """
+        )
         
-        history = "\n".join([f"User: {row[1][0]}\nBot: {row[1][1]}" for row in sorted_history])
-        return f"Previous relevant conversations with this user:\n{history}"
-
-    async def update_user_conversation_history(self, user_id: int, user_message: str, ai_response: str):
-        db_path = await self.config.db_path()
-        with closing(sqlite3.connect(db_path)) as conn:
-            with closing(conn.cursor()) as cursor:
-                # Insert new conversation entry
-                cursor.execute('''
-                    INSERT INTO conversation_history (user_id, message, response, relevance)
-                    VALUES (?, ?, ?, 1.0)
-                ''', (user_id, user_message, ai_response))
-                
-                # Apply relevance decay to existing entries
-                cursor.execute('''
-                    UPDATE conversation_history
-                    SET relevance = relevance * 0.9
-                    WHERE user_id = ? AND id != last_insert_rowid()
-                ''', (user_id,))
-                
-                conn.commit()
-
-    async def process_queue(self):
-        if self.processing_lock.locked():
-            return
-
-        async with self.processing_lock:
-            while not self.request_queue.empty():
-                message = await self.request_queue.get()
-                await self.respond_to_mention(message)
-
-    async def log_error(self, error_message: str, error: Exception = None):
-        logging.error(f"AIResponder Error: {error_message}")
-        if error:
-            logging.error(f"Exception details: {str(error)}")
+        self.conversation_chain = ConversationChain(
+            llm=self.llm,
+            memory=memory,
+            prompt=prompt,
+            verbose=True
+        )
         
-        # You can add additional error reporting here, such as sending to a Discord channel
-        error_channel_id = await self.config.error_channel_id()
-        if error_channel_id:
-            channel = self.bot.get_channel(error_channel_id)
-            if channel:
-                await channel.send(f"AIResponder Error: {error_message}")
-
-    async def get_relevant_context(self, message: discord.Message, content: str) -> dict:
-        context = {}
+        tools = self.setup_tools()
         
-        # Always include basic user and channel info
-        context['user_id'] = message.author.id
-        context['channel_id'] = message.channel.id
-        
-        # Get conversation history using semantic similarity
-        context['conversation_history'] = await self.get_user_conversation_history(message.author.id, content)
-        
-        # Include recent messages if the query seems to reference them
-        if any(word in content.lower() for word in ['earlier', 'before', 'previous', 'last message']):
-            context['recent_messages'] = await self.get_recent_messages(message.channel, message)
-        
-        # Include server info if the query is about the server or roles
-        if any(word in content.lower() for word in ['server', 'channel', 'role', 'permission']):
-            context['server_info'] = self.get_compressed_server_info(message.guild)
-        
-        return context
-
-    def get_compressed_server_info(self, guild: discord.Guild) -> str:
-        channels = f"Channels: {', '.join([c.name for c in guild.channels[:10]])}"
-        roles = f"Roles: {', '.join([r.name for r in guild.roles[:10]])}"
-        return f"{guild.name} | Members: {guild.member_count} | {channels} | {roles}"
-
-    def count_tokens(self, text: str) -> int:
-        return len(text.split())
-
-    async def execute_tool(self, tool_name: str, args: str) -> str:
-        logging.info(f"Tool call: {tool_name} with args: {args}")
-        try:
-            result = ""
-            if "web_search" in tool_name.lower():
-                result = await self.web_search(args)
-            elif "calculator" in tool_name.lower():
-                result = self.calculate(args)
-            elif "weather" in tool_name.lower():
-                result = await self.get_weather(args)
-            elif "datetime" in tool_name.lower():
-                result = self.get_datetime_info(args)
-            elif "server_info" in tool_name.lower():
-                result = self.get_server_info(args)
-            else:
-                result = f"Error: Unknown tool '{tool_name}'"
-            logging.info(f"Tool response: {result}")
-            return result
-        except Exception as e:
-            error_message = f"Error executing tool '{tool_name}': {str(e)}"
-            logging.error(error_message)
-            return error_message
-
-    async def web_search(self, query: str) -> str:
-        try:
-            # DuckDuckGo Search
-            async with aiohttp.ClientSession() as session:
-                ddg_url = f"https://api.duckduckgo.com/?q={query}&format=json"
-                async with session.get(ddg_url) as response:
-                    if response.status == 200:
-                        data = await response.json(content_type=None)
-                        if data.get("Abstract") or data.get("RelatedTopics"):
-                            summary = data.get("Abstract", "")
-                            topics = "\n".join([topic.get("Text", "") for topic in data.get("RelatedTopics", [])[:3]])
-                            return f"Web search results for '{query}':\n\n{summary}\n\nRelated topics:\n{topics}"
-
-            # Wikipedia fallback
-            wiki_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(wiki_url) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        search_results = data.get("query", {}).get("search", [])
-                        if search_results:
-                            top_result = search_results[0]
-                            title = top_result.get("title", "")
-                            snippet = top_result.get("snippet", "")
-                            return f"Wikipedia search results for '{query}':\n\nTitle: {title}\nSummary: {snippet}"
-
-            return f"No results found for '{query}'."
-
-        except Exception as e:
-            return f"An error occurred during web search: {str(e)}"
-
-    def calculate(self, expression: str) -> str:
-        try:
-            result = eval(expression)
-            return str(result)
-        except Exception as e:
-            return f"Error in calculation: {str(e)}"
-
-    async def get_weather(self, location: str) -> str:
-        try:
-            # First, we need to get the location ID
-            search_url = f"https://www.metaweather.com/api/location/search/?query={location}"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(search_url) as response:
-                    if response.status == 200:
-                        locations = await response.json()
-                        if not locations:
-                            return f"No weather information found for '{location}'."
-                        
-                        # Use the first location found
-                        location_id = locations[0]['woeid']
-                        
-                        # Now get the weather for this location
-                        weather_url = f"https://www.metaweather.com/api/location/{location_id}/"
-                        async with session.get(weather_url) as weather_response:
-                            if weather_response.status == 200:
-                                weather_data = await weather_response.json()
-                                current_weather = weather_data['consolidated_weather'][0]
-                                
-                                # Extract relevant information
-                                state = current_weather['weather_state_name']
-                                temp = round(current_weather['the_temp'], 1)
-                                humidity = current_weather['humidity']
-                                wind_speed = round(current_weather['wind_speed'], 1)
-                                
-                                return f"Weather in {location}:\nState: {state}\nTemperature: {temp}°C\nHumidity: {humidity}%\nWind Speed: {wind_speed} mph"
-                            else:
-                                return f"Error fetching weather data for '{location}'."
-                    else:
-                        return f"Error searching for location '{location}'."
-        except Exception as e:
-            return f"An error occurred while fetching weather information: {str(e)}"
-
-    def get_datetime_info(self, query: str) -> str:
-        now = datetime.now()
-        if query == "now":
-            return now.strftime("%Y-%m-%d %H:%M:%S")
-        elif query == "date":
-            return now.strftime("%Y-%m-%d")
-        elif query == "time":
-            return now.strftime("%H:%M:%S")
-        else:
-            return f"Invalid datetime query: {query}"
-
-    def get_server_info(self, info_type: str) -> str:
-        if not self.bot.guilds:
-            return "Bot is not in any servers"
-        guild = self.bot.guilds[0]  # Get info from the first server the bot is in
-        if info_type == "name":
-            return guild.name
-        elif info_type == "member_count":
-            return str(guild.member_count)
-        elif info_type == "channels":
-            return ", ".join([channel.name for channel in guild.channels[:10]])
-        elif info_type == "roles":
-            return ", ".join([role.name for role in guild.roles[:10]])
-        else:
-            return f"Invalid server info type: {info_type}"
-
-    async def parse_and_execute_tools(self, response: str) -> str:
-        logging.info("Starting tool parsing and execution")
-        tool_match = re.search(r'\[TOOL\](.*?)\[/TOOL\]', response)
-        
-        if tool_match:
-            tool_call = tool_match.group(1)
-            tool_name, tool_args = tool_call.split(":", 1)
-            tool_result = await self.execute_tool(tool_name.strip(), tool_args.strip())
-            logging.info(f"Tool result: {tool_result[:100]}...")  # Log first 100 chars of the result
-            return tool_result
-        else:
-            return ""
-
-    async def send_chunked_message(self, channel, text):
-        for chunk in [text[i:i+1900] for i in range(0, len(text), 1900)]:
-            await channel.send(chunk)
+        self.agent_executor = AgentExecutor.from_agent_and_tools(
+            agent=LLMSingleActionAgent(
+                llm_chain=self.conversation_chain,
+                output_parser=self.CustomOutputParser(),
+                stop=["\nObservation:"],
+                allowed_tools=[tool.name for tool in tools]
+            ),
+            tools=tools,
+            memory=memory,
+            verbose=True
+        )
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
