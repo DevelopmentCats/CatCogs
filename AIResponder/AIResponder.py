@@ -23,7 +23,8 @@ from aiohttp import ClientError
 from langchain_community.llms import Ollama
 from langchain.prompts import PromptTemplate
 from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory, BaseMemory
+from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory
+from langchain.schema import BaseMemory
 from langchain.agents import Tool, AgentExecutor, LLMSingleActionAgent
 from langchain.schema import AgentAction, AgentFinish, OutputParserException
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
