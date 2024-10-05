@@ -126,22 +126,21 @@ class AIResponder(commands.Cog):
 
                 api_timeout = await self.config.api_timeout()
                 
-                response_buffer = ""
-                async with message.channel.typing():
-                    async for token in self.get_ai_response(full_prompt):
-                        response_buffer += token
-                        if len(response_buffer) >= 100:
-                            response_chunk = await self.process_tool_call(response_buffer)
-                            response_chunk = re.sub(r'<@!?\d+>', '', response_chunk).strip()
-                            await self.send_chunked_message(message.channel, response_chunk)
-                            response_buffer = ""
+                response_message = await message.channel.send("Thinking...")
+                full_response = ""
 
-                    if response_buffer:
-                        final_chunk = await self.process_tool_call(response_buffer)
-                        final_chunk = re.sub(r'<@!?\d+>', '', final_chunk).strip()
-                        await self.send_chunked_message(message.channel, final_chunk)
+                async for response_chunk in self.get_ai_response(full_prompt):
+                    full_response += response_chunk
+                    processed_chunk = await self.process_tool_call(response_chunk)
+                    processed_chunk = re.sub(r'<@!?\d+>', '', processed_chunk).strip()
+                    
+                    if len(full_response) <= 2000:
+                        await response_message.edit(content=full_response)
+                    else:
+                        await self.send_chunked_message(message.channel, processed_chunk)
 
-                await self.update_user_conversation_history(message.author.id, content, response_buffer)
+                if full_response:
+                    await self.update_user_conversation_history(message.author.id, content, full_response)
 
             except asyncio.TimeoutError:
                 error_message = f"Response timed out after {api_timeout} seconds."
@@ -181,18 +180,21 @@ class AIResponder(commands.Cog):
                 "stream": True,
                 "max_tokens": max_tokens
             }) as response:
+                buffer = ""
                 async for line in response.content:
                     if line:
                         try:
-                            data = json.loads(line.decode('utf-8').split('data: ')[1])
+                            data = json.loads(line.decode('utf-8'))
                             token = data.get('response', '')
                             if token:
-                                yield token
+                                buffer += token
+                                if len(buffer) >= 100:
+                                    yield buffer
+                                    buffer = ""
                         except json.JSONDecodeError:
                             continue
-                        except IndexError:
-                            logging.error(f"Unexpected response format: {line}")
-                            continue
+                if buffer:
+                    yield buffer
 
     async def process_tool_call(self, response: str) -> str:
         while '[TOOL]' in response and '[/TOOL]' in response:
