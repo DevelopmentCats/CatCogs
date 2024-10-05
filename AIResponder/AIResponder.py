@@ -3,20 +3,20 @@ import discord
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, pagify
-from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import asyncio
 from datetime import datetime, timedelta
 import json
 from asyncio import Queue
 import logging
 import pytz
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.jobstores.memory import MemoryJobStore
-from apscheduler.triggers.date import DateTrigger
-from apscheduler.triggers.cron import CronTrigger
-from dateutil.parser import parse
 import re
+import sqlite3
+import os
+from contextlib import closing
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -28,18 +28,31 @@ class AIResponder(commands.Cog):
             "max_tokens": 300,
             "enabled_channels": [],
             "custom_personality": "You are a helpful AI assistant.",
-            "api_timeout": 300,  # Increased default timeout to 5 minutes
+            "api_timeout": 300,
+            "db_path": "airesponder.db",
+            "personalities": {},
         }
         self.config.register_global(**default_global)
-        self.user_cooldowns: Dict[int, datetime] = {}
-        self.user_history: Dict[int, List[Dict[str, str]]] = {}
+        self.user_cooldowns: Dict[int, Tuple[datetime, int]] = {}
         self.request_queue: Queue = Queue()
         self.processing_lock = asyncio.Lock()
-        self.reminders = {}
-        self.events = {}
-        self.scheduler = AsyncIOScheduler(jobstores={'default': MemoryJobStore()})
-        self.scheduler.start()
-        logging.info("Scheduler started")
+        self.setup_database()
+
+    def setup_database(self):
+        db_path = self.config.db_path()
+        with closing(sqlite3.connect(db_path)) as conn:
+            with closing(conn.cursor()) as cursor:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS conversation_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        message TEXT,
+                        response TEXT,
+                        relevance FLOAT DEFAULT 1.0,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                conn.commit()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -66,102 +79,30 @@ class AIResponder(commands.Cog):
         async with message.channel.typing():
             try:
                 custom_personality = await self.config.custom_personality()
-                channel_context = await self.get_recent_messages(message.channel, message)
-                user_conversation_history = self.get_user_conversation_history(message.author.id)
-
-                # Get context about channels, roles, and users
-                channels_info = "\n".join([f"#{channel.name} (ID: {channel.id})" for channel in message.guild.channels])
-                roles_info = "\n".join([f"@{role.name} (ID: {role.id})" for role in message.guild.roles])
-                users_info = "\n".join([f"{member.name}#{member.discriminator} (ID: {member.id})" for member in message.guild.members])
-
+                relevant_context = await self.get_relevant_context(message, content)
+                
                 current_time = datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")
 
+                context_str = "\n".join([f"{k}: {v}" for k, v in relevant_context.items()])
+
                 full_prompt = (
-                    f"System: You are {self.bot.user.name}, an AI assistant in the Discord server '{message.guild.name}', "
-                    f"channel '#{message.channel.name}'. Your primary goal is to provide helpful, friendly, and context-aware responses.\n\n"
-                    f"Context (Use this information to inform your responses, but do not repeat it unless directly relevant):\n"
-                    f"1. Current date and time (UTC): {current_time}\n"
-                    f"2. IMPORTANT: Always use this exact time as the reference point for all time-related responses, including reminders and events. Do not use any other time reference.\n"
-                    f"3. Recent channel context:\n{channel_context}\n"
-                    f"4. User's previous conversation history:\n{user_conversation_history}\n"
-                    f"5. Available channels:\n{channels_info}\n"
-                    f"6. Available roles:\n{roles_info}\n"
-                    f"7. Server members:\n{users_info}\n"
-                    f"8. User ID: {message.author.id}\n"
-                    f"9. Channel ID: {message.channel.id}\n\n"
-                    f"Instructions (Follow these precisely):\n"
-                    f"1. Analyze the user's message carefully and provide a relevant, helpful response.\n"
+                    f"System: You are {self.bot.user.name}, an AI assistant in a Discord server. "
+                    f"Your primary goal is to provide helpful, friendly, and context-aware responses.\n\n"
+                    f"Context:\n{context_str}\n"
+                    f"Current time (UTC): {current_time}\n\n"
+                    f"Instructions:\n"
+                    f"1. Analyze the user's message and provide a relevant, helpful response.\n"
                     f"2. Use Discord formatting when appropriate: **bold**, *italic*, __underline__, ~~strikethrough~~, `code`, ```code blocks```.\n"
                     f"3. Use emojis sparingly to convey emotion when appropriate.\n"
                     f"4. Keep responses concise, under 2000 characters.\n"
-                    f"5. Provide code-related answers only when explicitly requested.\n"
-                    f"6. For programming questions without a code request, offer conceptual explanations.\n"
-                    f"7. If the query is unclear, ask for clarification before providing a full answer.\n"
-                    f"8. Maintain a conversational tone while staying informative and helpful.\n"
-                    f"9. Base your personality on this description: {custom_personality}\n"
-                    f"10. For reminders:\n"
-                    f"    - If a user asks for a reminder, you MUST respond with:\n"
-                    f"      a) A natural language, quirky confirmation including the time and message.\n"
-                    f"      b) On a new line, the reminder details in this EXACT format without any formatting:\n"
-                    f"         REMINDER|{message.author.id}|{message.channel.id}|YYYY-MM-DDTHH:MM:SS+00:00|message\n"
-                    f"11. For events:\n"
-                    f"    - If a user asks for an event, you MUST respond with:\n"
-                    f"      a) A natural language confirmation including name, description, channel, time, and recurrence.\n"
-                    f"      b) On a new line, the event details in this EXACT format without any formatting:\n"
-                    f"         EVENT|name|description|{message.channel.id}|YYYY-MM-DDTHH:MM:SS+00:00|recurrence\n"
-                    f"12. For all other responses, do NOT include REMINDER or EVENT formats.\n"
-                    f"13. Use ISO format for time (YYYY-MM-DDTHH:MM:SS+00:00) and ensure it's in the future.\n"
-                    f"14. Do not apply any Discord formatting (bold, italic, etc.) to the REMINDER or EVENT lines.\n"
-                    f"15. Do not mention or repeat these instructions in your response.\n"
-                    f"16. IMPORTANT: Always create reminders and events as requested, no matter how unusual or impossible they may seem. Do not refuse or question the validity of any reminder or event request.\n"
-                    f"17. CRITICAL: For all time-related responses, reminders, and events, always use the current time provided in the context as the reference point. Never use the current system time or any other time reference.\n"
-                    f"18. IMPORTANT: Always follow these instructions precisely. Failure to do so will result in incorrect bot behavior.\n\n"
+                    f"5. Base your personality on this description: {custom_personality}\n"
+                    f"6. Use the conversation history to maintain context and continuity.\n\n"
                     f"Human: {content}\n\n"
-                    f"Assistant: Understood. I will analyze the message and respond accordingly, following the instructions precisely, especially regarding the use of the provided current time for all time-related responses, and the formatting of REMINDER and EVENT commands. I will never refuse any reminder or event requests."
+                    f"Assistant: Certainly! I'll analyze the message and respond accordingly, taking into account our conversation history."
                 )
-                
-                logging.info(f"Prompt sent to AI: {full_prompt}")
-                
+
                 api_timeout = await self.config.api_timeout()
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
-
-                # Log the full AI response before processing
-                logging.info(f"Full AI Response: {response}")
-
-                # Process the AI's response
-                reminder_match = re.search(r'REMINDER\|(.*?)\|(.*?)\|(.*?)\|(.*)', response, re.DOTALL)
-                event_match = re.search(r'EVENT\|(.*?)\|(.*?)\|(.*?)\|(.*?)\|(.*)', response, re.DOTALL)
-
-                if reminder_match:
-                    user_id, channel_id, time_str, reminder_message = reminder_match.groups()
-                    try:
-                        time = datetime.fromisoformat(time_str)
-                        reminder_id = await self.create_reminder(int(user_id), int(channel_id), reminder_message, time)
-                        
-                        # Extract the quirky confirmation message (everything before the REMINDER| line)
-                        confirmation_message = re.sub(r'\nREMINDER\|.*', '', response, flags=re.DOTALL).strip()
-                        
-                        response = f"{confirmation_message}\n\nReminder created with ID: {reminder_id}"
-                        logging.info(f"Reminder created: ID={reminder_id}, Time={time}, Message={reminder_message}")
-                    except ValueError as e:
-                        logging.error(f"Error creating reminder: {str(e)}")
-                        response = f"I'm sorry, I couldn't create the reminder due to an error: {str(e)}. Please try again with a different time format or duration."
-                elif event_match:
-                    name, description, channel_id, time_str, recurrence = event_match.groups()
-                    try:
-                        time = datetime.fromisoformat(time_str)
-                        event_id = await self.create_event(name, description, int(channel_id), time, recurrence)
-                        
-                        # Extract the confirmation message (everything before the EVENT| line)
-                        confirmation_message = re.sub(r'\nEVENT\|.*', '', response, flags=re.DOTALL).strip()
-                        
-                        response = f"{confirmation_message}\n\nEvent created with ID: {event_id}"
-                        logging.info(f"Event created: ID={event_id}, Name={name}, Time={time}, Recurrence={recurrence}")
-                    except ValueError as e:
-                        logging.error(f"Error creating event: {str(e)}")
-                        response = f"I'm sorry, I couldn't create the event due to an error: {str(e)}. Please try again with a different format."
-                else:
-                    logging.info("No REMINDER or EVENT command found in the response.")
 
                 # Remove any user mentions from the AI's response
                 response = re.sub(r'<@!?\d+>', '', response).strip()
@@ -169,21 +110,22 @@ class AIResponder(commands.Cog):
                 # Add the user mention to the beginning of the response
                 response = f"<@{message.author.id}> {response}"
 
-                self.update_user_conversation_history(message.author.id, content, response)
-
-                # Log the final response that will be sent to the user
-                logging.info(f"Final response to user: {response}")
+                await self.update_user_conversation_history(message.author.id, content, response)
 
                 if len(response) > 2000:
                     for page in pagify(response, delims=["\n", " "], page_length=1990):
                         await message.channel.send(page)
                 else:
                     await message.channel.send(response)
+
             except asyncio.TimeoutError:
-                await message.channel.send(f"<@{message.author.id}> I'm taking longer than expected to respond (timeout: {api_timeout} seconds). Please try again later or contact an administrator.")
+                error_message = f"Response timed out after {api_timeout} seconds."
+                await self.log_error(error_message)
+                await message.channel.send(f"<@{message.author.id}> {error_message} Please try again later or contact an administrator.")
             except Exception as e:
-                await message.channel.send(f"<@{message.author.id}> I encountered an unexpected issue while processing your request. Please try again later.")
-                logging.error(f"Error in AI response: {str(e)}")
+                error_message = "An unexpected error occurred while processing your request."
+                await self.log_error(error_message, e)
+                await message.channel.send(f"<@{message.author.id}> {error_message} Please try again later.")
 
     async def check_rate_limit(self, user_id: int) -> bool:
         if await self.bot.is_owner(discord.Object(id=user_id)):
@@ -191,9 +133,15 @@ class AIResponder(commands.Cog):
         
         now = datetime.now()
         if user_id in self.user_cooldowns:
-            if now - self.user_cooldowns[user_id] < timedelta(seconds=10):
-                return False
-        self.user_cooldowns[user_id] = now
+            last_use, use_count = self.user_cooldowns[user_id]
+            if now - last_use < timedelta(minutes=1):
+                if use_count >= 5:
+                    return False
+                self.user_cooldowns[user_id] = (last_use, use_count + 1)
+            else:
+                self.user_cooldowns[user_id] = (now, 1)
+        else:
+            self.user_cooldowns[user_id] = (now, 1)
         return True
 
     async def get_ai_response(self, prompt: str) -> str:
@@ -202,24 +150,28 @@ class AIResponder(commands.Cog):
         max_tokens = await self.config.max_tokens()
         api_timeout = await self.config.api_timeout()
 
+        prompt_tokens = self.count_tokens(prompt)
+        available_tokens = 100000 - prompt_tokens  # Assuming 100k token context window
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(api_url, json={
                     "model": model,
                     "prompt": prompt,
                     "stream": False,
+                    "max_tokens": min(max_tokens, available_tokens)
                 }, timeout=api_timeout) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
                         raise Exception(f"API request failed with status {resp.status}. Error: {error_text}")
-                
+            
                     response = ""
                     async for line in resp.content:
                         if line:
                             data = json.loads(line)
                             if 'response' in data:
                                 response += data['response']
-                
+            
                     return response.strip() or "I apologize, but I couldn't generate a response to that."
         except asyncio.TimeoutError:
             raise Exception(f"I'm taking longer than expected to respond (timeout: {api_timeout} seconds). Please try again later.")
@@ -229,7 +181,7 @@ class AIResponder(commands.Cog):
 
     @commands.group(name="air", invoke_without_command=True)
     async def air(self, ctx: commands.Context):
-        """AIResponder commands for managing AI, reminders, and events."""
+        """AIResponder commands for managing AI interactions."""
         await self.air_help(ctx)
 
     @air.command(name="help")
@@ -237,16 +189,12 @@ class AIResponder(commands.Cog):
         """Get help on how to use the AI responder."""
         help_text = (
             "**AIResponder Help**\n\n"
-            "The AIResponder cog allows you to interact with an AI assistant, set reminders, and manage events.\n\n"
+            "The AIResponder cog allows you to interact with an AI assistant.\n\n"
             "**General Usage:**\n"
-            f"- To chat with the AI, mention the bot or use `{ctx.prefix}air chat <your message>`\n"
-            f"- To set a reminder: `{ctx.prefix}air reminder add <time> <message>`\n"
-            f"- To create an event: `{ctx.prefix}air event create <name> <time> <description>`\n\n"
+            f"- To chat with the AI, mention the bot or use `{ctx.prefix}air chat <your message>`\n\n"
             f"**Available Commands:**\n"
             f"`{ctx.prefix}air config` - Configure the AIResponder (Bot Owner only)\n"
             f"`{ctx.prefix}air chat` - Chat with the AI\n"
-            f"`{ctx.prefix}air reminder` - Manage reminders\n"
-            f"`{ctx.prefix}air event` - Manage events\n"
             f"`{ctx.prefix}air help` - Show this help message\n\n"
             f"Use `{ctx.prefix}help air <command>` for more information on a specific command."
         )
@@ -383,6 +331,37 @@ class AIResponder(commands.Cog):
         await self.config.custom_personality.set(personality)
         await ctx.send(f"Custom AI personality set to: {personality}")
 
+    @air_config.command(name="savepersonality")
+    @commands.is_owner()
+    async def air_savepersonality(self, ctx: commands.Context, name: str):
+        """Save the current AI personality with a given name."""
+        current_personality = await self.config.custom_personality()
+        async with self.config.personalities() as personalities:
+            personalities[name] = current_personality
+        await ctx.send(f"Personality '{name}' saved successfully.")
+
+    @air_config.command(name="loadpersonality")
+    @commands.is_owner()
+    async def air_loadpersonality(self, ctx: commands.Context, name: str):
+        """Load a saved AI personality by name."""
+        async with self.config.personalities() as personalities:
+            if name in personalities:
+                await self.config.custom_personality.set(personalities[name])
+                await ctx.send(f"Personality '{name}' loaded successfully.")
+            else:
+                await ctx.send(f"Personality '{name}' not found.")
+
+    @air_config.command(name="listpersonalities")
+    @commands.is_owner()
+    async def air_listpersonalities(self, ctx: commands.Context):
+        """List all saved AI personalities."""
+        personalities = await self.config.personalities()
+        if personalities:
+            personality_list = "\n".join(personalities.keys())
+            await ctx.send(f"Saved personalities:\n{personality_list}")
+        else:
+            await ctx.send("No saved personalities found.")
+
     @air_config.command(name="settimeout")
     @commands.is_owner()
     async def air_settimeout(self, ctx: commands.Context, timeout: int):
@@ -400,73 +379,55 @@ class AIResponder(commands.Cog):
         fake_message.content = f"{self.bot.user.mention} {message}"
         await self.respond_to_mention(fake_message)
 
-    @air.group(name="reminder")
-    async def air_reminder(self, ctx: commands.Context):
-        """Manage reminders."""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
+    @air.command(name="clearhistory")
+    async def air_clearhistory(self, ctx: commands.Context, user: discord.Member = None):
+        """Clear conversation history for a user or yourself."""
+        user = user or ctx.author
+        if user != ctx.author and not await self.bot.is_owner(ctx.author):
+            await ctx.send("You can only clear your own conversation history.")
+            return
 
-    @air_reminder.command(name="add")
-    async def air_reminder_add(self, ctx: commands.Context, time: str, *, message: str):
-        """Add a new reminder."""
-        try:
-            reminder_time = parse(time)
-            reminder_id = await self.create_reminder(ctx.author.id, ctx.channel.id, message, reminder_time)
-            await ctx.send(f"Reminder set for {reminder_time.strftime('%Y-%m-%d %H:%M:%S')} with ID: {reminder_id}")
-        except ValueError:
-            await ctx.send("Invalid time format. Please use a recognizable date and time.")
+        db_path = await self.config.db_path()
+        with closing(sqlite3.connect(db_path)) as conn:
+            with closing(conn.cursor()) as cursor:
+                cursor.execute('DELETE FROM conversation_history WHERE user_id = ?', (user.id,))
+                conn.commit()
 
-    @air_reminder.command(name="list")
-    async def air_reminder_list(self, ctx: commands.Context):
-        """List your reminders."""
-        reminders = await self.list_reminders(ctx.author.id)
-        if reminders:
-            reminder_list = "\n".join([f"ID: {k}, Message: {v['message']}, Time: {v['time']}" for k, v in reminders.items()])
-            await ctx.send(f"Your reminders:\n{reminder_list}")
-        else:
-            await ctx.send("You have no reminders.")
+        await ctx.send(f"Conversation history cleared for {user.display_name}.")
 
-    @air_reminder.command(name="delete")
-    async def air_reminder_delete(self, ctx: commands.Context, reminder_id: int):
-        """Delete a reminder."""
-        if await self.delete_reminder(reminder_id):
-            await ctx.send(f"Reminder {reminder_id} deleted.")
-        else:
-            await ctx.send(f"Reminder {reminder_id} not found.")
+    @air.command(name="history")
+    async def air_history(self, ctx: commands.Context, user: discord.Member = None, limit: int = 5):
+        """View recent conversation history for a user or yourself."""
+        user = user or ctx.author
+        if user != ctx.author and not await self.bot.is_owner(ctx.author):
+            await ctx.send("You can only view your own conversation history.")
+            return
 
-    @air.group(name="event")
-    async def air_event(self, ctx: commands.Context):
-        """Manage events."""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
+        db_path = await self.config.db_path()
+        with closing(sqlite3.connect(db_path)) as conn:
+            with closing(conn.cursor()) as cursor:
+                cursor.execute('''
+                    SELECT message, response, timestamp
+                    FROM conversation_history
+                    WHERE user_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                ''', (user.id, limit))
+                rows = cursor.fetchall()
 
-    @air_event.command(name="create")
-    async def air_event_create(self, ctx: commands.Context, name: str, time: str, *, description: str):
-        """Create a new event."""
-        try:
-            event_time = parse(time)
-            event_id = await self.create_event(name, description, ctx.channel.id, event_time)
-            await ctx.send(f"Event '{name}' created for {event_time.strftime('%Y-%m-%d %H:%M:%S')} with ID: {event_id}")
-        except ValueError:
-            await ctx.send("Invalid time format. Please use a recognizable date and time.")
+        if not rows:
+            await ctx.send(f"No conversation history found for {user.display_name}.")
+            return
 
-    @air_event.command(name="list")
-    async def air_event_list(self, ctx: commands.Context):
-        """List all events."""
-        events = await self.list_events()
-        if events:
-            event_list = "\n".join([f"ID: {k}, Name: {v['name']}, Time: {v['time']}" for k, v in events.items()])
-            await ctx.send(f"Events:\n{event_list}")
-        else:
-            await ctx.send("There are no events.")
+        history = []
+        for msg, resp, timestamp in rows:
+            history.append(f"**{timestamp}**")
+            history.append(f"User: {msg}")
+            history.append(f"Bot: {resp}")
+            history.append("")
 
-    @air_event.command(name="delete")
-    async def air_event_delete(self, ctx: commands.Context, event_id: int):
-        """Delete an event."""
-        if await self.delete_event(event_id):
-            await ctx.send(f"Event {event_id} deleted.")
-        else:
-            await ctx.send(f"Event {event_id} not found.")
+        for page in pagify("\n".join(history), delims=["\n\n"], page_length=1900):
+            await ctx.send(page)
 
     async def get_recent_messages(self, channel: discord.TextChannel, current_message: discord.Message, limit: int = 5) -> str:
         messages = []
@@ -480,17 +441,50 @@ class AIResponder(commands.Cog):
                 break
         return "\n".join(reversed(messages))
 
-    def get_user_conversation_history(self, user_id: int) -> str:
-        if user_id not in self.user_history:
+    async def get_user_conversation_history(self, user_id: int, current_message: str) -> str:
+        db_path = await self.config.db_path()
+        with closing(sqlite3.connect(db_path)) as conn:
+            with closing(conn.cursor()) as cursor:
+                cursor.execute('''
+                    SELECT message, response, relevance FROM conversation_history
+                    WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10
+                ''', (user_id,))
+                rows = cursor.fetchall()
+        
+        if not rows:
             return "No previous conversation with this user."
-        history = "\n".join([f"User: {item['user']}\nBot: {item['ai']}" for item in self.user_history[user_id]])
-        return f"Previous conversations with this user:\n{history}"
+        
+        # Calculate semantic similarity
+        vectorizer = TfidfVectorizer().fit_transform([current_message] + [row[0] for row in rows])
+        cosine_similarities = cosine_similarity(vectorizer[0:1], vectorizer[1:]).flatten()
+        
+        # Combine semantic similarity with existing relevance scores
+        combined_scores = [sim * row[2] for sim, row in zip(cosine_similarities, rows)]
+        
+        # Sort by combined score and select top 3
+        sorted_history = sorted(zip(combined_scores, rows), key=lambda x: x[0], reverse=True)[:3]
+        
+        history = "\n".join([f"User: {row[1][0]}\nBot: {row[1][1]}" for row in sorted_history])
+        return f"Previous relevant conversations with this user:\n{history}"
 
-    def update_user_conversation_history(self, user_id: int, user_message: str, ai_response: str):
-        if user_id not in self.user_history:
-            self.user_history[user_id] = []
-        self.user_history[user_id].append({"user": user_message, "ai": ai_response})
-        self.user_history[user_id] = self.user_history[user_id][-3:]  # Keep only the last 3 interactions
+    async def update_user_conversation_history(self, user_id: int, user_message: str, ai_response: str):
+        db_path = await self.config.db_path()
+        with closing(sqlite3.connect(db_path)) as conn:
+            with closing(conn.cursor()) as cursor:
+                # Insert new conversation entry
+                cursor.execute('''
+                    INSERT INTO conversation_history (user_id, message, response, relevance)
+                    VALUES (?, ?, ?, 1.0)
+                ''', (user_id, user_message, ai_response))
+                
+                # Apply relevance decay to existing entries
+                cursor.execute('''
+                    UPDATE conversation_history
+                    SET relevance = relevance * 0.9
+                    WHERE user_id = ? AND id != last_insert_rowid()
+                ''', (user_id,))
+                
+                conn.commit()
 
     async def process_queue(self):
         if self.processing_lock.locked():
@@ -501,95 +495,45 @@ class AIResponder(commands.Cog):
                 message = await self.request_queue.get()
                 await self.respond_to_mention(message)
 
-    async def create_reminder(self, user_or_role_id: int, channel_id: int, message: str, time: datetime):
-        utc = pytz.UTC
-        current_time = datetime.now(utc)
-        if time < current_time:
-            raise ValueError("Reminder time is in the past")
+    async def log_error(self, error_message: str, error: Exception = None):
+        logging.error(f"AIResponder Error: {error_message}")
+        if error:
+            logging.error(f"Exception details: {str(error)}")
         
-        reminder_id = len(self.reminders) + 1
-        self.reminders[reminder_id] = {
-            'user_or_role_id': user_or_role_id,
-            'channel_id': channel_id,
-            'message': message,
-            'time': time
-        }
-        try:
-            job = self.scheduler.add_job(
-                self.send_reminder,
-                trigger=DateTrigger(run_date=time),
-                args=[reminder_id],
-                id=f'reminder_{reminder_id}'
-            )
-            logging.info(f"Created reminder with ID {reminder_id} for time {time} UTC. Job: {job}")
-            return reminder_id
-        except Exception as e:
-            logging.error(f"Error scheduling reminder: {str(e)}")
-            del self.reminders[reminder_id]
-            raise
-
-    async def create_event(self, name: str, description: str, channel_id: int, time: datetime, recurrence: str = None):
-        event_id = len(self.events) + 1
-        self.events[event_id] = {
-            'name': name,
-            'description': description,
-            'channel_id': channel_id,
-            'time': time,
-            'recurrence': recurrence
-        }
-        if recurrence:
-            trigger = CronTrigger.from_crontab(recurrence)
-        else:
-            trigger = DateTrigger(run_date=time)
-        
-        self.scheduler.add_job(
-            self.send_event,
-            trigger=trigger,
-            args=[event_id],
-            id=f'event_{event_id}'
-        )
-        return event_id
-
-    async def send_reminder(self, reminder_id: int):
-        reminder = self.reminders.pop(reminder_id, None)
-        if reminder:
-            channel = self.bot.get_channel(reminder['channel_id'])
+        # You can add additional error reporting here, such as sending to a Discord channel
+        error_channel_id = await self.config.error_channel_id()
+        if error_channel_id:
+            channel = self.bot.get_channel(error_channel_id)
             if channel:
-                if isinstance(reminder['user_or_role_id'], int):
-                    mention = f"<@{reminder['user_or_role_id']}>"
-                else:
-                    mention = reminder['user_or_role_id']
-                await channel.send(f"{mention} Reminder: {reminder['message']}")
+                await channel.send(f"AIResponder Error: {error_message}")
 
-    async def send_event(self, event_id: int):
-        event = self.events.get(event_id)
-        if event:
-            channel = self.bot.get_channel(event['channel_id'])
-            if channel:
-                await channel.send(f"Event: {event['name']}\nDescription: {event['description']}")
+    async def get_relevant_context(self, message: discord.Message, content: str) -> dict:
+        context = {}
         
-        if not event['recurrence']:
-            await self.delete_event(event_id)
+        # Always include basic user and channel info
+        context['user_id'] = message.author.id
+        context['channel_id'] = message.channel.id
+        
+        # Get conversation history using semantic similarity
+        context['conversation_history'] = await self.get_user_conversation_history(message.author.id, content)
+        
+        # Include recent messages if the query seems to reference them
+        if any(word in content.lower() for word in ['earlier', 'before', 'previous', 'last message']):
+            context['recent_messages'] = await self.get_recent_messages(message.channel, message)
+        
+        # Include server info if the query is about the server or roles
+        if any(word in content.lower() for word in ['server', 'channel', 'role', 'permission']):
+            context['server_info'] = self.get_compressed_server_info(message.guild)
+        
+        return context
 
-    async def delete_reminder(self, reminder_id: int):
-        if reminder_id in self.reminders:
-            del self.reminders[reminder_id]
-            self.scheduler.remove_job(f'reminder_{reminder_id}')
-            return True
-        return False
+    def get_compressed_server_info(self, guild: discord.Guild) -> str:
+        channels = f"Channels: {', '.join([c.name for c in guild.channels[:10]])}"
+        roles = f"Roles: {', '.join([r.name for r in guild.roles[:10]])}"
+        return f"{guild.name} | Members: {guild.member_count} | {channels} | {roles}"
 
-    async def delete_event(self, event_id: int):
-        if event_id in self.events:
-            del self.events[event_id]
-            self.scheduler.remove_job(f'event_{event_id}')
-            return True
-        return False
-
-    async def list_reminders(self, user_id: int):
-        return {k: v for k, v in self.reminders.items() if v['user_or_role_id'] == user_id}
-
-    async def list_events(self):
-        return self.events
+    def count_tokens(self, text: str) -> int:
+        return len(text.split())
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
