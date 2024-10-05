@@ -126,7 +126,6 @@ class AIResponder(commands.Cog):
 
                 api_timeout = await self.config.api_timeout()
                 response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
-                response = await self.parse_and_execute_tools(response)
 
                 # Remove any user mentions from the AI's response
                 response = re.sub(r'<@!?\d+>', '', response).strip()
@@ -172,36 +171,35 @@ class AIResponder(commands.Cog):
         api_url = await self.config.api_url()
         model = await self.config.model()
         max_tokens = await self.config.max_tokens()
-        api_timeout = await self.config.api_timeout()
 
-        prompt_tokens = self.count_tokens(prompt)
-        available_tokens = 100000 - prompt_tokens  # Assuming 100k token context window
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_url, json={
+                "model": model,
+                "prompt": prompt,
+                "stream": True,
+                "max_tokens": max_tokens
+            }) as response:
+                full_response = ""
+                async for line in response.content:
+                    if line:
+                        try:
+                            data = json.loads(line.decode('utf-8').split('data: ')[1])
+                            token = data.get('response', '')
+                            full_response += token
+                            if '[TOOL]' in full_response:
+                                full_response = await self.process_tool_call(full_response)
+                        except json.JSONDecodeError:
+                            continue
+        return full_response
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json={
-                    "model": model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "max_tokens": min(max_tokens, available_tokens)
-                }, timeout=api_timeout) as resp:
-                    if resp.status != 200:
-                        error_text = await resp.text()
-                        raise Exception(f"API request failed with status {resp.status}. Error: {error_text}")
-            
-                    response = ""
-                    async for line in resp.content:
-                        if line:
-                            data = json.loads(line)
-                            if 'response' in data:
-                                response += data['response']
-            
-                    return response.strip() or "I apologize, but I couldn't generate a response to that."
-        except asyncio.TimeoutError:
-            raise Exception(f"I'm taking longer than expected to respond (timeout: {api_timeout} seconds). Please try again later.")
-        except aiohttp.ClientError as e:
-            self.bot.logger.error(f"Error connecting to Ollama API: {str(e)}")
-            raise Exception(f"I'm having trouble connecting to my knowledge base. Please try again later.")
+    async def process_tool_call(self, response: str) -> str:
+        while '[TOOL]' in response and '[/TOOL]' in response:
+            tool_start = response.index('[TOOL]')
+            tool_end = response.index('[/TOOL]', tool_start) + 7
+            tool_call = response[tool_start:tool_end]
+            tool_result = await self.parse_and_execute_tools(tool_call)
+            response = response[:tool_start] + tool_result + response[tool_end:]
+        return response
 
     @commands.group(name="air", invoke_without_command=True)
     async def air(self, ctx: commands.Context):
