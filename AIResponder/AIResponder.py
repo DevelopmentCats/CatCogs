@@ -124,6 +124,11 @@ class AIResponder(commands.Cog):
                     f"5. Base your personality on this description: {custom_personality}\n"
                     f"6. Use the conversation history to maintain context and continuity.\n"
                     f"7. Use tools when necessary to provide accurate and up-to-date information.\n\n"
+                    f"Important: When you need to use a tool, you must format your response like this:\n"
+                    f"[TOOL]tool_name:argument[/TOOL]\n"
+                    f"For example: To search the web, use [TOOL]web_search:your search query[/TOOL]\n"
+                    f"After using a tool, continue your response naturally, incorporating the tool's result.\n"
+                    f"Always maintain your personality and follow the previous instructions while using tools.\n"
                     f"Human: {content}\n\n"
                     f"Assistant: Certainly! I'll analyze the message and respond accordingly, taking into account our conversation history and using tools if necessary."
                 )
@@ -195,12 +200,15 @@ class AIResponder(commands.Cog):
                                     token = data.get('response', '')
                                     if token:
                                         if '[TOOL]' in token:
+                                            logging.info(f"Tool call detected: {token}")
                                             in_tool_call = True
                                             tool_buffer += token
                                         elif '[/TOOL]' in token:
+                                            logging.info(f"Tool call completed: {tool_buffer + token}")
                                             in_tool_call = False
                                             tool_buffer += token
                                             processed_tool = await self.process_tool_call(tool_buffer)
+                                            logging.info(f"Processed tool result: {processed_tool}")
                                             yield processed_tool
                                             tool_buffer = ""
                                         elif in_tool_call:
