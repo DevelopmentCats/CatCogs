@@ -70,7 +70,7 @@ class AIResponder(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         default_global = {
-            "api_url": "http://localhost:11434",
+            "api_url": "http://24.241.45.251:11434/api",
             "model": "llama3.2:latest",
             "max_tokens": 300,
             "enabled_channels": [],
@@ -482,6 +482,25 @@ class AIResponder(commands.Cog):
                 
                 conn.commit()
 
+    class CustomOutputParser:
+        def parse(self, llm_output: str) -> Union[AgentAction, AgentFinish]:
+            if "Final Answer:" in llm_output:
+                return AgentFinish(
+                    return_values={"output": llm_output.split("Final Answer:")[-1].strip()},
+                    log=llm_output,
+                )
+            
+            action_match = re.search(r"Action: (.*?)[\n]*Action Input: (.*)", llm_output, re.DOTALL)
+            if action_match:
+                action = action_match.group(1).strip()
+                action_input = action_match.group(2).strip()
+                return AgentAction(tool=action, tool_input=action_input, log=llm_output)
+            
+            return AgentFinish(
+                return_values={"output": llm_output.strip()},
+                log=llm_output,
+            )
+
     @commands.group(name="air", invoke_without_command=True)
     async def air(self, ctx: commands.Context):
         """AIResponder commands for managing AI interactions."""
@@ -609,19 +628,17 @@ class AIResponder(commands.Cog):
             api_url = await self.config.api_url()
             model = await self.config.model()
             
+            full_url = f"{api_url}/generate"
+            
             async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json={
+                async with session.post(full_url, json={
                     "model": model,
                     "prompt": "Hello, this is a test.",
                     "stream": False,
                 }) as resp:
                     if resp.status == 200:
-                        response = ""
-                        async for line in resp.content:
-                            if line:
-                                data = json.loads(line)
-                                if 'response' in data:
-                                    response += data['response']
+                        response_json = await resp.json()
+                        response = response_json.get('response', '')
                         await ctx.send(f"API test successful. Response: {box(response.strip())}")
                     else:
                         error_text = await resp.text()
