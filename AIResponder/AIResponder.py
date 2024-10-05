@@ -23,7 +23,7 @@ from aiohttp import ClientError
 from langchain_community.llms import Ollama
 from langchain.prompts import PromptTemplate
 from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory
+from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory, BaseMemory
 from langchain.agents import Tool, AgentExecutor, LLMSingleActionAgent
 from langchain.schema import AgentAction, AgentFinish, OutputParserException
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
@@ -31,6 +31,29 @@ from langchain.callbacks import AsyncIteratorCallbackHandler
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
+
+class CustomMemory(BaseMemory):
+    chat_history: List[str] = []
+    personality: str = ""
+    context: str = ""
+    current_time: str = ""
+
+    def load_memory_variables(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "chat_history": "\n".join(self.chat_history),
+            "personality": self.personality,
+            "context": self.context,
+            "current_time": self.current_time,
+        }
+
+    def save_context(self, inputs: Dict[str, Any], outputs: Dict[str, str]) -> None:
+        self.chat_history.append(f"Human: {inputs['human_input']}")
+        self.chat_history.append(f"AI: {outputs['text']}")
+        if len(self.chat_history) > 10:  # Keep only last 5 exchanges
+            self.chat_history = self.chat_history[-10:]
+
+    def clear(self) -> None:
+        self.chat_history = []
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -87,11 +110,10 @@ class AIResponder(commands.Cog):
         
         custom_personality = await self.config.custom_personality()
         
-        memory = ConversationBufferMemory(
-            memory_key="chat_history",
-            input_key="human_input",
-            return_messages=True
-        )
+        memory = CustomMemory()
+        memory.personality = custom_personality
+        memory.context = "You are in a Discord server."
+        memory.current_time = datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")
         
         prompt = PromptTemplate(
             input_variables=["personality", "context", "current_time", "chat_history", "human_input"],
@@ -731,11 +753,10 @@ class AIResponder(commands.Cog):
         
         custom_personality = await self.config.custom_personality()
         
-        memory = ConversationBufferMemory(
-            memory_key="chat_history",
-            input_key="human_input",
-            return_messages=True
-        )
+        memory = CustomMemory()
+        memory.personality = custom_personality
+        memory.context = "You are in a Discord server."
+        memory.current_time = datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")
         
         prompt = PromptTemplate(
             input_variables=["personality", "context", "current_time", "chat_history", "human_input"],
