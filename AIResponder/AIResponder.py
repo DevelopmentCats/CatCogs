@@ -3,7 +3,7 @@ import discord
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, pagify
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Union
 import asyncio
 from datetime import datetime, timedelta
 import json
