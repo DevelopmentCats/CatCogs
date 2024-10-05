@@ -125,21 +125,23 @@ class AIResponder(commands.Cog):
                 )
 
                 api_timeout = await self.config.api_timeout()
-                response = await asyncio.wait_for(self.get_ai_response(full_prompt), timeout=api_timeout)
+                
+                response_buffer = ""
+                async with message.channel.typing():
+                    async for token in self.get_ai_response(full_prompt):
+                        response_buffer += token
+                        if len(response_buffer) >= 100:
+                            response_chunk = await self.process_tool_call(response_buffer)
+                            response_chunk = re.sub(r'<@!?\d+>', '', response_chunk).strip()
+                            await self.send_chunked_message(message.channel, response_chunk)
+                            response_buffer = ""
 
-                # Remove any user mentions from the AI's response
-                response = re.sub(r'<@!?\d+>', '', response).strip()
+                    if response_buffer:
+                        final_chunk = await self.process_tool_call(response_buffer)
+                        final_chunk = re.sub(r'<@!?\d+>', '', final_chunk).strip()
+                        await self.send_chunked_message(message.channel, final_chunk)
 
-                # Add the user mention to the beginning of the response
-                response = f"<@{message.author.id}> {response}"
-
-                await self.update_user_conversation_history(message.author.id, content, response)
-
-                if len(response) > 2000:
-                    for page in pagify(response, delims=["\n", " "], page_length=1990):
-                        await message.channel.send(page)
-                else:
-                    await message.channel.send(response)
+                await self.update_user_conversation_history(message.author.id, content, response_buffer)
 
             except asyncio.TimeoutError:
                 error_message = f"Response timed out after {api_timeout} seconds."
@@ -167,7 +169,7 @@ class AIResponder(commands.Cog):
             self.user_cooldowns[user_id] = (now, 1)
         return True
 
-    async def get_ai_response(self, prompt: str) -> str:
+    async def get_ai_response(self, prompt: str):
         api_url = await self.config.api_url()
         model = await self.config.model()
         max_tokens = await self.config.max_tokens()
@@ -179,18 +181,18 @@ class AIResponder(commands.Cog):
                 "stream": True,
                 "max_tokens": max_tokens
             }) as response:
-                full_response = ""
                 async for line in response.content:
                     if line:
                         try:
                             data = json.loads(line.decode('utf-8').split('data: ')[1])
                             token = data.get('response', '')
-                            full_response += token
-                            if '[TOOL]' in full_response:
-                                full_response = await self.process_tool_call(full_response)
+                            if token:
+                                yield token
                         except json.JSONDecodeError:
                             continue
-        return full_response
+                        except IndexError:
+                            logging.error(f"Unexpected response format: {line}")
+                            continue
 
     async def process_tool_call(self, response: str) -> str:
         while '[TOOL]' in response and '[/TOOL]' in response:
