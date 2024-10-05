@@ -36,10 +36,10 @@ class AIResponder(commands.Cog):
         self.user_cooldowns: Dict[int, Tuple[datetime, int]] = {}
         self.request_queue: Queue = Queue()
         self.processing_lock = asyncio.Lock()
-        self.setup_database()
+        asyncio.create_task(self.setup_database())
 
-    def setup_database(self):
-        db_path = self.config.db_path()
+    async def setup_database(self):
+        db_path = await self.config.db_path()
         with closing(sqlite3.connect(db_path)) as conn:
             with closing(conn.cursor()) as cursor:
                 cursor.execute('''
