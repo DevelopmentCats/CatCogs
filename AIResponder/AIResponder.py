@@ -186,25 +186,34 @@ class AIResponder(commands.Cog):
                         "max_tokens": max_tokens
                     }) as response:
                         buffer = ""
+                        tool_buffer = ""
+                        in_tool_call = False
                         async for line in response.content:
                             if line:
                                 try:
                                     data = json.loads(line.decode('utf-8'))
                                     token = data.get('response', '')
                                     if token:
-                                        buffer += token
-                                        if '[TOOL]' in buffer and '[/TOOL]' in buffer:
-                                            processed_buffer = await self.process_tool_call(buffer)
-                                            yield processed_buffer
-                                            buffer = ""
-                                        elif len(buffer) >= 100:
-                                            yield buffer
-                                            buffer = ""
+                                        if '[TOOL]' in token:
+                                            in_tool_call = True
+                                            tool_buffer += token
+                                        elif '[/TOOL]' in token:
+                                            in_tool_call = False
+                                            tool_buffer += token
+                                            processed_tool = await self.process_tool_call(tool_buffer)
+                                            yield processed_tool
+                                            tool_buffer = ""
+                                        elif in_tool_call:
+                                            tool_buffer += token
+                                        else:
+                                            buffer += token
+                                            if len(buffer) >= 100:
+                                                yield buffer
+                                                buffer = ""
                                 except json.JSONDecodeError:
                                     continue
                         if buffer:
-                            processed_buffer = await self.process_tool_call(buffer)
-                            yield processed_buffer
+                            yield buffer
                 return  # If successful, exit the function
             except (ClientError, asyncio.TimeoutError) as e:
                 if attempt < MAX_RETRIES - 1:
@@ -214,9 +223,10 @@ class AIResponder(commands.Cog):
 
     async def process_tool_call(self, content: str) -> str:
         tool_pattern = r'\[TOOL\](.*?)\[/TOOL\]'
-        tool_calls = re.findall(tool_pattern, content, re.DOTALL)
+        tool_match = re.search(tool_pattern, content, re.DOTALL)
         
-        for tool_call in tool_calls:
+        if tool_match:
+            tool_call = tool_match.group(1)
             parts = tool_call.split(':', 1)
             if len(parts) == 2:
                 tool_name, args = parts
@@ -227,9 +237,9 @@ class AIResponder(commands.Cog):
                 args = ""
             
             result = await self.execute_tool(tool_name, args)
-            content = content.replace(f'[TOOL]{tool_call}[/TOOL]', result)
-        
-        return content
+            return result
+        else:
+            return content
 
     @commands.group(name="air", invoke_without_command=True)
     async def air(self, ctx: commands.Context):
@@ -591,15 +601,15 @@ class AIResponder(commands.Cog):
         logging.info(f"Tool call: {tool_name} with args: {args}")
         try:
             result = ""
-            if tool_name.lower() == "web_search":
+            if "web_search" in tool_name.lower():
                 result = await self.web_search(args)
-            elif tool_name == "calculator":
+            elif "calculator" in tool_name.lower():
                 result = self.calculate(args)
-            elif tool_name == "weather":
+            elif "weather" in tool_name.lower():
                 result = await self.get_weather(args)
-            elif tool_name == "datetime":
+            elif "datetime" in tool_name.lower():
                 result = self.get_datetime_info(args)
-            elif tool_name == "server_info":
+            elif "server_info" in tool_name.lower():
                 result = self.get_server_info(args)
             else:
                 result = f"Error: Unknown tool '{tool_name}'"
