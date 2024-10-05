@@ -154,16 +154,14 @@ class AIResponder(commands.Cog):
         
         tools = self.setup_tools()
         
-        self.agent_executor = AgentExecutor.from_agent_and_tools(
-            agent=LLMSingleActionAgent(
-                llm_chain=self.conversation_chain,
-                output_parser=self.CustomOutputParser(),
-                stop=["\nObservation:"],
-                allowed_tools=[tool.name for tool in tools]
-            ),
-            tools=tools,
-            memory=memory,
-            verbose=True
+        from langchain.agents import AgentType, initialize_agent
+        
+        self.agent_executor = initialize_agent(
+            tools,
+            self.llm,
+            agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
+            verbose=True,
+            memory=memory
         )
 
     def setup_tools(self):
@@ -484,25 +482,6 @@ class AIResponder(commands.Cog):
                 
                 conn.commit()
 
-    class CustomOutputParser:
-        def parse(self, llm_output: str) -> Union[AgentAction, AgentFinish]:
-            if "Final Answer:" in llm_output:
-                return AgentFinish(
-                    return_values={"output": llm_output.split("Final Answer:")[-1].strip()},
-                    log=llm_output,
-                )
-            
-            action_match = re.search(r"Action: (.*?)[\n]*Action Input: (.*)", llm_output, re.DOTALL)
-            if action_match:
-                action = action_match.group(1).strip()
-                action_input = action_match.group(2).strip()
-                return AgentAction(tool=action, tool_input=action_input, log=llm_output)
-            
-            return AgentFinish(
-                return_values={"output": llm_output.strip()},
-                log=llm_output,
-            )
-
     @commands.group(name="air", invoke_without_command=True)
     async def air(self, ctx: commands.Context):
         """AIResponder commands for managing AI interactions."""
@@ -797,16 +776,14 @@ class AIResponder(commands.Cog):
         
         tools = self.setup_tools()
         
-        self.agent_executor = AgentExecutor.from_agent_and_tools(
-            agent=LLMSingleActionAgent(
-                llm_chain=self.conversation_chain,
-                output_parser=self.CustomOutputParser(),
-                stop=["\nObservation:"],
-                allowed_tools=[tool.name for tool in tools]
-            ),
-            tools=tools,
-            memory=memory,
-            verbose=True
+        from langchain.agents import AgentType, initialize_agent
+        
+        self.agent_executor = initialize_agent(
+            tools,
+            self.llm,
+            agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
+            verbose=True,
+            memory=memory
         )
 
 async def setup(bot: Red):
