@@ -85,7 +85,11 @@ class AIResponder(commands.Cog):
         
         self.llm = Ollama(base_url=api_url, model=model)
         
-        memory = ConversationTokenBufferMemory(llm=self.llm, memory_key="chat_history", return_messages=True, max_token_limit=1000)
+        memory = ConversationBufferMemory(
+            memory_key="chat_history",
+            input_key="human_input",
+            return_messages=True
+        )
         
         custom_personality = await self.config.custom_personality()
         
@@ -725,7 +729,11 @@ class AIResponder(commands.Cog):
         
         self.llm = Ollama(base_url=api_url, model=model)
         
-        memory = ConversationTokenBufferMemory(llm=self.llm, memory_key="chat_history", return_messages=True, max_token_limit=1000)
+        memory = ConversationBufferMemory(
+            memory_key="chat_history",
+            input_key="human_input",
+            return_messages=True
+        )
         
         custom_personality = await self.config.custom_personality()
         
