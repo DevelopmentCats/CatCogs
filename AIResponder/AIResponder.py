@@ -35,22 +35,22 @@ RETRY_DELAY = 2
 
 class CustomMemory(BaseMemory):
     chat_history: List[str] = []
-    personality: str = ""
     context: str = ""
     current_time: str = ""
     human_input: str = ""
+    personality: str = ""
 
     @property
     def memory_variables(self) -> List[str]:
-        return ["chat_history", "personality", "context", "current_time", "human_input"]
+        return ["chat_history", "context", "current_time", "human_input", "personality"]
 
     def load_memory_variables(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "chat_history": "\n".join(self.chat_history),
-            "personality": self.personality,
             "context": self.context,
             "current_time": self.current_time,
-            "human_input": self.human_input
+            "human_input": self.human_input,
+            "personality": self.personality
         }
 
     def save_context(self, inputs: Dict[str, Any], outputs: Dict[str, str]) -> None:
@@ -120,12 +120,12 @@ class AIResponder(commands.Cog):
         custom_personality = await self.config.custom_personality()
         
         memory = CustomMemory()
-        memory.personality = custom_personality
         memory.context = "You are in a Discord server."
         memory.current_time = datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")
+        memory.personality = custom_personality
         
         prompt = PromptTemplate(
-            input_variables=["personality", "context", "current_time", "chat_history", "human_input"],
+            input_variables=["chat_history", "context", "current_time", "human_input", "personality"],
             template="""
             System: You are an AI assistant with the following personality: {personality}
             You are in a Discord server, responding to user messages.
@@ -763,12 +763,12 @@ class AIResponder(commands.Cog):
         custom_personality = await self.config.custom_personality()
         
         memory = CustomMemory()
-        memory.personality = custom_personality
         memory.context = "You are in a Discord server."
         memory.current_time = datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")
+        memory.personality = custom_personality
         
         prompt = PromptTemplate(
-            input_variables=["personality", "context", "current_time", "chat_history", "human_input"],
+            input_variables=["chat_history", "context", "current_time", "human_input", "personality"],
             template="""
             System: You are an AI assistant with the following personality: {personality}
             You are in a Discord server, responding to user messages.
