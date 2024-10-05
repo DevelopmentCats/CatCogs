@@ -20,7 +20,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from aiohttp import ClientError
 
 # Langchain imports
-from langchain.llms import Ollama
+from langchain_community.llms import Ollama
 from langchain.prompts import PromptTemplate
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory
@@ -50,13 +50,18 @@ class AIResponder(commands.Cog):
         self.user_cooldowns: Dict[int, Tuple[datetime, int]] = {}
         self.request_queue: Queue = Queue()
         self.processing_lock = asyncio.Lock()
-        asyncio.create_task(self.setup_database())
         
         # Initialize Langchain components
         self.llm = None
         self.conversation_chain = None
         self.agent_executor = None
-        self.setup_langchain()
+        
+        # Use create_task for asynchronous setup
+        asyncio.create_task(self.async_init())
+
+    async def async_init(self):
+        await self.setup_database()
+        await self.setup_langchain()
 
     async def setup_database(self):
         db_path = await self.config.db_path()
