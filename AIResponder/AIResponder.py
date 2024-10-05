@@ -107,13 +107,12 @@ class AIResponder(commands.Cog):
                     f"2. Use calculator for any mathematical operations or conversions.\n"
                     f"3. Use weather to provide current weather conditions for a specific location.\n"
                     f"4. Use datetime for current date/time information or when time zones are relevant.\n"
-                    f"5. Use server_info when asked about this Discord server's details. Available info types are:\n"
-                    f"   - 'name': Get the server's name\n"
-                    f"   - 'member_count': Get the number of members in the server\n"
-                    f"   - 'channels': Get a list of up to 10 channel names\n"
-                    f"   - 'roles': Get a list of up to 10 role names\n"
+                    f"5. Use server_info when asked about this Discord server's details.\n"
                     f"6. You can use multiple tools in a single response if needed.\n"
-                    f"7. Always interpret and explain the tool results in your response.\n\n"
+                    f"7. Always interpret and explain the tool results in your response.\n"
+                    f"8. Place tool calls at the point in your response where you need the information. For example:\n"
+                    f"   'The weather in New York is [TOOL]weather:New York[/TOOL]. Based on this, I recommend...'\n"
+                    f"9. After making a tool call, wait for the result before continuing your response.\n\n"
                     f"Context:\n{context_str}\n"
                     f"Current time (UTC): {current_time}\n\n"
                     f"Instructions:\n"
@@ -122,15 +121,10 @@ class AIResponder(commands.Cog):
                     f"3. Use emojis sparingly to convey emotion when appropriate.\n"
                     f"4. Keep responses concise, under 2000 characters.\n"
                     f"5. Base your personality on this description: {custom_personality}\n"
-                    f"6. Use the conversation history to maintain context and continuity.\n"
+                    f"6. Consider the conversation history only if it's directly relevant to the current query. If the current query is unrelated to previous conversations, there's no need to reference them.\n"
                     f"7. Use tools when necessary to provide accurate and up-to-date information.\n\n"
-                    f"Important: When you need to use a tool, you must format your response like this:\n"
-                    f"[TOOL]tool_name:argument[/TOOL]\n"
-                    f"For example: To search the web, use [TOOL]web_search:your search query[/TOOL]\n"
-                    f"After using a tool, continue your response naturally, incorporating the tool's result.\n"
-                    f"Always maintain your personality and follow the previous instructions while using tools.\n"
                     f"Human: {content}\n\n"
-                    f"Assistant: Certainly! I'll analyze the message and respond accordingly, taking into account our conversation history and using tools if necessary."
+                    f"Assistant: Certainly! I'll analyze the message and respond accordingly, using relevant context and tools if necessary."
                 )
 
                 response_message = await message.channel.send("Thinking...")
@@ -191,33 +185,20 @@ class AIResponder(commands.Cog):
                         "max_tokens": max_tokens
                     }) as response:
                         buffer = ""
-                        tool_buffer = ""
-                        in_tool_call = False
                         async for line in response.content:
                             if line:
                                 try:
                                     data = json.loads(line.decode('utf-8'))
                                     token = data.get('response', '')
                                     if token:
-                                        if '[TOOL]' in token:
-                                            logging.info(f"Tool call detected: {token}")
-                                            in_tool_call = True
-                                            tool_buffer += token
-                                        elif '[/TOOL]' in token:
-                                            logging.info(f"Tool call completed: {tool_buffer + token}")
-                                            in_tool_call = False
-                                            tool_buffer += token
-                                            processed_tool = await self.process_tool_call(tool_buffer)
-                                            logging.info(f"Processed tool result: {processed_tool}")
-                                            yield processed_tool
-                                            tool_buffer = ""
-                                        elif in_tool_call:
-                                            tool_buffer += token
-                                        else:
-                                            buffer += token
-                                            if len(buffer) >= 100:
-                                                yield buffer
-                                                buffer = ""
+                                        buffer += token
+                                        if '[TOOL]' in buffer and '[/TOOL]' in buffer:
+                                            tool_result = await self.parse_and_execute_tools(buffer)
+                                            yield f"[TOOL_RESULT]{tool_result}[/TOOL_RESULT]"
+                                            buffer = buffer.split('[/TOOL]', 1)[-1]
+                                        elif len(buffer) >= 100:
+                                            yield buffer
+                                            buffer = ""
                                 except json.JSONDecodeError:
                                     continue
                         if buffer:
@@ -729,22 +710,16 @@ class AIResponder(commands.Cog):
 
     async def parse_and_execute_tools(self, response: str) -> str:
         logging.info("Starting tool parsing and execution")
-        tool_calls = re.findall(r'\[TOOL\](.*?)\[/TOOL\]', response)
-        logging.info(f"Found {len(tool_calls)} tool calls")
-
-        for tool_call in tool_calls:
-            tool_start = response.index(f"[TOOL]{tool_call}[/TOOL]")
+        tool_match = re.search(r'\[TOOL\](.*?)\[/TOOL\]', response)
+        
+        if tool_match:
+            tool_call = tool_match.group(1)
             tool_name, tool_args = tool_call.split(":", 1)
             tool_result = await self.execute_tool(tool_name.strip(), tool_args.strip())
-            response = response[:tool_start] + tool_result + response[tool_start + len(f"[TOOL]{tool_call}[/TOOL]"):]
-
-        # Remove any remaining tool calls that weren't executed
-        response = re.sub(r'\[TOOL\].*?\[/TOOL\]', '', response)
-        
-        logging.info("Finished tool parsing and execution")
-        logging.info(f"Final response after tool execution: {response[:100]}...")  # Log first 100 chars of the response
-        
-        return response.strip()
+            logging.info(f"Tool result: {tool_result[:100]}...")  # Log first 100 chars of the result
+            return tool_result
+        else:
+            return ""
 
     async def send_chunked_message(self, channel, text):
         for chunk in [text[i:i+1900] for i in range(0, len(text), 1900)]:
