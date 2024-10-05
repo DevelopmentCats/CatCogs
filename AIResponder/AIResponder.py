@@ -39,6 +39,10 @@ class CustomMemory(BaseMemory):
     context: str = ""
     current_time: str = ""
 
+    @property
+    def memory_variables(self) -> List[str]:
+        return ["chat_history", "personality", "context", "current_time"]
+
     def load_memory_variables(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "chat_history": "\n".join(self.chat_history),
