@@ -85,13 +85,13 @@ class AIResponder(commands.Cog):
         
         self.llm = Ollama(base_url=api_url, model=model)
         
+        custom_personality = await self.config.custom_personality()
+        
         memory = ConversationBufferMemory(
             memory_key="chat_history",
             input_key="human_input",
             return_messages=True
         )
-        
-        custom_personality = await self.config.custom_personality()
         
         prompt = PromptTemplate(
             input_variables=["personality", "context", "current_time", "chat_history", "human_input"],
@@ -729,13 +729,13 @@ class AIResponder(commands.Cog):
         
         self.llm = Ollama(base_url=api_url, model=model)
         
+        custom_personality = await self.config.custom_personality()
+        
         memory = ConversationBufferMemory(
             memory_key="chat_history",
             input_key="human_input",
             return_messages=True
         )
-        
-        custom_personality = await self.config.custom_personality()
         
         prompt = PromptTemplate(
             input_variables=["personality", "context", "current_time", "chat_history", "human_input"],
