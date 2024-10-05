@@ -38,10 +38,11 @@ class CustomMemory(BaseMemory):
     personality: str = ""
     context: str = ""
     current_time: str = ""
+    human_input: str = ""
 
     @property
     def memory_variables(self) -> List[str]:
-        return ["chat_history", "personality", "context", "current_time"]
+        return ["chat_history", "personality", "context", "current_time", "human_input"]
 
     def load_memory_variables(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -49,16 +50,19 @@ class CustomMemory(BaseMemory):
             "personality": self.personality,
             "context": self.context,
             "current_time": self.current_time,
+            "human_input": self.human_input
         }
 
     def save_context(self, inputs: Dict[str, Any], outputs: Dict[str, str]) -> None:
-        self.chat_history.append(f"Human: {inputs['human_input']}")
+        self.human_input = inputs.get('human_input', '')
+        self.chat_history.append(f"Human: {self.human_input}")
         self.chat_history.append(f"AI: {outputs['text']}")
         if len(self.chat_history) > 10:  # Keep only last 5 exchanges
             self.chat_history = self.chat_history[-10:]
 
     def clear(self) -> None:
         self.chat_history = []
+        self.human_input = ""
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
