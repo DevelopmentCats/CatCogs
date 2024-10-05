@@ -193,19 +193,18 @@ class AIResponder(commands.Cog):
                                     token = data.get('response', '')
                                     if token:
                                         buffer += token
-                                        while '[TOOL]' in buffer and '[/TOOL]' in buffer:
-                                            start = buffer.index('[TOOL]')
-                                            end = buffer.index('[/TOOL]') + 7
-                                            tool_call = buffer[start:end]
-                                            tool_result = await self.process_tool_call(tool_call)
-                                            buffer = buffer[:start] + tool_result + buffer[end:]
-                                        if len(buffer) >= 100:
+                                        if '[TOOL]' in buffer and '[/TOOL]' in buffer:
+                                            processed_buffer = await self.process_tool_call(buffer)
+                                            yield processed_buffer
+                                            buffer = ""
+                                        elif len(buffer) >= 100:
                                             yield buffer
                                             buffer = ""
                                 except json.JSONDecodeError:
                                     continue
                         if buffer:
-                            yield buffer
+                            processed_buffer = await self.process_tool_call(buffer)
+                            yield processed_buffer
                 return  # If successful, exit the function
             except (ClientError, asyncio.TimeoutError) as e:
                 if attempt < MAX_RETRIES - 1:
@@ -213,18 +212,24 @@ class AIResponder(commands.Cog):
                 else:
                     raise  # Re-raise the last exception if all retries failed
 
-    async def process_tool_call(self, tool_call: str) -> str:
-        try:
-            tool_content = tool_call.strip('[TOOL]').strip('[/TOOL]')
-            if ':' in tool_content:
-                tool_name, args = tool_content.split(':', 1)
+    async def process_tool_call(self, content: str) -> str:
+        tool_pattern = r'\[TOOL\](.*?)\[/TOOL\]'
+        tool_calls = re.findall(tool_pattern, content, re.DOTALL)
+        
+        for tool_call in tool_calls:
+            parts = tool_call.split(':', 1)
+            if len(parts) == 2:
+                tool_name, args = parts
+                tool_name = tool_name.strip()
+                args = args.strip()
             else:
-                tool_name = tool_content
+                tool_name = tool_call.strip()
                 args = ""
-            return await self.execute_tool(tool_name.strip(), args.strip())
-        except Exception as e:
-            logging.error(f"Error processing tool call: {str(e)}")
-            return f"Error processing tool call: {tool_call}"
+            
+            result = await self.execute_tool(tool_name, args)
+            content = content.replace(f'[TOOL]{tool_call}[/TOOL]', result)
+        
+        return content
 
     @commands.group(name="air", invoke_without_command=True)
     async def air(self, ctx: commands.Context):
@@ -586,7 +591,7 @@ class AIResponder(commands.Cog):
         logging.info(f"Tool call: {tool_name} with args: {args}")
         try:
             result = ""
-            if tool_name == "web_search":
+            if tool_name.lower() == "web_search":
                 result = await self.web_search(args)
             elif tool_name == "calculator":
                 result = self.calculate(args)
