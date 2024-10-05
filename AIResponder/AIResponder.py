@@ -116,8 +116,9 @@ class AIResponder(commands.Cog):
         api_url = await self.config.api_url()
         model = await self.config.model()
         
-        logging.info(f"Setting up Ollama LLM with base_url: {api_url}")
-        self.llm = Ollama(base_url=api_url, model=model)
+        base_url = api_url.rstrip('/') + '/api'  # Ensure the correct format
+        logging.info(f"Setting up Ollama LLM with base_url: {base_url}")
+        self.llm = Ollama(base_url=base_url, model=model)
         
         custom_personality = await self.config.custom_personality()
         
@@ -162,14 +163,15 @@ class AIResponder(commands.Cog):
             self.llm,
             agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
             verbose=True,
-            memory=memory
+            memory=memory,
+            handle_parsing_errors=True
         )
 
     def setup_tools(self):
         return [
             Tool(
                 name="web_search",
-                func=self.web_search,
+                func=lambda query: asyncio.get_event_loop().run_until_complete(self.web_search(query)),
                 description="Search the web for current information. Use this when you need to find up-to-date information about a topic."
             ),
             Tool(
