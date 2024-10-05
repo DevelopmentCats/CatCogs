@@ -116,6 +116,7 @@ class AIResponder(commands.Cog):
         api_url = await self.config.api_url()
         model = await self.config.model()
         
+        logging.info(f"Setting up Ollama LLM with base_url: {api_url}")
         self.llm = Ollama(base_url=api_url, model=model)
         
         custom_personality = await self.config.custom_personality()
@@ -235,15 +236,19 @@ class AIResponder(commands.Cog):
                 response_message = await message.channel.send(f"{thinking_emoji} Thinking...")
                 
                 full_response = ""
-                async for response_chunk in self.stream_agent_response(input_dict):
-                    full_response += response_chunk
-                    if len(full_response) > 1900:
-                        await response_message.edit(content=full_response[:1900])
-                        full_response = full_response[1900:]
-                        response_message = await message.channel.send(full_response)
-                    else:
-                        await response_message.edit(content=full_response)
-                
+                try:
+                    async for response_chunk in self.stream_agent_response(input_dict):
+                        full_response += response_chunk
+                        if len(full_response) > 1900:
+                            await response_message.edit(content=full_response[:1900])
+                            full_response = full_response[1900:]
+                            response_message = await message.channel.send(full_response)
+                        else:
+                            await response_message.edit(content=full_response)
+                except Exception as e:
+                    logging.error(f"Error during stream_agent_response: {str(e)}")
+                    raise
+
                 if full_response:
                     await response_message.edit(content=full_response)
                 
@@ -291,13 +296,15 @@ class AIResponder(commands.Cog):
         logging.error(f"AIResponder Error: {error_message}")
         if error:
             logging.error(f"Exception details: {str(error)}")
+            logging.error(f"Exception type: {type(error).__name__}")
+            logging.error(f"API URL: {await self.config.api_url()}")
         
         # You can add additional error reporting here, such as sending to a Discord channel
         error_channel_id = await self.config.error_channel_id()
         if error_channel_id:
             channel = self.bot.get_channel(error_channel_id)
             if channel:
-                await channel.send(f"AIResponder Error: {error_message}")
+                await channel.send(f"AIResponder Error: {error_message}\nException: {str(error)}\nAPI URL: {await self.config.api_url()}")
 
     async def get_relevant_context(self, message: discord.Message, content: str) -> dict:
         context = {}
