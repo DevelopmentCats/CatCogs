@@ -560,18 +560,22 @@ class AIResponder(commands.Cog):
         return len(text.split())
 
     async def execute_tool(self, tool_name: str, args: str) -> str:
+        logging.info(f"Tool call: {tool_name} with args: {args}")
+        result = ""
         if tool_name == "web_search":
-            return await self.web_search(args)
+            result = await self.web_search(args)
         elif tool_name == "calculator":
-            return self.calculate(args)
+            result = self.calculate(args)
         elif tool_name == "weather":
-            return await self.get_weather(args)
+            result = await self.get_weather(args)
         elif tool_name == "datetime":
-            return self.get_datetime_info(args)
+            result = self.get_datetime_info(args)
         elif tool_name == "server_info":
-            return self.get_server_info(args)
+            result = self.get_server_info(args)
         else:
-            return f"Error: Unknown tool '{tool_name}'"
+            result = f"Error: Unknown tool '{tool_name}'"
+        logging.info(f"Tool response: {result}")
+        return result
 
     async def web_search(self, query: str) -> str:
         try:
@@ -673,14 +677,23 @@ class AIResponder(commands.Cog):
             return f"Invalid server info type: {info_type}"
 
     async def parse_and_execute_tools(self, response: str) -> str:
-        while "[TOOL]" in response:
-            tool_start = response.index("[TOOL]")
-            tool_end = response.index("[/TOOL]", tool_start)
-            tool_call = response[tool_start+6:tool_end]
+        logging.info("Starting tool parsing and execution")
+        tool_calls = re.findall(r'\[TOOL\](.*?)\[/TOOL\]', response)
+        logging.info(f"Found {len(tool_calls)} tool calls")
+
+        for tool_call in tool_calls:
+            tool_start = response.index(f"[TOOL]{tool_call}[/TOOL]")
             tool_name, tool_args = tool_call.split(":", 1)
             tool_result = await self.execute_tool(tool_name.strip(), tool_args.strip())
-            response = response[:tool_start] + tool_result + response[tool_end+7:]
-        return response
+            response = response[:tool_start] + tool_result + response[tool_start + len(f"[TOOL]{tool_call}[/TOOL]"):]
+
+        # Remove any remaining tool calls that weren't executed
+        response = re.sub(r'\[TOOL\].*?\[/TOOL\]', '', response)
+        
+        logging.info("Finished tool parsing and execution")
+        logging.info(f"Final response after tool execution: {response[:100]}...")  # Log first 100 chars of the response
+        
+        return response.strip()
 
     async def send_chunked_message(self, channel, text):
         for chunk in [text[i:i+1900] for i in range(0, len(text), 1900)]:
