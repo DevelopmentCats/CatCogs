@@ -237,16 +237,24 @@ class AIResponder(commands.Cog):
                 }
                 
                 thinking_emoji = "🤔"
+                search_emoji = "🔍"
                 response_message = await message.channel.send(f"{thinking_emoji} Thinking...")
                 
                 full_response = ""
-                async for response_chunk in self.stream_agent_response(input_dict):
-                    if len(response_chunk) > 1900:
-                        await response_message.edit(content=response_chunk[:1900])
-                        response_message = await message.channel.send(response_chunk[1900:])
-                    else:
-                        await response_message.edit(content=response_chunk)
-                    full_response = response_chunk
+                async for thinking_steps, response_chunk in self.stream_agent_response(input_dict):
+                    if thinking_steps:
+                        latest_step = thinking_steps[-1]
+                        if "Action: web_search" in latest_step:
+                            await response_message.edit(content=f"{search_emoji} Searching the web...")
+                        else:
+                            await response_message.edit(content=f"{thinking_emoji} {latest_step}")
+                    elif response_chunk != full_response:
+                        full_response = response_chunk
+                        if len(full_response) > 1900:
+                            await response_message.edit(content=full_response[:1900])
+                            response_message = await message.channel.send(full_response[1900:])
+                        else:
+                            await response_message.edit(content=full_response)
 
                 await self.update_user_conversation_history(message.author.id, content, full_response)
                 
@@ -257,29 +265,29 @@ class AIResponder(commands.Cog):
 
     async def stream_agent_response(self, input_dict):
         full_response = ""
+        thinking_steps = []
         async for chunk in self.agent_executor.astream(input_dict):
             if isinstance(chunk, dict):
                 if 'actions' in chunk:
                     for action in chunk['actions']:
-                        full_response += f"Action: {action.tool}\nInput: {action.tool_input}\n\n"
-                elif 'messages' in chunk:
-                    for message in chunk['messages']:
-                        full_response += message.content + "\n"
+                        thinking_steps.append(f"Thinking: {action.log}")
                 elif 'steps' in chunk:
                     for step in chunk['steps']:
-                        full_response += f"Observation: {step.observation}\n\n"
+                        if step.action:
+                            thinking_steps.append(f"Action: {step.action.tool}")
+                        if step.observation:
+                            thinking_steps.append(f"Observation: {step.observation}")
                 elif 'output' in chunk:
-                    full_response += chunk['output'] + "\n"
+                    full_response += chunk['output']
             elif isinstance(chunk, str):
-                full_response += chunk + "\n"
-            
-            yield full_response.strip()
-        
-        # If the final response doesn't contain an actual answer, append a default response
-        if "AI:" not in full_response and "Human:" not in full_response:
-            full_response += "\nI apologize, but I couldn't generate a proper response. Please try asking your question differently."
-        
-        yield full_response.strip()
+                full_response += chunk
+
+            yield thinking_steps, full_response
+
+        if not full_response:
+            full_response = "I apologize, but I couldn't generate a proper response. Please try asking your question differently."
+
+        yield thinking_steps, full_response
 
     async def check_rate_limit(self, user_id: int) -> bool:
         if await self.bot.is_owner(discord.Object(id=user_id)):
