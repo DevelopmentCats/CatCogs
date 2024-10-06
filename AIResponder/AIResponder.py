@@ -72,7 +72,7 @@ class AIResponder(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         default_global = {
-            "api_url": "http://24.241.45.251:11434/api",
+            "api_url": "http://24.241.45.251:11434/",
             "model": "llama3.2:latest",
             "max_tokens": 300,
             "enabled_channels": [],
@@ -118,7 +118,7 @@ class AIResponder(commands.Cog):
         api_url = await self.config.api_url()
         model = await self.config.model()
         
-        base_url = api_url.rstrip('/') + '/api'  # Ensure the correct format
+        base_url = api_url.rstrip('/')  # Remove trailing slash if present
         logging.info(f"Setting up Ollama LLM with base_url: {base_url}")
         self.llm = Ollama(base_url=base_url, model=model)
         
@@ -780,7 +780,8 @@ class AIResponder(commands.Cog):
         api_url = await self.config.api_url()
         model = await self.config.model()
         
-        self.llm = Ollama(base_url=api_url, model=model)
+        base_url = api_url.rstrip('/')  # Remove trailing slash if present
+        self.llm = Ollama(base_url=base_url, model=model)
         
         custom_personality = await self.config.custom_personality()
         
