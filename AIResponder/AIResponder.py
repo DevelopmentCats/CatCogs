@@ -251,10 +251,13 @@ class AIResponder(commands.Cog):
                             await response_message.edit(content=full_response)
                 except Exception as e:
                     logging.error(f"Error during stream_agent_response: {str(e)}")
-                    raise
+                    await response_message.edit(content="I apologize, but I encountered an error while processing your request. Please try again later.")
+                    return
 
                 if full_response:
                     await response_message.edit(content=full_response)
+                else:
+                    await response_message.edit(content="I apologize, but I couldn't generate a response. Please try asking your question differently.")
                 
                 await self.update_user_conversation_history(message.author.id, content, full_response)
                 
@@ -266,12 +269,20 @@ class AIResponder(commands.Cog):
     async def stream_agent_response(self, input_dict):
         full_response = ""
         async for chunk in self.agent_executor.astream(input_dict):
-            if isinstance(chunk, dict) and 'output' in chunk:
-                full_response += chunk['output']
-                yield full_response
+            if isinstance(chunk, dict):
+                if 'output' in chunk:
+                    full_response += chunk['output']
+                elif 'response' in chunk:
+                    full_response += chunk['response']
+                elif 'text' in chunk:
+                    full_response += chunk['text']
+                else:
+                    full_response += str(chunk)
             elif isinstance(chunk, str):
                 full_response += chunk
-                yield full_response
+            else:
+                full_response += str(chunk)
+            yield full_response
 
     async def check_rate_limit(self, user_id: int) -> bool:
         if await self.bot.is_owner(discord.Object(id=user_id)):
