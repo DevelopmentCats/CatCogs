@@ -240,25 +240,14 @@ class AIResponder(commands.Cog):
                 response_message = await message.channel.send(f"{thinking_emoji} Thinking...")
                 
                 full_response = ""
-                try:
-                    async for response_chunk in self.stream_agent_response(input_dict):
-                        full_response += response_chunk
-                        if len(full_response) > 1900:
-                            await response_message.edit(content=full_response[:1900])
-                            full_response = full_response[1900:]
-                            response_message = await message.channel.send(full_response)
-                        else:
-                            await response_message.edit(content=full_response)
-                except Exception as e:
-                    logging.error(f"Error during stream_agent_response: {str(e)}")
-                    await response_message.edit(content="I apologize, but I encountered an error while processing your request. Please try again later.")
-                    return
+                async for response_chunk in self.stream_agent_response(input_dict):
+                    if len(response_chunk) > 1900:
+                        await response_message.edit(content=response_chunk[:1900])
+                        response_message = await message.channel.send(response_chunk[1900:])
+                    else:
+                        await response_message.edit(content=response_chunk)
+                    full_response = response_chunk
 
-                if full_response:
-                    await response_message.edit(content=full_response)
-                else:
-                    await response_message.edit(content="I apologize, but I couldn't generate a response. Please try asking your question differently.")
-                
                 await self.update_user_conversation_history(message.author.id, content, full_response)
                 
             except Exception as e:
@@ -270,19 +259,27 @@ class AIResponder(commands.Cog):
         full_response = ""
         async for chunk in self.agent_executor.astream(input_dict):
             if isinstance(chunk, dict):
-                if 'output' in chunk:
-                    full_response += chunk['output']
-                elif 'response' in chunk:
-                    full_response += chunk['response']
-                elif 'text' in chunk:
-                    full_response += chunk['text']
-                else:
-                    full_response += str(chunk)
+                if 'actions' in chunk:
+                    for action in chunk['actions']:
+                        full_response += f"Action: {action.tool}\nInput: {action.tool_input}\n\n"
+                elif 'messages' in chunk:
+                    for message in chunk['messages']:
+                        full_response += message.content + "\n"
+                elif 'steps' in chunk:
+                    for step in chunk['steps']:
+                        full_response += f"Observation: {step.observation}\n\n"
+                elif 'output' in chunk:
+                    full_response += chunk['output'] + "\n"
             elif isinstance(chunk, str):
-                full_response += chunk
-            else:
-                full_response += str(chunk)
-            yield full_response
+                full_response += chunk + "\n"
+            
+            yield full_response.strip()
+        
+        # If the final response doesn't contain an actual answer, append a default response
+        if "AI:" not in full_response and "Human:" not in full_response:
+            full_response += "\nI apologize, but I couldn't generate a proper response. Please try asking your question differently."
+        
+        yield full_response.strip()
 
     async def check_rate_limit(self, user_id: int) -> bool:
         if await self.bot.is_owner(discord.Object(id=user_id)):
