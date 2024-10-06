@@ -119,7 +119,7 @@ class AIResponder(commands.Cog):
         model = await self.config.model()
         
         base_url = api_url.rstrip('/')  # Remove trailing slash if present
-        logging.info(f"Setting up Ollama LLM with base_url: {base_url}")
+        logging.info(f"Setting up Ollama LLM with base_url: {base_url} and model: {model}")
         self.llm = Ollama(base_url=base_url, model=model)
         
         custom_personality = await self.config.custom_personality()
@@ -653,7 +653,7 @@ class AIResponder(commands.Cog):
             api_url = await self.config.api_url()
             model = await self.config.model()
             
-            full_url = f"{api_url}/generate"
+            full_url = f"{api_url.rstrip('/')}/api/generate"
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(full_url, json={
