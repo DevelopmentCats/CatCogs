@@ -29,6 +29,7 @@ from langchain.agents import Tool, AgentExecutor, LLMSingleActionAgent
 from langchain.schema import AgentAction, AgentFinish, OutputParserException
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.callbacks import AsyncIteratorCallbackHandler
+from langchain.agents.agent_toolkits import create_conversational_retrieval_agent
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -158,10 +159,9 @@ class AIResponder(commands.Cog):
         
         from langchain.agents import AgentType, initialize_agent
         
-        self.agent_executor = initialize_agent(
-            tools,
+        self.agent_executor = create_conversational_retrieval_agent(
             self.llm,
-            agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
+            tools,
             verbose=True,
             memory=memory,
             handle_parsing_errors=True
@@ -171,7 +171,8 @@ class AIResponder(commands.Cog):
         return [
             Tool(
                 name="web_search",
-                func=lambda query: asyncio.get_event_loop().run_until_complete(self.web_search(query)),
+                func=self.web_search,
+                coroutine=self.web_search,
                 description="Search the web for current information. Use this when you need to find up-to-date information about a topic."
             ),
             Tool(
@@ -182,6 +183,7 @@ class AIResponder(commands.Cog):
             Tool(
                 name="weather",
                 func=self.get_weather,
+                coroutine=self.get_weather,
                 description="Get current weather information for a location. Use this when asked about weather conditions in a specific place."
             ),
             Tool(
@@ -264,8 +266,11 @@ class AIResponder(commands.Cog):
     async def stream_agent_response(self, input_dict):
         full_response = ""
         async for chunk in self.agent_executor.astream(input_dict):
-            if 'output' in chunk:
+            if isinstance(chunk, dict) and 'output' in chunk:
                 full_response += chunk['output']
+                yield full_response
+            elif isinstance(chunk, str):
+                full_response += chunk
                 yield full_response
 
     async def check_rate_limit(self, user_id: int) -> bool:
@@ -804,12 +809,12 @@ class AIResponder(commands.Cog):
         
         from langchain.agents import AgentType, initialize_agent
         
-        self.agent_executor = initialize_agent(
-            tools,
+        self.agent_executor = create_conversational_retrieval_agent(
             self.llm,
-            agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
+            tools,
             verbose=True,
-            memory=memory
+            memory=memory,
+            handle_parsing_errors=True
         )
 
 async def setup(bot: Red):
