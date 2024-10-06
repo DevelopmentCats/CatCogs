@@ -30,6 +30,7 @@ from langchain.schema import AgentAction, AgentFinish, OutputParserException
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.callbacks import AsyncIteratorCallbackHandler
 from langchain.agents.agent_toolkits import create_conversational_retrieval_agent
+from langchain.agents import AgentType, initialize_agent
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -157,13 +158,13 @@ class AIResponder(commands.Cog):
         
         tools = self.setup_tools()
         
-        self.agent_executor = create_conversational_retrieval_agent(
-            llm=self.llm,
-            tools=tools,
+        self.agent_executor = initialize_agent(
+            tools,
+            self.llm,
+            agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
             verbose=True,
-            max_iterations=3,
-            early_stopping_method="generate",
-            memory=memory
+            memory=memory,
+            handle_parsing_errors=True
         )
 
     def setup_tools(self):
@@ -806,13 +807,13 @@ class AIResponder(commands.Cog):
         
         tools = self.setup_tools()
         
-        self.agent_executor = create_conversational_retrieval_agent(
-            llm=self.llm,
-            tools=tools,
+        self.agent_executor = initialize_agent(
+            tools,
+            self.llm,
+            agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
             verbose=True,
-            max_iterations=3,
-            early_stopping_method="generate",
-            memory=memory
+            memory=memory,
+            handle_parsing_errors=True
         )
 
 async def setup(bot: Red):
