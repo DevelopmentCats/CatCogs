@@ -157,14 +157,13 @@ class AIResponder(commands.Cog):
         
         tools = self.setup_tools()
         
-        from langchain.agents import AgentType, initialize_agent
-        
         self.agent_executor = create_conversational_retrieval_agent(
-            self.llm,
-            tools,
+            llm=self.llm,
+            tools=tools,
             verbose=True,
-            memory=memory,
-            handle_parsing_errors=True
+            max_iterations=3,
+            early_stopping_method="generate",
+            memory=memory
         )
 
     def setup_tools(self):
@@ -807,14 +806,13 @@ class AIResponder(commands.Cog):
         
         tools = self.setup_tools()
         
-        from langchain.agents import AgentType, initialize_agent
-        
         self.agent_executor = create_conversational_retrieval_agent(
-            self.llm,
-            tools,
+            llm=self.llm,
+            tools=tools,
             verbose=True,
-            memory=memory,
-            handle_parsing_errors=True
+            max_iterations=3,
+            early_stopping_method="generate",
+            memory=memory
         )
 
 async def setup(bot: Red):
