@@ -21,10 +21,10 @@ from aiohttp import ClientError, ClientTimeout
 
 # Langchain imports
 from langchain_community.llms import Ollama
-from langchain_community.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
+from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferWindowMemory
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain.schema import HumanMessage, AIMessage
 from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent
 from langchain.callbacks import AsyncIteratorCallbackHandler
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
