@@ -18,7 +18,9 @@
         "scikit-learn",
         "langchain",
         "langchain-community",
-        "langchain-core"
+        "langchain-core",
+        "duckduckgo-search",
+        "wikipedia-api"
     ],
     "min_bot_version": "3.5.0",
     "hidden": false,
