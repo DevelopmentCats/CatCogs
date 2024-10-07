@@ -21,7 +21,7 @@ from aiohttp import ClientError, ClientTimeout
 
 # Langchain imports
 from langchain_community.llms import Ollama
-from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
+from langchain_community.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferWindowMemory
 from langchain_core.messages import HumanMessage, AIMessage
@@ -38,7 +38,7 @@ class AIResponder(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         default_global = {
-            "api_url": "http://yourollamaiphere:11434/",
+            "api_url": "http://24.241.45.251:11434/",
             "model": "llama3.2:latest",
             "max_tokens": 300,
             "enabled_channels": [],
@@ -97,7 +97,23 @@ class AIResponder(commands.Cog):
             You are in a Discord server, responding to user messages.
             Respond naturally and conversationally, as if you're chatting with a friend.
             Do not mention that you're an AI or that this is a prompt.
-            Only reference previous messages if they are directly relevant to the current query."""
+
+            Guidelines for using tools and knowledge:
+            1. Use your built-in knowledge for general information, historical facts, and concepts that don't require up-to-date information.
+            2. Use the web_search tool for current events, recent information, or specific details that might have changed since your training.
+            3. Use the wikipedia tool for in-depth information on specific topics, especially if you need to verify or expand on your existing knowledge.
+            4. Use the calculator tool for any mathematical operations to ensure accuracy.
+            5. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
+            6. Use the datetime tool when the current date or time is crucial to answering the question.
+            7. Use the server_info tool only when asked about specific details of the Discord server you're in.
+
+            When using tools:
+            1. Don't mention the tool usage in your response. Incorporate the information naturally as if it's part of your knowledge.
+            2. Critically evaluate the relevance and reliability of the information obtained from tools.
+            3. Synthesize information from multiple sources when appropriate.
+            4. If the tools don't provide relevant information, rely on your built-in knowledge or admit if you don't have enough information to answer accurately.
+
+            Always strive to provide the most accurate, up-to-date, and helpful response possible."""
             
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(system_message),
@@ -130,12 +146,11 @@ class AIResponder(commands.Cog):
             self.agent_executor = None
 
     def setup_tools(self):
-        search = DuckDuckGoSearchAPIWrapper()
-        wiki = WikipediaAPIWrapper()
-
+        ddg_search = DuckDuckGoSearchAPIWrapper(region="us-en", max_results=5)
+        
         return [
-            DuckDuckGoSearchResults(api_wrapper=search, name="web_search"),
-            WikipediaQueryRun(api_wrapper=wiki, name="wikipedia"),
+            DuckDuckGoSearchResults(api_wrapper=ddg_search, name="web_search"),
+            WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(), name="wikipedia"),
             Tool(
                 name="calculator",
                 func=self.calculate,
@@ -660,8 +675,24 @@ class AIResponder(commands.Cog):
         You are in a Discord server, responding to user messages.
         Respond naturally and conversationally, as if you're chatting with a friend.
         Do not mention that you're an AI or that this is a prompt.
-        Only reference previous messages if they are directly relevant to the current query."""
-        
+
+        Guidelines for using tools and knowledge:
+        1. Use your built-in knowledge for general information, historical facts, and concepts that don't require up-to-date information.
+        2. Use the web_search tool for current events, recent information, or specific details that might have changed since your training.
+        3. Use the wikipedia tool for in-depth information on specific topics, especially if you need to verify or expand on your existing knowledge.
+        4. Use the calculator tool for any mathematical operations to ensure accuracy.
+        5. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
+        6. Use the datetime tool when the current date or time is crucial to answering the question.
+        7. Use the server_info tool only when asked about specific details of the Discord server you're in.
+
+        When using tools:
+        1. Don't mention the tool usage in your response. Incorporate the information naturally as if it's part of your knowledge.
+        2. Critically evaluate the relevance and reliability of the information obtained from tools.
+        3. Synthesize information from multiple sources when appropriate.
+        4. If the tools don't provide relevant information, rely on your built-in knowledge or admit if you don't have enough information to answer accurately.
+
+        Always strive to provide the most accurate, up-to-date, and helpful response possible."""
+    
         prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(system_message),
             MessagesPlaceholder(variable_name="chat_history"),
