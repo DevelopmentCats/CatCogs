@@ -20,52 +20,16 @@ from sklearn.metrics.pairwise import cosine_similarity
 from aiohttp import ClientError
 
 # Langchain imports
-from langchain_community.llms import Ollama
-from langchain.prompts import PromptTemplate
+from langchain.llms import Ollama
+from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory, ConversationTokenBufferMemory
-from langchain.schema import BaseMemory
-from langchain.agents import Tool, AgentExecutor, LLMSingleActionAgent
-from langchain.schema import AgentAction, AgentFinish, OutputParserException
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from langchain.memory import ConversationBufferMemory
+from langchain.schema import HumanMessage, AIMessage
+from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent
 from langchain.callbacks import AsyncIteratorCallbackHandler
-from langchain.agents.agent_toolkits import create_conversational_retrieval_agent
-from langchain.agents import AgentType, initialize_agent
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
-
-class CustomMemory(BaseMemory):
-    chat_history: List[str] = []
-    context: str = ""
-    current_time: str = ""
-    human_input: str = ""
-    personality: str = ""
-
-    @property
-    def memory_variables(self) -> List[str]:
-        return ["chat_history", "context", "current_time", "human_input", "personality"]
-
-    def load_memory_variables(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        return {
-            "chat_history": "\n".join(self.chat_history),
-            "context": self.context,
-            "current_time": self.current_time,
-            "human_input": self.human_input,
-            "personality": self.personality,
-            "input": inputs.get("input", "")  # Add this line
-        }
-
-    def save_context(self, inputs: Dict[str, Any], outputs: Dict[str, str]) -> None:
-        self.human_input = inputs.get('human_input', '')
-        self.chat_history.append(f"Human: {self.human_input}")
-        self.chat_history.append(f"AI: {outputs['response']}")  # Change 'text' to 'response'
-        if len(self.chat_history) > 10:  # Keep only last 5 exchanges
-            self.chat_history = self.chat_history[-10:]
-
-    def clear(self) -> None:
-        self.chat_history = []
-        self.human_input = ""
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -124,30 +88,18 @@ class AIResponder(commands.Cog):
         
         custom_personality = await self.config.custom_personality()
         
-        memory = CustomMemory()
-        memory.context = "You are in a Discord server."
-        memory.current_time = datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")
-        memory.personality = custom_personality
+        memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
         
-        prompt = PromptTemplate(
-            input_variables=["chat_history", "context", "current_time", "human_input", "personality", "input"],
-            template="""
-            System: You are an AI assistant with the following personality: {personality}
-            You are in a Discord server, responding to user messages.
-            Respond naturally and conversationally, as if you're chatting with a friend.
-            Do not mention that you're an AI or that this is a prompt.
-
-            Context:
-            {context}
-            Current time (UTC): {current_time}
-
-            Chat History:
-            {chat_history}
-
-            Human: {human_input}
-
-            Assistant: {input}"""
-        )
+        system_message = f"""You are an AI assistant with the following personality: {custom_personality}
+        You are in a Discord server, responding to user messages.
+        Respond naturally and conversationally, as if you're chatting with a friend.
+        Do not mention that you're an AI or that this is a prompt."""
+        
+        prompt = ChatPromptTemplate.from_messages([
+            SystemMessagePromptTemplate.from_template(system_message),
+            MessagesPlaceholder(variable_name="chat_history"),
+            HumanMessagePromptTemplate.from_template("{input}")
+        ])
         
         self.conversation_chain = ConversationChain(
             llm=self.llm,
@@ -161,7 +113,7 @@ class AIResponder(commands.Cog):
         self.agent_executor = initialize_agent(
             tools,
             self.llm,
-            agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
+            agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
             verbose=True,
             memory=memory,
             handle_parsing_errors=True
@@ -222,83 +174,40 @@ class AIResponder(commands.Cog):
 
         async with message.channel.typing():
             try:
-                custom_personality = await self.config.custom_personality()
-                relevant_context = await self.get_relevant_context(message, content)
-                
-                current_time = datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")
-                
-                context_str = "\n".join([f"{k}: {v}" for k, v in relevant_context.items()])
-                
-                input_dict = {
-                    "personality": custom_personality,
-                    "context": context_str,
-                    "current_time": current_time,
-                    "human_input": content
-                }
-                
                 thinking_emoji = "🤔"
                 search_emoji = "🔍"
                 response_message = await message.channel.send(f"{thinking_emoji} Thinking...")
-                
-                full_response = ""
-                async for thinking_steps, response_chunk in self.stream_agent_response(input_dict):
-                    if thinking_steps:
-                        latest_step = thinking_steps[-1]
-                        if "Action: web_search" in latest_step:
-                            await response_message.edit(content=f"{search_emoji} Searching the web...")
-                        else:
-                            await response_message.edit(content=f"{thinking_emoji} {latest_step}")
-                    elif response_chunk != full_response:
-                        full_response = response_chunk
-                        if len(full_response) > 1900:
-                            await response_message.edit(content=full_response[:1900])
-                            response_message = await message.channel.send(full_response[1900:])
-                        else:
-                            await response_message.edit(content=full_response)
 
-                if not full_response:
-                    await response_message.edit(content="I apologize, but I couldn't generate a proper response. Please try asking your question differently.")
+                # Use the conversation chain for simple queries
+                conversation_response = await self.conversation_chain.arun(input=content)
                 
+                # Check if we need to use tools
+                if any(tool.name in conversation_response.lower() for tool in self.agent_executor.tools):
+                    full_response = ""
+                    async for chunk in self.agent_executor.astream({"input": content}):
+                        if 'intermediate_steps' in chunk:
+                            for step in chunk['intermediate_steps']:
+                                if isinstance(step[0], AgentAction):
+                                    await response_message.edit(content=f"{search_emoji} Using tool: {step[0].tool}")
+                                else:
+                                    await response_message.edit(content=f"{thinking_emoji} Thinking...")
+                        elif 'output' in chunk:
+                            full_response += chunk['output']
+                            if len(full_response) > 1900:
+                                await response_message.edit(content=full_response[:1900])
+                                response_message = await message.channel.send(full_response[1900:])
+                            else:
+                                await response_message.edit(content=full_response)
+                else:
+                    await response_message.edit(content=conversation_response)
+                    full_response = conversation_response
+
                 await self.update_user_conversation_history(message.author.id, content, full_response)
                 
             except Exception as e:
                 error_message = f"An unexpected error occurred while processing your request: {str(e)}"
                 await self.log_error(error_message, e)
                 await message.channel.send(f"<@{message.author.id}> {error_message} Please try again later.")
-
-    async def stream_agent_response(self, input_dict):
-        full_response = ""
-        thinking_steps = []
-        async for chunk in self.agent_executor.astream(input_dict):
-            if isinstance(chunk, dict):
-                if 'actions' in chunk:
-                    for action in chunk['actions']:
-                        thinking_steps.append(f"Thinking: {action.log}")
-                elif 'steps' in chunk:
-                    for step in chunk['steps']:
-                        if hasattr(step, 'action') and step.action:
-                            thinking_steps.append(f"Action: {step.action.tool}")
-                        if hasattr(step, 'observation') and step.observation:
-                            thinking_steps.append(f"Observation: {step.observation}")
-                elif 'output' in chunk:
-                    full_response += chunk['output']
-                elif 'response' in chunk:
-                    full_response += chunk['response']
-                elif 'text' in chunk:
-                    full_response += chunk['text']
-                else:
-                    full_response += str(chunk)
-            elif isinstance(chunk, str):
-                full_response += chunk
-            else:
-                full_response += str(chunk)
-
-            yield thinking_steps, full_response
-
-        if not full_response:
-            full_response = "I apologize, but I couldn't generate a proper response. Please try asking your question differently."
-
-        yield thinking_steps, full_response
 
     async def check_rate_limit(self, user_id: int) -> bool:
         if await self.bot.is_owner(discord.Object(id=user_id)):
@@ -522,25 +431,6 @@ class AIResponder(commands.Cog):
                 ''', (user_id,))
                 
                 conn.commit()
-
-    class CustomOutputParser:
-        def parse(self, llm_output: str) -> Union[AgentAction, AgentFinish]:
-            if "Final Answer:" in llm_output:
-                return AgentFinish(
-                    return_values={"output": llm_output.split("Final Answer:")[-1].strip()},
-                    log=llm_output,
-                )
-            
-            action_match = re.search(r"Action: (.*?)[\n]*Action Input: (.*)", llm_output, re.DOTALL)
-            if action_match:
-                action = action_match.group(1).strip()
-                action_input = action_match.group(2).strip()
-                return AgentAction(tool=action, tool_input=action_input, log=llm_output)
-            
-            return AgentFinish(
-                return_values={"output": llm_output.strip()},
-                log=llm_output,
-            )
 
     @commands.group(name="air", invoke_without_command=True)
     async def air(self, ctx: commands.Context):
@@ -801,30 +691,18 @@ class AIResponder(commands.Cog):
         
         custom_personality = await self.config.custom_personality()
         
-        memory = CustomMemory()
-        memory.context = "You are in a Discord server."
-        memory.current_time = datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S %Z")
-        memory.personality = custom_personality
+        memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
         
-        prompt = PromptTemplate(
-            input_variables=["chat_history", "context", "current_time", "human_input", "personality", "input"],
-            template="""
-            System: You are an AI assistant with the following personality: {personality}
-            You are in a Discord server, responding to user messages.
-            Respond naturally and conversationally, as if you're chatting with a friend.
-            Do not mention that you're an AI or that this is a prompt.
-
-            Context:
-            {context}
-            Current time (UTC): {current_time}
-
-            Chat History:
-            {chat_history}
-
-            Human: {human_input}
-
-            Assistant: {input}"""
-        )
+        system_message = f"""You are an AI assistant with the following personality: {custom_personality}
+        You are in a Discord server, responding to user messages.
+        Respond naturally and conversationally, as if you're chatting with a friend.
+        Do not mention that you're an AI or that this is a prompt."""
+        
+        prompt = ChatPromptTemplate.from_messages([
+            SystemMessagePromptTemplate.from_template(system_message),
+            MessagesPlaceholder(variable_name="chat_history"),
+            HumanMessagePromptTemplate.from_template("{input}")
+        ])
         
         self.conversation_chain = ConversationChain(
             llm=self.llm,
@@ -838,7 +716,7 @@ class AIResponder(commands.Cog):
         self.agent_executor = initialize_agent(
             tools,
             self.llm,
-            agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
+            agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
             verbose=True,
             memory=memory,
             handle_parsing_errors=True
