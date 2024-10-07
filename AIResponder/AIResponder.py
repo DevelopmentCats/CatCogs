@@ -20,11 +20,11 @@ from sklearn.metrics.pairwise import cosine_similarity
 from aiohttp import ClientError
 
 # Langchain imports
-from langchain.llms import Ollama
-from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
+from langchain_community.llms import Ollama
+from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory, ConversationBufferWindowMemory
-from langchain.schema import HumanMessage, AIMessage
+from langchain.memory import ConversationBufferWindowMemory
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent
 from langchain.callbacks import AsyncIteratorCallbackHandler
 
@@ -88,7 +88,7 @@ class AIResponder(commands.Cog):
         
         custom_personality = await self.config.custom_personality()
         
-        memory = ConversationBufferWindowMemory(k=2, memory_key="chat_history", return_messages=True)
+        memory = ConversationBufferWindowMemory(k=2, memory_key="chat_history", return_messages=True, output_key="output")
         
         system_message = f"""You are an AI assistant with the following personality: {custom_personality}
         You are in a Discord server, responding to user messages.
@@ -342,15 +342,7 @@ class AIResponder(commands.Cog):
             return f"An error occurred while fetching weather information: {str(e)}"
 
     def get_datetime_info(self, query: str) -> str:
-        now = datetime.now()
-        if query == "now":
-            return f"Current date and time: {now.strftime('%Y-%m-%d %H:%M:%S')}"
-        elif query == "date":
-            return f"Current date: {now.strftime('%Y-%m-%d')}"
-        elif query == "time":
-            return f"Current time: {now.strftime('%H:%M:%S')}"
-        else:
-            return f"Invalid datetime query: {query}"
+       return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     def get_server_info(self, info_type: str) -> str:
         if not self.bot.guilds:
@@ -685,7 +677,7 @@ class AIResponder(commands.Cog):
         
         custom_personality = await self.config.custom_personality()
         
-        memory = ConversationBufferWindowMemory(k=2, memory_key="chat_history", return_messages=True)
+        memory = ConversationBufferWindowMemory(k=2, memory_key="chat_history", return_messages=True, output_key="output")
         
         system_message = f"""You are an AI assistant with the following personality: {custom_personality}
         You are in a Discord server, responding to user messages.
