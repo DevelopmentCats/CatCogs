@@ -17,7 +17,7 @@ from contextlib import closing
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from aiohttp import ClientError
+from aiohttp import ClientError, ClientTimeout
 
 # Langchain imports
 from langchain_community.llms import Ollama
@@ -27,6 +27,8 @@ from langchain.memory import ConversationBufferWindowMemory
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent
 from langchain.callbacks import AsyncIteratorCallbackHandler
+from langchain.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
+from langchain.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -121,13 +123,12 @@ class AIResponder(commands.Cog):
         )
 
     def setup_tools(self):
+        search = DuckDuckGoSearchAPIWrapper()
+        wiki = WikipediaAPIWrapper()
+
         return [
-            Tool(
-                name="web_search",
-                func=self.web_search,
-                coroutine=self.web_search,
-                description="Search the web for current information. Use this when you need to find up-to-date information about a topic."
-            ),
+            DuckDuckGoSearchResults(api_wrapper=search, name="web_search"),
+            WikipediaQueryRun(api_wrapper=wiki, name="wikipedia"),
             Tool(
                 name="calculator",
                 func=self.calculate,
@@ -270,37 +271,6 @@ class AIResponder(commands.Cog):
 
     def count_tokens(self, text: str) -> int:
         return len(text.split())
-
-    async def web_search(self, query: str) -> str:
-        try:
-            # DuckDuckGo Search
-            async with aiohttp.ClientSession() as session:
-                ddg_url = f"https://api.duckduckgo.com/?q={query}&format=json"
-                async with session.get(ddg_url) as response:
-                    if response.status == 200:
-                        data = await response.json(content_type=None)
-                        if data.get("Abstract") or data.get("RelatedTopics"):
-                            summary = data.get("Abstract", "")
-                            topics = "\n".join([topic.get("Text", "") for topic in data.get("RelatedTopics", [])[:3]])
-                            return f"Web search results for '{query}':\n\n{summary}\n\nRelated topics:\n{topics}"
-
-            # Wikipedia fallback
-            wiki_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(wiki_url) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        search_results = data.get("query", {}).get("search", [])
-                        if search_results:
-                            top_result = search_results[0]
-                            title = top_result.get("title", "")
-                            snippet = top_result.get("snippet", "")
-                            return f"Wikipedia search results for '{query}':\n\nTitle: {title}\nSummary: {snippet}"
-
-            return f"No results found for '{query}'."
-
-        except Exception as e:
-            return f"An error occurred during web search: {str(e)}"
 
     def calculate(self, expression: str) -> str:
         try:
