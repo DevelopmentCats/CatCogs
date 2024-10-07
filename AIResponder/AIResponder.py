@@ -329,7 +329,7 @@ class AIResponder(commands.Cog):
             return f"Server name: {guild.name}"
         elif info_type == "member_count":
             return f"Number of members: {guild.member_count}"
-        elif info == "channels":
+        elif info_type == "channels":
             channels = ", ".join([channel.name for channel in guild.channels[:10]])
             return f"Channels: {channels}"
         elif info_type == "roles":
