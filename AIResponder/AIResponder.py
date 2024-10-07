@@ -27,8 +27,8 @@ from langchain.memory import ConversationBufferWindowMemory
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent
 from langchain.callbacks import AsyncIteratorCallbackHandler
-from langchain.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
-from langchain.tools import DuckDuckGoSearchResults, WikipediaQueryRun
+from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
+from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -81,46 +81,53 @@ class AIResponder(commands.Cog):
                 conn.commit()
 
     async def setup_langchain(self):
-        api_url = await self.config.api_url()
-        model = await self.config.model()
-        
-        base_url = api_url.rstrip('/')  # Remove trailing slash if present
-        logging.info(f"Setting up Ollama LLM with base_url: {base_url} and model: {model}")
-        self.llm = Ollama(base_url=base_url, model=model)
-        
-        custom_personality = await self.config.custom_personality()
-        
-        memory = ConversationBufferWindowMemory(k=2, memory_key="chat_history", return_messages=True, output_key="output")
-        
-        system_message = f"""You are an AI assistant with the following personality: {custom_personality}
-        You are in a Discord server, responding to user messages.
-        Respond naturally and conversationally, as if you're chatting with a friend.
-        Do not mention that you're an AI or that this is a prompt.
-        Only reference previous messages if they are directly relevant to the current query."""
-        
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessagePromptTemplate.from_template(system_message),
-            MessagesPlaceholder(variable_name="chat_history"),
-            HumanMessagePromptTemplate.from_template("{input}")
-        ])
-        
-        self.conversation_chain = ConversationChain(
-            llm=self.llm,
-            memory=memory,
-            prompt=prompt,
-            verbose=True
-        )
-        
-        tools = self.setup_tools()
-        
-        self.agent_executor = initialize_agent(
-            tools,
-            self.llm,
-            agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
-            verbose=True,
-            memory=memory,
-            handle_parsing_errors=True
-        )
+        try:
+            api_url = await self.config.api_url()
+            model = await self.config.model()
+            
+            base_url = api_url.rstrip('/')  # Remove trailing slash if present
+            logging.info(f"Setting up Ollama LLM with base_url: {base_url} and model: {model}")
+            self.llm = Ollama(base_url=base_url, model=model)
+            
+            custom_personality = await self.config.custom_personality()
+            
+            memory = ConversationBufferWindowMemory(k=2, memory_key="chat_history", return_messages=True, output_key="output")
+            
+            system_message = f"""You are an AI assistant with the following personality: {custom_personality}
+            You are in a Discord server, responding to user messages.
+            Respond naturally and conversationally, as if you're chatting with a friend.
+            Do not mention that you're an AI or that this is a prompt.
+            Only reference previous messages if they are directly relevant to the current query."""
+            
+            prompt = ChatPromptTemplate.from_messages([
+                SystemMessagePromptTemplate.from_template(system_message),
+                MessagesPlaceholder(variable_name="chat_history"),
+                HumanMessagePromptTemplate.from_template("{input}")
+            ])
+            
+            self.conversation_chain = ConversationChain(
+                llm=self.llm,
+                memory=memory,
+                prompt=prompt,
+                verbose=True
+            )
+            
+            tools = self.setup_tools()
+            
+            self.agent_executor = initialize_agent(
+                tools,
+                self.llm,
+                agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
+                verbose=True,
+                memory=memory,
+                handle_parsing_errors=True
+            )
+        except ImportError as e:
+            logging.error(f"Failed to set up Langchain components: {str(e)}")
+            self.agent_executor = None
+        except Exception as e:
+            logging.error(f"An unexpected error occurred while setting up Langchain: {str(e)}")
+            self.agent_executor = None
 
     def setup_tools(self):
         search = DuckDuckGoSearchAPIWrapper()
