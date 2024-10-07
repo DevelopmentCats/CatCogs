@@ -257,13 +257,12 @@ class AIResponder(commands.Cog):
                             await response_message.edit(content=full_response)
 
                 if not full_response:
-                    full_response = "I apologize, but I couldn't generate a proper response. Please try asking your question differently."
-                    await response_message.edit(content=full_response)
-
+                    await response_message.edit(content="I apologize, but I couldn't generate a proper response. Please try asking your question differently.")
+                
                 await self.update_user_conversation_history(message.author.id, content, full_response)
                 
             except Exception as e:
-                error_message = "An unexpected error occurred while processing your request."
+                error_message = f"An unexpected error occurred while processing your request: {str(e)}"
                 await self.log_error(error_message, e)
                 await message.channel.send(f"<@{message.author.id}> {error_message} Please try again later.")
 
@@ -285,8 +284,14 @@ class AIResponder(commands.Cog):
                     full_response += chunk['output']
                 elif 'response' in chunk:
                     full_response += chunk['response']
+                elif 'text' in chunk:
+                    full_response += chunk['text']
+                else:
+                    full_response += str(chunk)
             elif isinstance(chunk, str):
                 full_response += chunk
+            else:
+                full_response += str(chunk)
 
             yield thinking_steps, full_response
 
