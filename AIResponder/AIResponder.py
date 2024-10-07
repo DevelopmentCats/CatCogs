@@ -38,7 +38,7 @@ class AIResponder(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         default_global = {
-            "api_url": "http://24.241.45.251:11434/",
+            "api_url": "http://yourollamaiphere:11434/",
             "model": "llama3.2:latest",
             "max_tokens": 300,
             "enabled_channels": [],
