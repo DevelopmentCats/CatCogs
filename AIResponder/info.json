@@ -20,7 +20,7 @@
         "langchain-community",
         "langchain-core",
         "duckduckgo-search",
-        "wikipedia-api"
+        "wikipedia"
     ],
     "min_bot_version": "3.5.0",
     "hidden": false,
