@@ -100,7 +100,11 @@ class AIResponder(commands.Cog):
 
             Guidelines for using tools and knowledge:
             1. Use your built-in knowledge for general information, historical facts, and concepts that don't require up-to-date information.
-            2. Use the web_search tool for current events, recent information, or specific details that might have changed since your training.
+            2. When using the web_search tool:
+               a. Craft specific and detailed search queries to get the most relevant results.
+               b. Include key details such as dates, full names, and specific context in your queries.
+               c. If the initial results are not satisfactory, try refining your search query with more specific terms.
+               d. Consider using multiple search queries to gather comprehensive information.
             3. Use the calculator tool for any mathematical operations to ensure accuracy.
             4. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
             5. Use the datetime tool when the current date or time is crucial to answering the question.
@@ -110,7 +114,7 @@ class AIResponder(commands.Cog):
             1. Don't mention the tool usage in your response. Incorporate the information naturally as if it's part of your knowledge.
             2. Critically evaluate the relevance and reliability of the information obtained from tools.
             3. Synthesize information from multiple sources when appropriate.
-            4. If the tools don't provide relevant information, rely on your built-in knowledge or admit if you don't have enough information to answer accurately.
+            4. If the tools don't provide relevant information, try refining your approach or admit if you don't have enough information to answer accurately.
 
             Always strive to provide the most accurate, up-to-date, and helpful response possible."""
             
@@ -145,30 +149,33 @@ class AIResponder(commands.Cog):
             self.agent_executor = None
 
     def setup_tools(self):
-        ddg_search = DuckDuckGoSearchAPIWrapper(region="us-en", max_results=5)
+        ddg_search = DuckDuckGoSearchAPIWrapper(region="us-en", max_results=10)
         
         return [
-            DuckDuckGoSearchResults(api_wrapper=ddg_search, name="web_search"),
+            Tool(
+                name="web_search",
+                func=ddg_search.run,
+                description="Useful for finding up-to-date information about current events, sports results, or any topic that requires recent data. Input should be a specific and detailed search query."
+            ),
             Tool(
                 name="calculator",
                 func=self.calculate,
-                description="Perform mathematical calculations. Use this when you need to compute numerical results."
+                description="Useful for performing mathematical calculations. Input should be a mathematical expression."
             ),
             Tool(
                 name="weather",
                 func=self.get_weather,
-                coroutine=self.get_weather,
-                description="Get current weather information for a location. Use this when asked about weather conditions in a specific place."
+                description="Useful for getting current weather information for a location. Input should be a city name or location."
             ),
             Tool(
                 name="datetime",
                 func=self.get_datetime_info,
-                description="Get current date and time information. Use this when asked about the current date, time, or both."
+                description="Useful for getting current date and time information. Input should be a specific question about date or time."
             ),
             Tool(
                 name="server_info",
                 func=self.get_server_info,
-                description="Get Discord server information. Use this when asked about the current server's name, member count, channels, or roles."
+                description="Useful for getting information about the current Discord server. Input should be a specific question about the server."
             )
         ]
 
@@ -676,7 +683,11 @@ class AIResponder(commands.Cog):
 
         Guidelines for using tools and knowledge:
         1. Use your built-in knowledge for general information, historical facts, and concepts that don't require up-to-date information.
-        2. Use the web_search tool for current events, recent information, or specific details that might have changed since your training.
+        2. When using the web_search tool:
+           a. Craft specific and detailed search queries to get the most relevant results.
+           b. Include key details such as dates, full names, and specific context in your queries.
+           c. If the initial results are not satisfactory, try refining your search query with more specific terms.
+           d. Consider using multiple search queries to gather comprehensive information.
         3. Use the calculator tool for any mathematical operations to ensure accuracy.
         4. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
         5. Use the datetime tool when the current date or time is crucial to answering the question.
@@ -686,7 +697,7 @@ class AIResponder(commands.Cog):
         1. Don't mention the tool usage in your response. Incorporate the information naturally as if it's part of your knowledge.
         2. Critically evaluate the relevance and reliability of the information obtained from tools.
         3. Synthesize information from multiple sources when appropriate.
-        4. If the tools don't provide relevant information, rely on your built-in knowledge or admit if you don't have enough information to answer accurately.
+        4. If the tools don't provide relevant information, try refining your approach or admit if you don't have enough information to answer accurately.
 
         Always strive to provide the most accurate, up-to-date, and helpful response possible."""
     
