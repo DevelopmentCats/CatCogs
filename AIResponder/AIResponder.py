@@ -23,7 +23,7 @@ from aiohttp import ClientError
 from langchain.llms import Ollama
 from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory
+from langchain.memory import ConversationBufferMemory, ConversationBufferWindowMemory
 from langchain.schema import HumanMessage, AIMessage
 from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent
 from langchain.callbacks import AsyncIteratorCallbackHandler
@@ -88,12 +88,13 @@ class AIResponder(commands.Cog):
         
         custom_personality = await self.config.custom_personality()
         
-        memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        memory = ConversationBufferWindowMemory(k=2, memory_key="chat_history", return_messages=True)
         
         system_message = f"""You are an AI assistant with the following personality: {custom_personality}
         You are in a Discord server, responding to user messages.
         Respond naturally and conversationally, as if you're chatting with a friend.
-        Do not mention that you're an AI or that this is a prompt."""
+        Do not mention that you're an AI or that this is a prompt.
+        Only reference previous messages if they are directly relevant to the current query."""
         
         prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(system_message),
@@ -178,29 +179,22 @@ class AIResponder(commands.Cog):
                 search_emoji = "🔍"
                 response_message = await message.channel.send(f"{thinking_emoji} Thinking...")
 
-                # Use the conversation chain for simple queries
-                conversation_response = await self.conversation_chain.arun(input=content)
-                
-                # Check if we need to use tools
-                if any(tool.name in conversation_response.lower() for tool in self.agent_executor.tools):
-                    full_response = ""
-                    async for chunk in self.agent_executor.astream({"input": content}):
-                        if 'intermediate_steps' in chunk:
-                            for step in chunk['intermediate_steps']:
-                                if isinstance(step[0], AgentAction):
-                                    await response_message.edit(content=f"{search_emoji} Using tool: {step[0].tool}")
-                                else:
-                                    await response_message.edit(content=f"{thinking_emoji} Thinking...")
-                        elif 'output' in chunk:
-                            full_response += chunk['output']
-                            if len(full_response) > 1900:
-                                await response_message.edit(content=full_response[:1900])
-                                response_message = await message.channel.send(full_response[1900:])
+                # Always use the agent executor to decide whether to use tools
+                full_response = ""
+                async for chunk in self.agent_executor.astream({"input": content}):
+                    if 'intermediate_steps' in chunk:
+                        for step in chunk['intermediate_steps']:
+                            if isinstance(step[0], AgentAction):
+                                await response_message.edit(content=f"{search_emoji} Using tool: {step[0].tool}")
                             else:
-                                await response_message.edit(content=full_response)
-                else:
-                    await response_message.edit(content=conversation_response)
-                    full_response = conversation_response
+                                await response_message.edit(content=f"{thinking_emoji} Thinking...")
+                    elif 'output' in chunk:
+                        full_response += chunk['output']
+                        if len(full_response) > 1900:
+                            await response_message.edit(content=full_response[:1900])
+                            response_message = await message.channel.send(full_response[1900:])
+                        else:
+                            await response_message.edit(content=full_response)
 
                 await self.update_user_conversation_history(message.author.id, content, full_response)
                 
@@ -691,12 +685,13 @@ class AIResponder(commands.Cog):
         
         custom_personality = await self.config.custom_personality()
         
-        memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        memory = ConversationBufferWindowMemory(k=2, memory_key="chat_history", return_messages=True)
         
         system_message = f"""You are an AI assistant with the following personality: {custom_personality}
         You are in a Discord server, responding to user messages.
         Respond naturally and conversationally, as if you're chatting with a friend.
-        Do not mention that you're an AI or that this is a prompt."""
+        Do not mention that you're an AI or that this is a prompt.
+        Only reference previous messages if they are directly relevant to the current query."""
         
         prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(system_message),
