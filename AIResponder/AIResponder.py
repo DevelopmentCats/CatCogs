@@ -256,6 +256,10 @@ class AIResponder(commands.Cog):
                         else:
                             await response_message.edit(content=full_response)
 
+                if not full_response:
+                    full_response = "I apologize, but I couldn't generate a proper response. Please try asking your question differently."
+                    await response_message.edit(content=full_response)
+
                 await self.update_user_conversation_history(message.author.id, content, full_response)
                 
             except Exception as e:
@@ -273,12 +277,14 @@ class AIResponder(commands.Cog):
                         thinking_steps.append(f"Thinking: {action.log}")
                 elif 'steps' in chunk:
                     for step in chunk['steps']:
-                        if step.action:
+                        if hasattr(step, 'action') and step.action:
                             thinking_steps.append(f"Action: {step.action.tool}")
-                        if step.observation:
+                        if hasattr(step, 'observation') and step.observation:
                             thinking_steps.append(f"Observation: {step.observation}")
                 elif 'output' in chunk:
                     full_response += chunk['output']
+                elif 'response' in chunk:
+                    full_response += chunk['response']
             elif isinstance(chunk, str):
                 full_response += chunk
 
