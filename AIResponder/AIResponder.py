@@ -27,8 +27,8 @@ from langchain.memory import ConversationBufferWindowMemory
 from langchain.schema import HumanMessage, AIMessage
 from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent
 from langchain.callbacks import AsyncIteratorCallbackHandler
-from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
-from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
+from langchain_community.utilities import DuckDuckGoSearchAPIWrapper
+from langchain_community.tools import DuckDuckGoSearchResults
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -101,11 +101,10 @@ class AIResponder(commands.Cog):
             Guidelines for using tools and knowledge:
             1. Use your built-in knowledge for general information, historical facts, and concepts that don't require up-to-date information.
             2. Use the web_search tool for current events, recent information, or specific details that might have changed since your training.
-            3. Use the wikipedia tool for in-depth information on specific topics, especially if you need to verify or expand on your existing knowledge.
-            4. Use the calculator tool for any mathematical operations to ensure accuracy.
-            5. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
-            6. Use the datetime tool when the current date or time is crucial to answering the question.
-            7. Use the server_info tool only when asked about specific details of the Discord server you're in.
+            3. Use the calculator tool for any mathematical operations to ensure accuracy.
+            4. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
+            5. Use the datetime tool when the current date or time is crucial to answering the question.
+            6. Use the server_info tool only when asked about specific details of the Discord server you're in.
 
             When using tools:
             1. Don't mention the tool usage in your response. Incorporate the information naturally as if it's part of your knowledge.
@@ -150,7 +149,6 @@ class AIResponder(commands.Cog):
         
         return [
             DuckDuckGoSearchResults(api_wrapper=ddg_search, name="web_search"),
-            WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(), name="wikipedia"),
             Tool(
                 name="calculator",
                 func=self.calculate,
@@ -679,11 +677,10 @@ class AIResponder(commands.Cog):
         Guidelines for using tools and knowledge:
         1. Use your built-in knowledge for general information, historical facts, and concepts that don't require up-to-date information.
         2. Use the web_search tool for current events, recent information, or specific details that might have changed since your training.
-        3. Use the wikipedia tool for in-depth information on specific topics, especially if you need to verify or expand on your existing knowledge.
-        4. Use the calculator tool for any mathematical operations to ensure accuracy.
-        5. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
-        6. Use the datetime tool when the current date or time is crucial to answering the question.
-        7. Use the server_info tool only when asked about specific details of the Discord server you're in.
+        3. Use the calculator tool for any mathematical operations to ensure accuracy.
+        4. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
+        5. Use the datetime tool when the current date or time is crucial to answering the question.
+        6. Use the server_info tool only when asked about specific details of the Discord server you're in.
 
         When using tools:
         1. Don't mention the tool usage in your response. Incorporate the information naturally as if it's part of your knowledge.
