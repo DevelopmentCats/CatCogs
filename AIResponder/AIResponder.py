@@ -207,7 +207,7 @@ class AIResponder(commands.Cog):
             RequestsGetTool(requests_wrapper=requests_wrapper, allow_dangerous_requests=True),
             Tool(
                 name="ddg_instant_answer",
-                func=self.get_ddg_instant_answer,
+                func=lambda query: asyncio.get_event_loop().run_until_complete(self.get_ddg_instant_answer(query)),
                 description="Useful for getting quick answers to simple questions. Input should be a straightforward question."
             ),
             wolfram,
@@ -246,27 +246,32 @@ class AIResponder(commands.Cog):
                     return
 
                 full_response = ""
+                current_tool = ""
+
                 async for chunk in self.agent_executor.astream({"input": content}):
                     if 'intermediate_steps' in chunk:
                         for step in chunk['intermediate_steps']:
-                            if isinstance(step[0], AgentAction):
-                                await response_message.edit(content=f"{search_emoji} Using tool: {step[0].tool}")
-                            else:
-                                await response_message.edit(content=f"{thinking_emoji} Thinking...")
+                            if isinstance(step[0], AgentAction) and step[0].tool != current_tool:
+                                current_tool = step[0].tool
+                                await response_message.edit(content=f"{search_emoji} Searching: {current_tool}")
                     elif 'output' in chunk:
-                        full_response += chunk['output']
-                        if len(full_response) > 1900:
-                            await response_message.edit(content=full_response[:1900])
-                            response_message = await message.channel.send(full_response[1900:])
-                        else:
-                            await response_message.edit(content=full_response)
+                        full_response = chunk['output']
+
+                # Split the response into chunks of 1900 characters or less
+                chunks = [full_response[i:i+1900] for i in range(0, len(full_response), 1900)]
+                
+                for i, chunk in enumerate(chunks):
+                    if i == 0:
+                        await response_message.edit(content=chunk)
+                    else:
+                        await message.channel.send(chunk)
 
                 await self.update_user_conversation_history(message.author.id, content, full_response)
                 
             except Exception as e:
-                error_message = f"An unexpected error occurred while processing your request: {str(e)}"
-                await self.log_error(error_message, e)
-                await message.channel.send(f"<@{message.author.id}> {error_message} Please try again later.")
+                error_message = "An unexpected error occurred while processing your request. Please try again later."
+                await self.log_error(str(e), e)
+                await message.channel.send(f"<@{message.author.id}> {error_message}")
 
     async def check_rate_limit(self, user_id: int) -> bool:
         if await self.bot.is_owner(discord.Object(id=user_id)):
@@ -772,7 +777,7 @@ class AIResponder(commands.Cog):
 
     async def get_ddg_instant_answer(self, query: str) -> str:
         ddg_search = DuckDuckGoSearchAPIWrapper(region="us-en")
-        results = ddg_search.run(query)
+        results = await ddg_search.run(query)
         
         if results.startswith("No good DuckDuckGo Search Result was found"):
             return "No instant answer found."
