@@ -18,6 +18,7 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from aiohttp import ClientError, ClientTimeout
+import sympy
 
 # Langchain imports
 from langchain_community.llms import Ollama
@@ -27,8 +28,12 @@ from langchain.memory import ConversationBufferWindowMemory
 from langchain.schema import HumanMessage, AIMessage
 from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent
 from langchain.callbacks import AsyncIteratorCallbackHandler
-from langchain_community.utilities import DuckDuckGoSearchAPIWrapper
-from langchain_community.tools import DuckDuckGoSearchResults
+from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
+from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
+from langchain_community.tools.python.tool import PythonAstREPLTool
+from langchain_community.tools.requests.tool import RequestsGetTool
+from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
+from langchain.tools import StructuredTool
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -91,11 +96,12 @@ class AIResponder(commands.Cog):
             
             custom_personality = await self.config.custom_personality()
             
-            memory = ConversationBufferWindowMemory(k=2, memory_key="chat_history", return_messages=True, output_key="output")
+            memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True, output_key="output")
             
             system_message = f"""You are an AI assistant with the following personality: {custom_personality}
             You are in a Discord server, responding to user messages.
             Respond naturally and conversationally, as if you're chatting with a friend.
+            Always maintain your assigned personality throughout the conversation.
             Do not mention that you're an AI or that this is a prompt.
 
             Guidelines for using tools and knowledge:
@@ -109,6 +115,11 @@ class AIResponder(commands.Cog):
             4. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
             5. Use the datetime tool when the current date or time is crucial to answering the question.
             6. Use the server_info tool only when asked about specific details of the Discord server you're in.
+            7. Use the ddg_instant_answer tool for quick answers to simple questions before resorting to a full web search.
+            8. Use the wikipedia tool for detailed information on specific topics.
+            9. Use the python_repl tool for executing Python code when necessary.
+            10. Use the requests_get tool for fetching web pages or API data.
+            11. Use the wolfram_alpha tool for complex calculations or scientific queries.
 
             When using tools:
             1. Don't mention the tool usage in your response. Incorporate the information naturally as if it's part of your knowledge.
@@ -116,7 +127,7 @@ class AIResponder(commands.Cog):
             3. Synthesize information from multiple sources when appropriate.
             4. If the tools don't provide relevant information, try refining your approach or admit if you don't have enough information to answer accurately.
 
-            Always strive to provide the most accurate, up-to-date, and helpful response possible."""
+            Always strive to provide the most accurate, up-to-date, and helpful response possible while maintaining your assigned personality."""
             
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessagePromptTemplate.from_template(system_message),
@@ -139,7 +150,9 @@ class AIResponder(commands.Cog):
                 agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
                 verbose=True,
                 memory=memory,
-                handle_parsing_errors=True
+                handle_parsing_errors=True,
+                max_iterations=5,
+                early_stopping_method="generate"
             )
         except ImportError as e:
             logging.error(f"Failed to set up Langchain components: {str(e)}")
@@ -150,7 +163,9 @@ class AIResponder(commands.Cog):
 
     def setup_tools(self):
         ddg_search = DuckDuckGoSearchAPIWrapper(region="us-en", max_results=10)
-        
+        wikipedia = WikipediaAPIWrapper()
+        wolfram = WolframAlphaQueryRun()
+
         return [
             Tool(
                 name="web_search",
@@ -176,7 +191,16 @@ class AIResponder(commands.Cog):
                 name="server_info",
                 func=self.get_server_info,
                 description="Useful for getting information about the current Discord server. Input should be a specific question about the server."
-            )
+            ),
+            WikipediaQueryRun(api_wrapper=wikipedia),
+            PythonAstREPLTool(),
+            RequestsGetTool(),
+            StructuredTool.from_function(
+                func=self.get_ddg_instant_answer,
+                name="ddg_instant_answer",
+                description="Useful for getting quick answers to simple questions. Input should be a straightforward question."
+            ),
+            WolframAlphaQueryRun(api_wrapper=wolfram),
         ]
 
     @commands.Cog.listener()
@@ -301,7 +325,7 @@ class AIResponder(commands.Cog):
 
     def calculate(self, expression: str) -> str:
         try:
-            result = eval(expression)
+            result = sympy.sympify(expression)
             return f"The result of {expression} is {result}"
         except Exception as e:
             return f"Error in calculation: {str(e)}"
@@ -674,11 +698,12 @@ class AIResponder(commands.Cog):
         
         custom_personality = await self.config.custom_personality()
         
-        memory = ConversationBufferWindowMemory(k=2, memory_key="chat_history", return_messages=True, output_key="output")
+        memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True, output_key="output")
         
         system_message = f"""You are an AI assistant with the following personality: {custom_personality}
         You are in a Discord server, responding to user messages.
         Respond naturally and conversationally, as if you're chatting with a friend.
+        Always maintain your assigned personality throughout the conversation.
         Do not mention that you're an AI or that this is a prompt.
 
         Guidelines for using tools and knowledge:
@@ -692,6 +717,11 @@ class AIResponder(commands.Cog):
         4. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
         5. Use the datetime tool when the current date or time is crucial to answering the question.
         6. Use the server_info tool only when asked about specific details of the Discord server you're in.
+        7. Use the ddg_instant_answer tool for quick answers to simple questions before resorting to a full web search.
+        8. Use the wikipedia tool for detailed information on specific topics.
+        9. Use the python_repl tool for executing Python code when necessary.
+        10. Use the requests_get tool for fetching web pages or API data.
+        11. Use the wolfram_alpha tool for complex calculations or scientific queries.
 
         When using tools:
         1. Don't mention the tool usage in your response. Incorporate the information naturally as if it's part of your knowledge.
@@ -699,7 +729,7 @@ class AIResponder(commands.Cog):
         3. Synthesize information from multiple sources when appropriate.
         4. If the tools don't provide relevant information, try refining your approach or admit if you don't have enough information to answer accurately.
 
-        Always strive to provide the most accurate, up-to-date, and helpful response possible."""
+        Always strive to provide the most accurate, up-to-date, and helpful response possible while maintaining your assigned personality."""
     
         prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(system_message),
@@ -722,8 +752,19 @@ class AIResponder(commands.Cog):
             agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
             verbose=True,
             memory=memory,
-            handle_parsing_errors=True
+            handle_parsing_errors=True,
+            max_iterations=5,
+            early_stopping_method="generate"
         )
+
+    async def get_ddg_instant_answer(self, query: str) -> str:
+        ddg_search = DuckDuckGoSearchAPIWrapper(region="us-en")
+        results = ddg_search.run(query)
+        
+        if results.startswith("No good DuckDuckGo Search Result was found"):
+            return "No instant answer found."
+        
+        return results
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
