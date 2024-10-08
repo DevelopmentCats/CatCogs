@@ -37,6 +37,7 @@ from langchain_community.tools.requests.tool import RequestsGetTool
 from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
 from langchain.tools import StructuredTool
 from langchain_community.utilities.wolfram_alpha import WolframAlphaAPIWrapper
+from langchain_community.utilities.requests import RequestsWrapper
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -172,6 +173,9 @@ class AIResponder(commands.Cog):
         wolfram_alpha_appid = "PGXTV3-YG77V94WKK"  # Your AppID
         wolfram = WolframAlphaQueryRun(api_wrapper=WolframAlphaAPIWrapper(wolfram_alpha_appid=wolfram_alpha_appid))
 
+        # Initialize RequestsWrapper
+        requests_wrapper = RequestsWrapper(headers={"User-Agent": "AIResponder Discord Bot"})
+
         return [
             Tool(
                 name="web_search",
@@ -200,7 +204,7 @@ class AIResponder(commands.Cog):
             ),
             WikipediaQueryRun(api_wrapper=wikipedia),
             PythonAstREPLTool(),
-            RequestsGetTool(requests_wrapper=requests.get, allow_dangerous_requests=True),
+            RequestsGetTool(requests_wrapper=requests_wrapper, allow_dangerous_requests=True),
             Tool(
                 name="ddg_instant_answer",
                 func=self.get_ddg_instant_answer,
