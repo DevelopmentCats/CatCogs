@@ -20,6 +20,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from aiohttp import ClientError, ClientTimeout
 import sympy
 import wolframalpha
+import requests
 
 # Langchain imports
 from langchain_community.llms import Ollama
@@ -199,7 +200,7 @@ class AIResponder(commands.Cog):
             ),
             WikipediaQueryRun(api_wrapper=wikipedia),
             PythonAstREPLTool(),
-            RequestsGetTool(allow_dangerous_requests=True),  # Allow dangerous requests
+            RequestsGetTool(requests_wrapper=requests.get, allow_dangerous_requests=True),
             Tool(
                 name="ddg_instant_answer",
                 func=self.get_ddg_instant_answer,
