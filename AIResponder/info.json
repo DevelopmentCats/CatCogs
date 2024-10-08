@@ -10,7 +10,16 @@
         "ai",
         "chat",
         "ollama",
-        "llm"
+        "llm",
+        "langchain",
+        "langchain-community",
+        "langchain-core",
+        "duckduckgo-search",
+        "wikipedia-api",
+        "python-repl",
+        "requests-get",
+        "wolfram-alpha",
+        "sympy"
     ],
     "requirements": [
         "aiohttp",
@@ -19,7 +28,12 @@
         "langchain",
         "langchain-community",
         "langchain-core",
-        "duckduckgo-search"
+        "duckduckgo-search",
+        "wikipedia-api",
+        "python-repl",
+        "requests-get",
+        "wolfram-alpha",
+        "sympy"
     ],
     "min_bot_version": "3.5.0",
     "hidden": false,
