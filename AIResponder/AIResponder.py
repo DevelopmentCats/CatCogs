@@ -35,6 +35,7 @@ from langchain_experimental.tools import PythonAstREPLTool
 from langchain_community.tools.requests.tool import RequestsGetTool
 from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
 from langchain.tools import StructuredTool
+from langchain_community.utilities.wolfram_alpha import WolframAlphaAPIWrapper
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -167,7 +168,7 @@ class AIResponder(commands.Cog):
         wikipedia = WikipediaAPIWrapper()
         
         # Initialize WolframAlpha client
-        wolfram_alpha_appid = "PGXTV3-YG77V94WKK"  # Replace with your actual AppID
+        wolfram_alpha_appid = "PGXTV3-YG77V94WKK"  # Your AppID
         wolfram = WolframAlphaQueryRun(api_wrapper=WolframAlphaAPIWrapper(wolfram_alpha_appid=wolfram_alpha_appid))
 
         return [
@@ -199,9 +200,9 @@ class AIResponder(commands.Cog):
             WikipediaQueryRun(api_wrapper=wikipedia),
             PythonAstREPLTool(),
             RequestsGetTool(),
-            StructuredTool.from_function(
-                func=self.get_ddg_instant_answer,
+            Tool(
                 name="ddg_instant_answer",
+                func=self.get_ddg_instant_answer,
                 description="Useful for getting quick answers to simple questions. Input should be a straightforward question."
             ),
             wolfram,
@@ -235,7 +236,10 @@ class AIResponder(commands.Cog):
                 search_emoji = "🔍"
                 response_message = await message.channel.send(f"{thinking_emoji} Thinking...")
 
-                # Always use the agent executor to decide whether to use tools
+                if self.agent_executor is None:
+                    await response_message.edit(content="I'm sorry, but I'm not fully initialized yet. Please try again in a moment.")
+                    return
+
                 full_response = ""
                 async for chunk in self.agent_executor.astream({"input": content}):
                     if 'intermediate_steps' in chunk:
