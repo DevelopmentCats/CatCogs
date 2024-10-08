@@ -31,7 +31,7 @@ from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent
 from langchain.callbacks import AsyncIteratorCallbackHandler
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
-from langchain_community.tools.python.tool import PythonREPLTool
+from langchain_community.tools.python.tool import PythonAstREPLTool
 from langchain_community.tools.requests.tool import RequestsGetTool
 from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
 from langchain.tools import StructuredTool
@@ -194,7 +194,7 @@ class AIResponder(commands.Cog):
                 description="Useful for getting information about the current Discord server. Input should be a specific question about the server."
             ),
             WikipediaQueryRun(api_wrapper=wikipedia),
-            PythonREPLTool(),
+            PythonAstREPLTool(),
             RequestsGetTool(),
             StructuredTool.from_function(
                 func=self.get_ddg_instant_answer,
