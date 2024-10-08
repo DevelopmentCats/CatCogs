@@ -111,10 +111,12 @@ class AIResponder(commands.Cog):
             Guidelines for using tools and knowledge:
             1. Use your built-in knowledge for general information, historical facts, and concepts that don't require up-to-date information.
             2. When using the web_search tool:
-               a. Craft specific and detailed search queries to get the most relevant results.
-               b. Include key details such as dates, full names, and specific context in your queries.
-               c. If the initial results are not satisfactory, try refining your search query with more specific terms.
-               d. Consider using multiple search queries to gather comprehensive information.
+               a. Don't simply search the user's query verbatim. Instead, analyze the query and formulate a more effective search that will yield relevant results.
+               b. For queries about current events or recent happenings, search for the most recent news or events first.
+               c. Break down complex queries into multiple, more specific searches if necessary.
+               d. Include key details such as dates, full names, and specific context in your queries.
+               e. If the initial results are not satisfactory, try refining your search query with more specific terms.
+               f. Consider using multiple search queries to gather comprehensive information.
             3. Use the calculator tool for any mathematical operations to ensure accuracy.
             4. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
             5. Use the datetime tool when the current date or time is crucial to answering the question.
@@ -130,6 +132,7 @@ class AIResponder(commands.Cog):
             2. Critically evaluate the relevance and reliability of the information obtained from tools.
             3. Synthesize information from multiple sources when appropriate.
             4. If the tools don't provide relevant information, try refining your approach or admit if you don't have enough information to answer accurately.
+            5. For creative tasks like writing songs or stories, use the search tools to gather inspiration or facts, then use your own creativity to produce the final output.
 
             Always strive to provide the most accurate, up-to-date, and helpful response possible while maintaining your assigned personality."""
             
@@ -207,7 +210,7 @@ class AIResponder(commands.Cog):
             RequestsGetTool(requests_wrapper=requests_wrapper, allow_dangerous_requests=True),
             Tool(
                 name="ddg_instant_answer",
-                func=lambda query: asyncio.get_event_loop().run_until_complete(self.get_ddg_instant_answer(query)),
+                func=self.get_ddg_instant_answer,
                 description="Useful for getting quick answers to simple questions. Input should be a straightforward question."
             ),
             wolfram,
@@ -727,10 +730,12 @@ class AIResponder(commands.Cog):
         Guidelines for using tools and knowledge:
         1. Use your built-in knowledge for general information, historical facts, and concepts that don't require up-to-date information.
         2. When using the web_search tool:
-           a. Craft specific and detailed search queries to get the most relevant results.
-           b. Include key details such as dates, full names, and specific context in your queries.
-           c. If the initial results are not satisfactory, try refining your search query with more specific terms.
-           d. Consider using multiple search queries to gather comprehensive information.
+           a. Don't simply search the user's query verbatim. Instead, analyze the query and formulate a more effective search that will yield relevant results.
+           b. For queries about current events or recent happenings, search for the most recent news or events first.
+           c. Break down complex queries into multiple, more specific searches if necessary.
+           d. Include key details such as dates, full names, and specific context in your queries.
+           e. If the initial results are not satisfactory, try refining your search query with more specific terms.
+           f. Consider using multiple search queries to gather comprehensive information.
         3. Use the calculator tool for any mathematical operations to ensure accuracy.
         4. Use the weather tool only when asked about current or forecasted weather conditions for a specific location.
         5. Use the datetime tool when the current date or time is crucial to answering the question.
@@ -746,6 +751,7 @@ class AIResponder(commands.Cog):
         2. Critically evaluate the relevance and reliability of the information obtained from tools.
         3. Synthesize information from multiple sources when appropriate.
         4. If the tools don't provide relevant information, try refining your approach or admit if you don't have enough information to answer accurately.
+        5. For creative tasks like writing songs or stories, use the search tools to gather inspiration or facts, then use your own creativity to produce the final output.
 
         Always strive to provide the most accurate, up-to-date, and helpful response possible while maintaining your assigned personality."""
         
@@ -775,9 +781,9 @@ class AIResponder(commands.Cog):
             early_stopping_method="generate"
         )
 
-    async def get_ddg_instant_answer(self, query: str) -> str:
+    def get_ddg_instant_answer(self, query: str) -> str:
         ddg_search = DuckDuckGoSearchAPIWrapper(region="us-en")
-        results = await ddg_search.run(query)
+        results = ddg_search.run(query)
         
         if results.startswith("No good DuckDuckGo Search Result was found"):
             return "No instant answer found."
