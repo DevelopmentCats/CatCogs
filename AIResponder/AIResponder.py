@@ -199,7 +199,7 @@ class AIResponder(commands.Cog):
             ),
             WikipediaQueryRun(api_wrapper=wikipedia),
             PythonAstREPLTool(),
-            RequestsGetTool(),
+            RequestsGetTool(allow_dangerous_requests=True),  # Allow dangerous requests
             Tool(
                 name="ddg_instant_answer",
                 func=self.get_ddg_instant_answer,
