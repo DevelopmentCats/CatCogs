@@ -210,7 +210,7 @@ class AIResponder(commands.Cog):
             RequestsGetTool(requests_wrapper=requests_wrapper, allow_dangerous_requests=True),
             Tool(
                 name="ddg_instant_answer",
-                func=self.get_ddg_instant_answer,
+                func=lambda query: asyncio.get_event_loop().run_until_complete(self.get_ddg_instant_answer(query)),
                 description="Useful for getting quick answers to simple questions. Input should be a straightforward question."
             ),
             wolfram,
@@ -781,14 +781,16 @@ class AIResponder(commands.Cog):
             early_stopping_method="generate"
         )
 
-    def get_ddg_instant_answer(self, query: str) -> str:
+    async def get_ddg_instant_answer(self, query: str) -> str:
         ddg_search = DuckDuckGoSearchAPIWrapper(region="us-en")
-        results = ddg_search.run(query)
-        
-        if results.startswith("No good DuckDuckGo Search Result was found"):
-            return "No instant answer found."
-        
-        return results
+        try:
+            results = await ddg_search.arun(query)
+            if results.startswith("No good DuckDuckGo Search Result was found"):
+                return "No instant answer found."
+            return results
+        except Exception as e:
+            logging.error(f"Error in get_ddg_instant_answer: {str(e)}")
+            return "An error occurred while searching for an answer."
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
