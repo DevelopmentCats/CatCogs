@@ -165,7 +165,10 @@ class AIResponder(commands.Cog):
     def setup_tools(self):
         ddg_search = DuckDuckGoSearchAPIWrapper(region="us-en", max_results=10)
         wikipedia = WikipediaAPIWrapper()
-        wolfram = WolframAlphaQueryRun()
+        
+        # Initialize WolframAlpha client
+        wolfram_alpha_appid = "PGXTV3-YG77V94WKK"  # Replace with your actual AppID
+        wolfram = WolframAlphaQueryRun(api_wrapper=WolframAlphaAPIWrapper(wolfram_alpha_appid=wolfram_alpha_appid))
 
         return [
             Tool(
@@ -201,7 +204,7 @@ class AIResponder(commands.Cog):
                 name="ddg_instant_answer",
                 description="Useful for getting quick answers to simple questions. Input should be a straightforward question."
             ),
-            WolframAlphaQueryRun(api_wrapper=wolfram),
+            wolfram,
         ]
 
     @commands.Cog.listener()
@@ -731,7 +734,7 @@ class AIResponder(commands.Cog):
         4. If the tools don't provide relevant information, try refining your approach or admit if you don't have enough information to answer accurately.
 
         Always strive to provide the most accurate, up-to-date, and helpful response possible while maintaining your assigned personality."""
-    
+        
         prompt = ChatPromptTemplate.from_messages([
             SystemMessagePromptTemplate.from_template(system_message),
             MessagesPlaceholder(variable_name="chat_history"),
