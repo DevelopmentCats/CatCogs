@@ -147,68 +147,69 @@ class AIResponder(commands.Cog):
 
         return tools
 
-    @commands.group()
-    @commands.is_owner()
-    async def aisetup(self, ctx: commands.Context):
-        """Configure the AIResponder cog."""
+    @commands.group(name="air")
+    @commands.guild_only()
+    @commands.admin_or_permissions(manage_guild=True)
+    async def air(self, ctx: commands.Context):
+        """Manage AIResponder settings."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @aisetup.command()
-    async def apikey(self, ctx: commands.Context, api_key: str):
+    @air.command(name="apikey")
+    @commands.is_owner()
+    async def set_api_key(self, ctx: commands.Context, api_key: str):
         """Set the DeepInfra API key."""
         await self.config.api_key.set(api_key)
         await ctx.send("API key has been set.")
 
-    @aisetup.command()
-    async def model(self, ctx: commands.Context, model: str):
+    @air.command(name="model")
+    @commands.is_owner()
+    async def set_model(self, ctx: commands.Context, model: str):
         """Set the model to use for AI responses."""
         await self.config.model.set(model)
         await ctx.send(f"Model has been set to {model}.")
 
-    @aisetup.command()
-    async def personality(self, ctx: commands.Context, *, personality: str):
+    @air.command(name="personality")
+    @commands.is_owner()
+    async def set_personality(self, ctx: commands.Context, *, personality: str):
         """Set the AI's personality."""
         await self.config.custom_personality.set(personality)
         await ctx.send("AI personality has been updated.")
 
-    @aisetup.command()
-    async def enablechannel(self, ctx: commands.Context, channel: discord.TextChannel):
-        """Enable the AI responder in a specific channel."""
-        async with self.config.enabled_channels() as channels:
-            if channel.id not in channels:
-                channels.append(channel.id)
-        await ctx.send(f"AI responder enabled in {channel.mention}.")
+    @air.command(name="disable")
+    async def disable_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+        """Disable AIResponder in a specific channel."""
+        channel = channel or ctx.channel
+        async with self.config.guild(ctx.guild).disabled_channels() as disabled:
+            if channel.id not in disabled:
+                disabled.append(channel.id)
+        await ctx.send(f"AIResponder disabled in {channel.mention}")
 
-    @aisetup.command()
-    async def disablechannel(self, ctx: commands.Context, channel: discord.TextChannel):
-        """Disable the AI responder in a specific channel."""
-        async with self.config.enabled_channels() as channels:
-            if channel.id in channels:
-                channels.remove(channel.id)
-        await ctx.send(f"AI responder disabled in {channel.mention}.")
+    @air.command(name="enable")
+    async def enable_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+        """Enable AIResponder in a specific channel."""
+        channel = channel or ctx.channel
+        async with self.config.guild(ctx.guild).disabled_channels() as disabled:
+            if channel.id in disabled:
+                disabled.remove(channel.id)
+        await ctx.send(f"AIResponder enabled in {channel.mention}")
 
-    @aisetup.command()
-    async def listchannels(self, ctx: commands.Context):
-        """List all channels where the AI responder is enabled."""
-        channels = await self.config.enabled_channels()
-        if not channels:
-            await ctx.send("AI responder is not enabled in any channels.")
+    @air.command(name="list")
+    async def list_channels(self, ctx: commands.Context):
+        """List all channels where AIResponder is disabled."""
+        disabled_channels = await self.config.guild(ctx.guild).disabled_channels()
+        if not disabled_channels:
+            await ctx.send("AIResponder is not disabled in any channels.")
         else:
-            channel_mentions = [ctx.guild.get_channel(ch_id).mention for ch_id in channels if ctx.guild.get_channel(ch_id)]
-            await ctx.send(f"AI responder is enabled in: {', '.join(channel_mentions)}")
+            channel_mentions = [ctx.guild.get_channel(ch_id).mention for ch_id in disabled_channels if ctx.guild.get_channel(ch_id)]
+            await ctx.send(f"AIResponder is disabled in: {', '.join(channel_mentions)}")
 
-    @aisetup.command()
-    async def wolframalpha(self, ctx: commands.Context, app_id: str):
+    @air.command(name="wolframalpha")
+    @commands.is_owner()
+    async def set_wolframalpha(self, ctx: commands.Context, app_id: str):
         """Set the Wolfram Alpha AppID."""
         await self.bot.set_shared_api_tokens("wolfram_alpha", app_id=app_id)
         await ctx.send("Wolfram Alpha AppID has been set.")
-
-    @aisetup.command()
-    async def duckduckgo(self, ctx: commands.Context, api_key: str):
-        """Set the DuckDuckGo API key."""
-        await self.bot.set_shared_api_tokens("duckduckgo", api_key=api_key)
-        await ctx.send("DuckDuckGo API key has been set.")
 
     async def update_langchain_components(self):
         try:
@@ -245,6 +246,7 @@ class AIResponder(commands.Cog):
                 max_iterations=5,
                 early_stopping_method="generate"
             )
+            self.logger.info("LangChain components updated successfully")
         except Exception as e:
             self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
             self.agent_executor = None
@@ -258,7 +260,9 @@ class AIResponder(commands.Cog):
             await message.channel.send("I'm not fully configured yet. Please ask the bot owner to set up the AIResponder cog.")
             return
 
-        if message.channel.id not in await self.config.enabled_channels():
+        # Check if the channel is in the disabled list
+        disabled_channels = await self.config.guild(message.guild).disabled_channels()
+        if message.channel.id in disabled_channels:
             return
 
         content = message.content.replace(f"<@{self.bot.user.id}>", "").strip()
