@@ -40,7 +40,7 @@ from langchain_community.utilities.requests import RequestsWrapper
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
 from langchain.llms.base import BaseLLM
-from langchain.schema import LLMResult, Generation
+from langchain.schema import LLMResult, Generation, AgentAction
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -292,17 +292,25 @@ class AIResponder(commands.Cog):
                     await response_message.edit(content="I'm sorry, but I'm not fully initialized yet. Please try again in a moment.")
                     return
 
+                print(f"Sending to agent: {content}")  # Debug print
+
                 full_response = ""
                 current_tool = ""
 
-                async for chunk in self.agent_executor.astream({"input": content}):
-                    if 'intermediate_steps' in chunk:
-                        for step in chunk['intermediate_steps']:
-                            if isinstance(step[0], AgentAction) and step[0].tool != current_tool:
-                                current_tool = step[0].tool
-                                await response_message.edit(content=f"{search_emoji} Searching: {current_tool}")
-                    elif 'output' in chunk:
-                        full_response = chunk['output']
+                try:
+                    async with asyncio.timeout(60):  # 60 seconds timeout
+                        async for chunk in self.agent_executor.astream({"input": content}):
+                            if 'intermediate_steps' in chunk:
+                                for step in chunk['intermediate_steps']:
+                                    if isinstance(step[0], AgentAction) and step[0].tool != current_tool:
+                                        current_tool = step[0].tool
+                                        await response_message.edit(content=f"{search_emoji} Searching: {current_tool}")
+                            elif 'output' in chunk:
+                                full_response = chunk['output']
+
+                except asyncio.TimeoutError:
+                    await response_message.edit(content="I'm sorry, but the request timed out. Please try again with a simpler query.")
+                    return
 
                 # Split the response into chunks of 1900 characters or less
                 chunks = [full_response[i:i+1900] for i in range(0, len(full_response), 1900)]
@@ -316,8 +324,8 @@ class AIResponder(commands.Cog):
                 await self.update_user_conversation_history(message.author.id, content, full_response)
                 
             except Exception as e:
-                error_message = "An unexpected error occurred while processing your request. Please try again later."
-                await self.log_error(str(e), e)
+                error_message = f"An error occurred: {type(e).__name__}: {str(e)}"
+                await self.log_error(f"Error in respond_to_mention: {error_message}", e)
                 await message.channel.send(f"<@{message.author.id}> {error_message}")
 
     async def check_rate_limit(self, user_id: int) -> bool:
