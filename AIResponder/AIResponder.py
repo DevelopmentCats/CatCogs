@@ -23,7 +23,6 @@ import wolframalpha
 import requests
 
 # Langchain imports
-from langchain_community.llms import Ollama
 from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferWindowMemory
@@ -38,6 +37,9 @@ from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
 from langchain.tools import StructuredTool
 from langchain_community.utilities.wolfram_alpha import WolframAlphaAPIWrapper
 from langchain_community.utilities.requests import RequestsWrapper
+from openai import OpenAI
+from openai.types.chat import ChatCompletion
+from langchain.llms.base import BaseLLM
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -47,8 +49,9 @@ class AIResponder(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         default_global = {
-            "api_url": "http://24.241.45.251:11434/",
-            "model": "llama3.2:latest",
+            "api_url": "https://api.deepinfra.com/v1/openai",
+            "api_key": "",  # We'll set this securely later
+            "model": "meta-llama/Llama-3.2-11B-Vision-Instruct",
             "max_tokens": 300,
             "enabled_channels": [],
             "custom_personality": "You are a helpful AI assistant.",
@@ -92,11 +95,36 @@ class AIResponder(commands.Cog):
     async def setup_langchain(self):
         try:
             api_url = await self.config.api_url()
+            api_key = await self.config.api_key()
             model = await self.config.model()
-            
-            base_url = api_url.rstrip('/')  # Remove trailing slash if present
-            logging.info(f"Setting up Ollama LLM with base_url: {base_url} and model: {model}")
-            self.llm = Ollama(base_url=base_url, model=model)
+
+            self.openai_client = OpenAI(
+                api_key=api_key,
+                base_url=api_url,
+            )
+
+            # Create a custom LLM class that uses the DeepInfra API
+            class DeepInfraLLM(BaseLLM):
+                def __init__(self, client, model):
+                    super().__init__()
+                    self.client = client
+                    self.model = model
+
+                def _call(self, prompt, stop=None):
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                    return response.choices[0].message.content
+
+                async def _acall(self, prompt, stop=None):
+                    response = await self.client.chat.completions.acreate(
+                        model=self.model,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                    return response.choices[0].message.content
+
+            self.llm = DeepInfraLLM(self.openai_client, model)
             
             custom_personality = await self.config.custom_personality()
             
@@ -148,7 +176,7 @@ class AIResponder(commands.Cog):
                 prompt=prompt,
                 verbose=True
             )
-            
+
             tools = self.setup_tools()
             
             self.agent_executor = initialize_agent(
@@ -161,9 +189,18 @@ class AIResponder(commands.Cog):
                 max_iterations=5,
                 early_stopping_method="generate"
             )
+
         except Exception as e:
             logging.error(f"Error in setup_langchain: {str(e)}")
             self.agent_executor = None
+
+    def create_llm_wrapper(self):
+        return lambda **kwargs: self.openai_client.chat.completions.create(
+            model=self.config.model(),
+            messages=kwargs.get('messages', []),
+            temperature=kwargs.get('temperature', 0.7),
+            max_tokens=kwargs.get('max_tokens', self.config.max_tokens()),
+        ).choices[0].message.content
 
     def setup_tools(self):
         ddg_search = DuckDuckGoSearchAPIWrapper(region="us-en", max_results=10)
@@ -579,28 +616,28 @@ class AIResponder(commands.Cog):
     @air_config.command(name="testapi")
     @commands.is_owner()
     async def air_testapi(self, ctx: commands.Context):
-        """Test the connection to the Ollama API."""
+        """Test the connection to the DeepInfra API."""
         try:
-            api_url = await self.config.api_url()
-            model = await self.config.model()
-            
-            full_url = f"{api_url.rstrip('/')}/api/generate"
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(full_url, json={
-                    "model": model,
-                    "prompt": "Hello, this is a test.",
-                    "stream": False,
-                }) as resp:
-                    if resp.status == 200:
-                        response_json = await resp.json()
-                        response = response_json.get('response', '')
-                        await ctx.send(f"API test successful. Response: {box(response.strip())}")
-                    else:
-                        error_text = await resp.text()
-                        await ctx.send(f"API test failed. Status: {resp.status}, Error: {error_text}")
+            response = self.openai_client.chat.completions.create(
+                model=await self.config.model(),
+                messages=[{"role": "user", "content": "Hello"}],
+            )
+            await ctx.send(f"API connection successful. Response: {response.choices[0].message.content}")
         except Exception as e:
-            await ctx.send(f"API test failed: {str(e)}")
+            error_message = f"API connection failed: {str(e)}"
+            await ctx.send(error_message)
+            await self.log_error(error_message, e)
+
+    @air_config.command(name="setapikey")
+    @commands.is_owner()
+    async def air_set_api_key(self, ctx: commands.Context, api_key: str):
+        """Set the API key for DeepInfra (use this in DMs only)."""
+        if not isinstance(ctx.channel, discord.DMChannel):
+            await ctx.send("Please use this command in a DM for security reasons.")
+            return
+        await self.config.api_key.set(api_key)
+        await ctx.send("API key has been set successfully.")
+        await self.setup_langchain()  # Reinitialize with the new API key
 
     @air_config.command(name="setpersonality")
     @commands.is_owner()
@@ -709,13 +746,17 @@ class AIResponder(commands.Cog):
 
     async def update_langchain_components(self):
         api_url = await self.config.api_url()
+        api_key = await self.config.api_key()
         model = await self.config.model()
         
-        base_url = api_url.rstrip('/')  # Remove trailing slash if present
-        self.llm = Ollama(base_url=base_url, model=model)
+        self.openai_client = OpenAI(
+            api_key=api_key,
+            base_url=api_url,
+        )
+        
+        self.llm = DeepInfraLLM(self.openai_client, model)
         
         custom_personality = await self.config.custom_personality()
-        
         memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True, output_key="output")
         
         system_message = f"""You are an AI assistant with the following personality: {custom_personality}
