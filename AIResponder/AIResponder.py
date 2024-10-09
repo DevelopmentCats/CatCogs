@@ -106,7 +106,7 @@ class AIResponder(commands.Cog):
             )
 
             # Requests Get
-            requests_get = RequestsGetTool()
+            requests_get = RequestsGetTool(allow_dangerous_requests=True)
             tools.append(
                 Tool(
                     name="Web Fetch",
@@ -248,10 +248,14 @@ class AIResponder(commands.Cog):
             tools = self.setup_tools()
             
             self.logger.info("Creating agent executor")
-            self.agent_executor = create_react_agent(
+            agent = create_react_agent(
                 llm=self.llm,
                 tools=tools,
                 prompt=prompt,
+            )
+            self.agent_executor = AgentExecutor.from_agent_and_tools(
+                agent=agent,
+                tools=tools,
                 memory=memory,
                 verbose=True,
                 max_iterations=5,
