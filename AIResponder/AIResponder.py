@@ -52,6 +52,7 @@ class AIResponder(commands.Cog):
             self.client = client
             self.model = model
 
+        @property
         def _llm_type(self) -> str:
             return "deepinfra"
 
