@@ -525,42 +525,26 @@ class AIResponder(commands.Cog):
     @air_config.command(name="setapiurl")
     @commands.is_owner()
     async def air_setapiurl(self, ctx: commands.Context, url: str):
-        """Set the Ollama API URL."""
+        """Set the API URL."""
         if not url.startswith(("http://", "https://")):
             await ctx.send("Invalid URL. Please provide a valid HTTP or HTTPS URL.")
             return
         await self.config.api_url.set(url)
         await self.update_langchain_components()
-        await ctx.send(f"Ollama API URL set to: {url}")
+        await ctx.send(f"API URL set to: {url}")
 
     @air_config.command(name="setmodel")
     @commands.is_owner()
     async def air_setmodel(self, ctx: commands.Context, model: str = None):
-        """Set the AI model to use or list available models."""
-        api_url = await self.config.api_url()
-        models_url = f"{api_url.rsplit('/', 2)[0]}/api/tags"
-        
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.get(models_url) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        available_models = [m['name'] for m in data['models']]
-                        
-                        if not model:
-                            await ctx.send(f"Available models: {', '.join(available_models)}")
-                            return
-                        
-                        if model in available_models:
-                            await self.config.model.set(model)
-                            await self.update_langchain_components()
-                            await ctx.send(f"AI model set to: {model}")
-                        else:
-                            await ctx.send(f"Model '{model}' not found. Available models: {', '.join(available_models)}")
-                    else:
-                        await ctx.send(f"Failed to fetch available models. Status: {resp.status}")
-            except Exception as e:
-                await ctx.send(f"Error fetching models: {str(e)}")
+        """Set the AI model to use."""
+        if not model:
+            current_model = await self.config.model()
+            await ctx.send(f"Current model: {current_model}\nTo set a new model, use: {ctx.prefix}air config setmodel <model_name>")
+            return
+
+        await self.config.model.set(model)
+        await self.update_langchain_components()
+        await ctx.send(f"AI model set to: {model}")
 
     @air_config.command(name="setmaxtokens")
     @commands.is_owner()
@@ -618,11 +602,12 @@ class AIResponder(commands.Cog):
     async def air_testapi(self, ctx: commands.Context):
         """Test the connection to the DeepInfra API."""
         try:
+            model = await self.config.model()
             response = self.openai_client.chat.completions.create(
-                model=await self.config.model(),
+                model=model,
                 messages=[{"role": "user", "content": "Hello"}],
             )
-            await ctx.send(f"API connection successful. Response: {response.choices[0].message.content}")
+            await ctx.send(f"API connection successful using model {model}. Response: {response.choices[0].message.content}")
         except Exception as e:
             error_message = f"API connection failed: {str(e)}"
             await ctx.send(error_message)
