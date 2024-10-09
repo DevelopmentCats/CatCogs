@@ -48,6 +48,9 @@ class DeepInfraLLM(BaseLLM):
             generations.append([Generation(text=response.choices[0].message.content)])
         return LLMResult(generations=generations)
 
+    def _generate(self, prompts: List[str], stop: Optional[List[str]] = None) -> LLMResult:
+        return asyncio.run(self._agenerate(prompts, stop))
+
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
