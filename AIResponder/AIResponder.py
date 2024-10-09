@@ -48,13 +48,11 @@ RETRY_DELAY = 2
 
 class AIResponder(commands.Cog):
     class DeepInfraLLM(BaseLLM):
-        client: Any
-        model: str
+        client: Any = Field(default=None)
+        model: str = Field(default=None)
 
-        def __init__(self, client: Any, model: str):
-            super().__init__()
-            self.client = client
-            self.model = model
+        class Config:
+            arbitrary_types_allowed = True
 
         @property
         def _llm_type(self) -> str:
@@ -757,10 +755,10 @@ class AIResponder(commands.Cog):
             base_url=api_url,
         )
         
-        self.llm = self.DeepInfraLLM(self.openai_client, model)
+        self.llm = self.DeepInfraLLM(client=self.openai_client, model=model)
         
         custom_personality = await self.config.custom_personality()
-        memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True, output_key="output")
+        memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
         
         system_message = f"""You are an AI assistant with the following personality: {custom_personality}
         You are in a Discord server, responding to user messages.
