@@ -3,7 +3,7 @@ import discord
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, pagify
-from typing import Dict, List, Tuple, Any, Union
+from typing import Dict, List, Tuple, Any, Union, Optional
 import asyncio
 from datetime import datetime, timedelta
 import json
@@ -39,12 +39,39 @@ from langchain_community.utilities.wolfram_alpha import WolframAlphaAPIWrapper
 from langchain_community.utilities.requests import RequestsWrapper
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
-from langchain.llms.base import BaseLLM
+from langchain.llms.base import BaseLLM, LLMResult
+from langchain.schema import Generation
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 
 class AIResponder(commands.Cog):
+    class DeepInfraLLM(BaseLLM):
+        def __init__(self, client, model):
+            super().__init__()
+            self.client = client
+            self.model = model
+
+        def _llm_type(self) -> str:
+            return "deepinfra"
+
+        def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response.choices[0].message.content
+
+        async def _acall(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+            response = await self.client.chat.completions.acreate(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response.choices[0].message.content
+
+        def _generate(self, prompts: List[str], stop: Optional[List[str]] = None) -> LLMResult:
+            return LLMResult(generations=[[Generation(text=self._call(prompt, stop))] for prompt in prompts])
+
     def __init__(self, bot: Red):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
@@ -103,28 +130,7 @@ class AIResponder(commands.Cog):
                 base_url=api_url,
             )
 
-            # Create a custom LLM class that uses the DeepInfra API
-            class DeepInfraLLM(BaseLLM):
-                def __init__(self, client, model):
-                    super().__init__()
-                    self.client = client
-                    self.model = model
-
-                def _call(self, prompt, stop=None):
-                    response = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[{"role": "user", "content": prompt}],
-                    )
-                    return response.choices[0].message.content
-
-                async def _acall(self, prompt, stop=None):
-                    response = await self.client.chat.completions.acreate(
-                        model=self.model,
-                        messages=[{"role": "user", "content": prompt}],
-                    )
-                    return response.choices[0].message.content
-
-            self.llm = DeepInfraLLM(self.openai_client, model)
+            self.llm = self.DeepInfraLLM(self.openai_client, model)
             
             custom_personality = await self.config.custom_personality()
             
@@ -607,7 +613,7 @@ class AIResponder(commands.Cog):
                 model=model,
                 messages=[{"role": "user", "content": "Hello"}],
             )
-            await ctx.send(f"API connection successful using model {model}. Response: {response.choices[0].message.content}")
+            await ctx.send(f"API connection successful. Response: {response.choices[0].message.content}")
         except Exception as e:
             error_message = f"API connection failed: {str(e)}"
             await ctx.send(error_message)
@@ -739,7 +745,7 @@ class AIResponder(commands.Cog):
             base_url=api_url,
         )
         
-        self.llm = DeepInfraLLM(self.openai_client, model)
+        self.llm = self.DeepInfraLLM(self.openai_client, model)
         
         custom_personality = await self.config.custom_personality()
         memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True, output_key="output")
