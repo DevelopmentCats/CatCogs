@@ -47,7 +47,10 @@ RETRY_DELAY = 2
 
 class AIResponder(commands.Cog):
     class DeepInfraLLM(BaseLLM):
-        def __init__(self, client, model):
+        client: Any
+        model: str
+
+        def __init__(self, client: Any, model: str):
             super().__init__()
             self.client = client
             self.model = model
