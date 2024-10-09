@@ -30,7 +30,7 @@ class DeepInfraLLM(BaseLLM):
     model: str
 
     def __init__(self, client: AsyncOpenAI, model: str):
-        super().__init__()
+        super().__init__(client=client, model=model)
         self.client = client
         self.model = model
 
