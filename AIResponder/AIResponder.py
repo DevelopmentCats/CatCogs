@@ -41,19 +41,18 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletion
 from langchain.llms.base import BaseLLM
 from langchain.schema import LLMResult, Generation, AgentAction
+from pydantic import Field
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 
 class AIResponder(commands.Cog):
     class DeepInfraLLM(BaseLLM):
-        client: Any
-        model: str
+        client: Any = Field(...)
+        model: str = Field(...)
 
-        def __init__(self, client: Any, model: str):
-            super().__init__()
-            self.client = client
-            self.model = model
+        class Config:
+            arbitrary_types_allowed = True
 
         @property
         def _llm_type(self) -> str:
