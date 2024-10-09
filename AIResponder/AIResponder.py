@@ -39,8 +39,8 @@ from langchain_community.utilities.wolfram_alpha import WolframAlphaAPIWrapper
 from langchain_community.utilities.requests import RequestsWrapper
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
-from langchain.llms.base import BaseLLM, LLMResult
-from langchain.schema import Generation
+from langchain.llms.base import BaseLLM
+from langchain.schema import LLMResult, Generation
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -70,7 +70,11 @@ class AIResponder(commands.Cog):
             return response.choices[0].message.content
 
         def _generate(self, prompts: List[str], stop: Optional[List[str]] = None) -> LLMResult:
-            return LLMResult(generations=[[Generation(text=self._call(prompt, stop))] for prompt in prompts])
+            generations = []
+            for prompt in prompts:
+                text = self._call(prompt, stop)
+                generations.append([Generation(text=text)])
+            return LLMResult(generations=generations)
 
     def __init__(self, bot: Red):
         self.bot = bot
