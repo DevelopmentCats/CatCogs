@@ -181,6 +181,8 @@ class AIResponder(commands.Cog):
         """Disable AIResponder in a specific channel."""
         channel = channel or ctx.channel
         async with self.config.guild(ctx.guild).disabled_channels() as disabled:
+            if disabled is None:
+                disabled = []
             if channel.id not in disabled:
                 disabled.append(channel.id)
         await ctx.send(f"AIResponder disabled in {channel.mention}")
@@ -190,6 +192,8 @@ class AIResponder(commands.Cog):
         """Enable AIResponder in a specific channel."""
         channel = channel or ctx.channel
         async with self.config.guild(ctx.guild).disabled_channels() as disabled:
+            if disabled is None:
+                disabled = []
             if channel.id in disabled:
                 disabled.remove(channel.id)
         await ctx.send(f"AIResponder enabled in {channel.mention}")
@@ -261,9 +265,13 @@ class AIResponder(commands.Cog):
             return
 
         # Check if the channel is in the disabled list
-        disabled_channels = await self.config.guild(message.guild).disabled_channels()
-        if message.channel.id in disabled_channels:
-            return
+        if message.guild:
+            disabled_channels = await self.config.guild(message.guild).disabled_channels()
+            if disabled_channels and message.channel.id in disabled_channels:
+                return
+        else:
+            # Handle DMs if needed
+            pass
 
         content = message.content.replace(f"<@{self.bot.user.id}>", "").strip()
         if not content:
