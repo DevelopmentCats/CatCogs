@@ -27,7 +27,7 @@ from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, H
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferWindowMemory
 from langchain.schema import HumanMessage, AIMessage
-from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent
+from langchain.agents import Tool, AgentExecutor, AgentType, initialize_agent, create_react_agent
 from langchain.callbacks import AsyncIteratorCallbackHandler
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
@@ -48,11 +48,11 @@ RETRY_DELAY = 2
 
 class AIResponder(commands.Cog):
     class DeepInfraLLM(BaseLLM):
-        client: Any = Field(default=None)
-        model: str = Field(default=None)
+        client: Any
+        model: str
 
-        def __init__(self, client: Any, model: str, **kwargs):
-            super().__init__(**kwargs)
+        def __init__(self, client: Any, model: str):
+            super().__init__()
             self.client = client
             self.model = model
 
@@ -185,22 +185,16 @@ class AIResponder(commands.Cog):
                 HumanMessagePromptTemplate.from_template("{input}")
             ])
             
-            self.conversation_chain = ConversationChain(
-                llm=self.llm,
-                memory=memory,
-                prompt=prompt,
-                verbose=True
-            )
-
+            self.conversation_chain = prompt | self.llm | memory
+            
             tools = self.setup_tools()
             
-            self.agent_executor = initialize_agent(
-                tools,
-                self.llm,
-                agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
-                verbose=True,
+            self.agent_executor = create_react_agent(
+                llm=self.llm,
+                tools=tools,
+                prompt=prompt,
                 memory=memory,
-                handle_parsing_errors=True,
+                verbose=True,
                 max_iterations=5,
                 early_stopping_method="generate"
             )
@@ -303,7 +297,7 @@ class AIResponder(commands.Cog):
                 current_tool = ""
 
                 try:
-                    async with asyncio.timeout(60):  # 60 seconds timeout
+                    async def process_stream():
                         async for chunk in self.agent_executor.astream({"input": content}):
                             if 'intermediate_steps' in chunk:
                                 for step in chunk['intermediate_steps']:
@@ -313,6 +307,7 @@ class AIResponder(commands.Cog):
                             elif 'output' in chunk:
                                 full_response = chunk['output']
 
+                    await asyncio.wait_for(process_stream(), timeout=60)
                 except asyncio.TimeoutError:
                     await response_message.edit(content="I'm sorry, but the request timed out. Please try again with a simpler query.")
                     return
@@ -807,22 +802,16 @@ class AIResponder(commands.Cog):
             HumanMessagePromptTemplate.from_template("{input}")
         ])
         
-        self.conversation_chain = ConversationChain(
-            llm=self.llm,
-            memory=memory,
-            prompt=prompt,
-            verbose=True
-        )
+        self.conversation_chain = prompt | self.llm | memory
         
         tools = self.setup_tools()
         
-        self.agent_executor = initialize_agent(
-            tools,
-            self.llm,
-            agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
-            verbose=True,
+        self.agent_executor = create_react_agent(
+            llm=self.llm,
+            tools=tools,
+            prompt=prompt,
             memory=memory,
-            handle_parsing_errors=True,
+            verbose=True,
             max_iterations=5,
             early_stopping_method="generate"
         )
