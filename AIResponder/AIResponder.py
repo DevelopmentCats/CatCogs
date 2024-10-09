@@ -217,10 +217,12 @@ class AIResponder(commands.Cog):
 
     async def update_langchain_components(self):
         try:
+            self.logger.info("Starting to update LangChain components")
             api_url = await self.config.api_url()
             api_key = await self.config.api_key()
             model = await self.config.model()
             
+            self.logger.info(f"Using API URL: {api_url}, Model: {model}")
             openai_client = AsyncOpenAI(api_key=api_key, base_url=api_url)
             self.llm = DeepInfraLLM(client=openai_client, model=model)
             
@@ -239,8 +241,10 @@ class AIResponder(commands.Cog):
                 HumanMessagePromptTemplate.from_template("{input}")
             ])
             
+            self.logger.info("Setting up tools")
             tools = self.setup_tools()
             
+            self.logger.info("Creating agent executor")
             self.agent_executor = create_react_agent(
                 llm=self.llm,
                 tools=tools,
@@ -305,6 +309,12 @@ class AIResponder(commands.Cog):
             for i in range(len(status_messages)):
                 await response_message.edit(content=status_messages[i])
                 await asyncio.sleep(1)  # Add a small delay between status updates
+            
+            if self.agent_executor is None:
+                self.logger.error("Agent executor is not initialized")
+                await self.update_langchain_components()  # Try to reinitialize
+                if self.agent_executor is None:
+                    return "I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
             
             result = await self.bot.loop.run_in_executor(None, self.agent_executor.run, content)
             return result
