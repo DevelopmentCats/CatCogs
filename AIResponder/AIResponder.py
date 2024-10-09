@@ -161,11 +161,8 @@ class AIResponder(commands.Cog):
                 max_iterations=5,
                 early_stopping_method="generate"
             )
-        except ImportError as e:
-            logging.error(f"Failed to set up Langchain components: {str(e)}")
-            self.agent_executor = None
         except Exception as e:
-            logging.error(f"An unexpected error occurred while setting up Langchain: {str(e)}")
+            logging.error(f"Error in setup_langchain: {str(e)}")
             self.agent_executor = None
 
     def setup_tools(self):
