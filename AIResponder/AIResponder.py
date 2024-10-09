@@ -302,11 +302,12 @@ class AIResponder(commands.Cog):
         ]
         
         try:
-            async for chunk in self.agent_executor.astream({"input": content}):
-                if 'intermediate_steps' in chunk:
-                    await response_message.edit(content=f"{status_messages[chunk['intermediate_steps'] % len(status_messages)]}")
-                elif 'output' in chunk:
-                    return chunk['output']
+            for i in range(len(status_messages)):
+                await response_message.edit(content=status_messages[i])
+                await asyncio.sleep(1)  # Add a small delay between status updates
+            
+            result = await self.bot.loop.run_in_executor(None, self.agent_executor.run, content)
+            return result
         except asyncio.TimeoutError:
             self.logger.error("Query processing timed out")
             return "I'm sorry, but it's taking me longer than expected to process your request. Could you try asking a simpler question?"
@@ -316,8 +317,6 @@ class AIResponder(commands.Cog):
         except Exception as e:
             self.logger.error(f"Unexpected error in agent execution: {str(e)}", exc_info=True)
             return "I encountered an unexpected error while processing your request. Please try again or contact the bot owner if the issue persists."
-        
-        return "I couldn't formulate a response. Please try again with a different question."
 
     async def is_configured(self) -> bool:
         api_key = await self.config.api_key()
