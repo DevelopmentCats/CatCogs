@@ -27,40 +27,47 @@ from langchain.callbacks.base import BaseCallbackHandler
 import random
 from langchain.agents.react.base import DocstoreExplorer
 from langchain.agents import create_react_agent
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import BaseMessage
+from langchain_core.outputs import ChatResult, ChatGeneration
 
-class DeepInfraLLM(BaseModel):
+class DeepInfraLLM(BaseChatModel):
     client: Any = Field(...)
     model: str = Field(...)
     
     class Config:
         arbitrary_types_allowed = True
     
+    @property
     def _llm_type(self) -> str:
         return "deepinfra"
 
-    async def _acall(
+    async def _agenerate(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[BaseMessage],
         stop: Optional[List[str]] = None,
-        run_manager: Optional[Any] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
-    ) -> str:
+    ) -> ChatResult:
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=messages,
+                messages=[{"role": m.type, "content": m.content} for m in messages],
                 stop=stop,
                 **kwargs
             )
-            return response.choices[0].message.content
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=response.choices[0].message.content))])
         except Exception as e:
             raise ValueError(f"Error calling DeepInfra API: {str(e)}")
 
-    def bind(self, **kwargs: Any) -> 'DeepInfraLLM':
-        return self.copy(update=kwargs)
-
-    def invoke(self, input: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Any:
-        return asyncio.run(self._acall([{"role": "user", "content": input["input"]}]))
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        return asyncio.run(self._agenerate(messages, stop, run_manager, **kwargs))
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -114,25 +121,11 @@ class AIResponder(commands.Cog):
 
         {{agent_scratchpad}}
         """
-        
-        prompt = PromptTemplate(
-            input_variables=["input", "tools", "tool_names", "agent_scratchpad"],
-            template=template,
-        )
 
-        agent = create_react_agent(
-            llm=self.llm,
-            tools=tools,
-            prompt=prompt,
-        )
-        self.agent_executor = AgentExecutor.from_agent_and_tools(
-            agent=agent,
-            tools=tools,
-            memory=memory,
-            verbose=True,
-            max_iterations=5,
-            handle_parsing_errors=True
-        )
+        prompt = PromptTemplate.from_template(template)
+
+        agent = create_react_agent(self.llm, tools, prompt)
+        self.agent_executor = AgentExecutor(agent=agent, tools=tools, memory=memory, verbose=True)
 
         await self.verify_api_settings()
 
