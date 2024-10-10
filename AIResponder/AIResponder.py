@@ -71,7 +71,7 @@ class AIResponder(commands.Cog):
     async def initialize(self):
         await self.update_langchain_components()
 
-    def setup_tools(self):
+    async def setup_tools(self):
         tools = []
 
         try:
@@ -117,7 +117,8 @@ class AIResponder(commands.Cog):
             )
 
             # Wolfram Alpha
-            wolfram_alpha_appid = self.bot.get_shared_api_tokens("wolfram_alpha").get("app_id")
+            wolfram_alpha_tokens = await self.bot.get_shared_api_tokens("wolfram_alpha")
+            wolfram_alpha_appid = wolfram_alpha_tokens.get("app_id")
             if wolfram_alpha_appid:
                 wolfram = WolframAlphaAPIWrapper(wolfram_alpha_appid=wolfram_alpha_appid)
                 tools.append(
@@ -257,7 +258,7 @@ class AIResponder(commands.Cog):
             )
             
             self.logger.info("Setting up tools")
-            tools = self.setup_tools()
+            tools = await self.setup_tools()
             
             self.logger.info("Creating agent executor")
             agent = create_react_agent(
@@ -335,8 +336,8 @@ class AIResponder(commands.Cog):
                 if self.agent_executor is None:
                     return "I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
             
-            result = await self.bot.loop.run_in_executor(None, self.agent_executor.run, content)
-            return result
+            result = await self.bot.loop.run_in_executor(None, self.agent_executor.invoke, {"input": content})
+            return result["output"]
         except asyncio.TimeoutError:
             self.logger.error("Query processing timed out")
             return "I'm sorry, but it's taking me longer than expected to process your request. Could you try asking a simpler question?"
