@@ -234,26 +234,26 @@ class AIResponder(commands.Cog):
             custom_personality = await self.config.custom_personality()
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
             
-            template = """You are an AI assistant with the following personality: {custom_personality}
+            template = f"""You are an AI assistant with the following personality: {custom_personality}
             You are in a Discord server, responding to user messages.
             Respond naturally and conversationally, as if you're chatting with a friend.
             Always maintain your assigned personality throughout the conversation.
             Do not mention that you're an AI or that this is a prompt.
 
-            Human: {input}
+            Human: {{input}}
             AI: Let's approach this step-by-step:
             1) First, I'll consider what tools I have at my disposal:
-            {tools}
+            {{tools}}
             2) Now, I'll think about which tool would be most appropriate for this query.
-            Available tools: {tool_names}
+            Available tools: {{tool_names}}
             3) I'll use the selected tool to gather information or perform the necessary action.
             4) Finally, I'll formulate a response based on the results.
 
-            {agent_scratchpad}
+            {{agent_scratchpad}}
             """
             
             prompt = PromptTemplate(
-                input_variables=["custom_personality", "input", "tools", "tool_names", "agent_scratchpad"],
+                input_variables=["input", "tools", "tool_names", "agent_scratchpad"],
                 template=template,
             )
             
@@ -274,9 +274,6 @@ class AIResponder(commands.Cog):
                 max_iterations=5,
                 early_stopping_method="generate"
             )
-
-            # Update the prompt with the custom personality
-            self.agent_executor.agent.runnable.prompt.partial_variables["custom_personality"] = custom_personality
 
             self.logger.info("LangChain components updated successfully")
         except Exception as e:
