@@ -17,7 +17,7 @@ from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_experimental.tools import PythonAstREPLTool
 from langchain_community.tools.requests.tool import RequestsGetTool
 from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
-from langchain.llms.base import BaseLLM
+from langchain.llms.base import BaseLLM, LLM
 from langchain.schema import LLMResult, Generation
 from langchain.tools import Tool
 from langchain_community.utilities import WolframAlphaAPIWrapper
@@ -26,10 +26,10 @@ import wolframalpha
 import os
 from pydantic import Field
 
-class DeepInfraLLM(BaseLLM):
-    client: AsyncOpenAI = Field(...)
-    model: str = Field(...)
-    logger: logging.Logger = Field(...)
+class DeepInfraLLM(LLM):
+    client: AsyncOpenAI
+    model: str
+    logger: logging.Logger
 
     def __init__(self, client: AsyncOpenAI, model: str, logger: logging.Logger):
         super().__init__()
@@ -41,32 +41,28 @@ class DeepInfraLLM(BaseLLM):
     def _llm_type(self) -> str:
         return "deepinfra"
 
-    async def _agenerate(self, prompts: List[str], stop: Optional[List[str]] = None) -> LLMResult:
-        generations = []
-        for prompt in prompts:
-            messages = [{"role": "user", "content": prompt}]
-            try:
-                response = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    stop=stop,
-                    temperature=0.7,
-                    max_tokens=1000,
-                    top_p=1,
-                    frequency_penalty=0,
-                    presence_penalty=0
-                )
-                generations.append([Generation(text=response.choices[0].message.content)])
-            except APIConnectionError as e:
-                self.logger.error(f"API Connection Error: {str(e)}")
-                generations.append([Generation(text="I'm sorry, but I'm having trouble connecting to my knowledge base. Please try again later.")])
-            except Exception as e:
-                self.logger.error(f"Unexpected error in API call: {str(e)}")
-                generations.append([Generation(text="I encountered an unexpected error. Please try again or contact the bot owner if the issue persists.")])
-        return LLMResult(generations=generations)
+    async def _acall(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                stop=stop,
+                temperature=0.7,
+                max_tokens=1000,
+                top_p=1,
+                frequency_penalty=0,
+                presence_penalty=0
+            )
+            return response.choices[0].message.content
+        except APIConnectionError as e:
+            self.logger.error(f"API Connection Error: {str(e)}")
+            return "I'm sorry, but I'm having trouble connecting to my knowledge base. Please try again later."
+        except Exception as e:
+            self.logger.error(f"Unexpected error in API call: {str(e)}")
+            return "I encountered an unexpected error. Please try again or contact the bot owner if the issue persists."
 
-    def _generate(self, prompts: List[str], stop: Optional[List[str]] = None) -> LLMResult:
-        return asyncio.run(self._agenerate(prompts, stop))
+    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+        return asyncio.run(self._acall(prompt, stop))
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
