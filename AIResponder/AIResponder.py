@@ -78,6 +78,7 @@ class AIResponder(commands.Cog):
         self.llm = None
         self.agent_executor = None
         self.logger = logging.getLogger("red.airesponder")
+        self.bot.loop.create_task(self.initialize())
 
     async def initialize(self):
         api_url = await self.config.api_url()
