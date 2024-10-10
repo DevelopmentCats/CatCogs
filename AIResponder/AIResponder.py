@@ -56,6 +56,12 @@ class DeepInfraLLM(BaseModel):
         except Exception as e:
             raise ValueError(f"Error calling DeepInfra API: {str(e)}")
 
+    def bind(self, **kwargs: Any) -> 'DeepInfraLLM':
+        return self.copy(update=kwargs)
+
+    def invoke(self, input: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Any:
+        return asyncio.run(self._acall([{"role": "user", "content": input["input"]}]))
+
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
