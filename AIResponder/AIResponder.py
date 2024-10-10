@@ -41,9 +41,11 @@ class DeepInfraLLM(BaseLLM):
     async def _agenerate(self, prompts: List[str], stop: Optional[List[str]] = None) -> LLMResult:
         generations = []
         for prompt in prompts:
+            messages = [{"role": "user", "content": prompt}]
             response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=messages,
+                stop=stop
             )
             generations.append([Generation(text=response.choices[0].message.content)])
         return LLMResult(generations=generations)
@@ -228,7 +230,10 @@ class AIResponder(commands.Cog):
             model = await self.config.model()
             
             self.logger.info(f"Using API URL: {api_url}, Model: {model}")
-            openai_client = AsyncOpenAI(api_key=api_key, base_url=api_url)
+            openai_client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=api_url,
+            )
             self.llm = DeepInfraLLM(client=openai_client, model=model)
             
             custom_personality = await self.config.custom_personality()
