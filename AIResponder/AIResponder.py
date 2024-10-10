@@ -10,9 +10,9 @@ from openai import AsyncOpenAI
 from langchain.schema import HumanMessage, AIMessage
 from langchain.agents import Tool, AgentExecutor, create_react_agent
 from langchain.memory import ConversationBufferWindowMemory
-from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
+from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder, PromptTemplate
 from langchain.tools import StructuredTool
-from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
+from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper, RequestsWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_experimental.tools import PythonAstREPLTool
 from langchain_community.tools.requests.tool import RequestsGetTool
@@ -106,7 +106,8 @@ class AIResponder(commands.Cog):
             )
 
             # Requests Get
-            requests_get = RequestsGetTool(allow_dangerous_requests=True)
+            requests_wrapper = RequestsWrapper(allow_dangerous_requests=True)
+            requests_get = RequestsGetTool(requests_wrapper=requests_wrapper)
             tools.append(
                 Tool(
                     name="Web Fetch",
@@ -232,17 +233,16 @@ class AIResponder(commands.Cog):
             custom_personality = await self.config.custom_personality()
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
             
-            system_message = f"""You are an AI assistant with the following personality: {custom_personality}
+            template = """You are an AI assistant with the following personality: {custom_personality}
             You are in a Discord server, responding to user messages.
             Respond naturally and conversationally, as if you're chatting with a friend.
             Always maintain your assigned personality throughout the conversation.
             Do not mention that you're an AI or that this is a prompt."""
             
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessagePromptTemplate.from_template(system_message),
-                MessagesPlaceholder(variable_name="chat_history"),
-                HumanMessagePromptTemplate.from_template("{input}")
-            ])
+            prompt = PromptTemplate(
+                input_variables=["custom_personality", "chat_history", "input"],
+                template=template,
+            )
             
             self.logger.info("Setting up tools")
             tools = self.setup_tools()
