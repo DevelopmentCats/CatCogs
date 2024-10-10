@@ -460,7 +460,8 @@ class AIResponder(commands.Cog):
             return False
         try:
             # Make a simple API call to verify the settings
-            test_response = await self.llm._acall(prompt="Test")
+            test_messages = [{"role": "user", "content": "Test"}]
+            test_response = await self.llm._acall(messages=test_messages)
             if test_response:
                 self.logger.info("API settings verified successfully")
                 return True
