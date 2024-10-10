@@ -29,8 +29,11 @@ from langchain.agents.react.base import DocstoreExplorer
 from langchain.agents import create_react_agent
 
 class DeepInfraLLM(BaseModel):
-    client: AsyncOpenAI = Field(...)
+    client: Any = Field(...)
     model: str = Field(...)
+    
+    class Config:
+        arbitrary_types_allowed = True
     
     def _llm_type(self) -> str:
         return "deepinfra"
@@ -39,7 +42,7 @@ class DeepInfraLLM(BaseModel):
         self,
         messages: List[Dict[str, str]],
         stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        run_manager: Optional[Any] = None,
         **kwargs: Any,
     ) -> str:
         try:
@@ -50,24 +53,8 @@ class DeepInfraLLM(BaseModel):
                 **kwargs
             )
             return response.choices[0].message.content
-        except APIConnectionError as e:
-            raise ValueError(f"Connection error with DeepInfra API: {str(e)}")
-        except APIError as e:
-            raise ValueError(f"API error from DeepInfra: {str(e)}")
-        except RateLimitError as e:
-            raise ValueError(f"Rate limit exceeded: {str(e)}")
         except Exception as e:
-            raise ValueError(f"Unexpected error calling DeepInfra API: {str(e)}")
-
-    def _call(
-        self,
-        prompt: str,
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> str:
-        messages = [{"role": "user", "content": prompt}]
-        return asyncio.run(self._acall(messages, stop, run_manager, **kwargs))
+            raise ValueError(f"Error calling DeepInfra API: {str(e)}")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
