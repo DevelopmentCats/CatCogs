@@ -292,7 +292,7 @@ class AIResponder(commands.Cog):
             Respond naturally and conversationally, as if you're chatting with a friend.
             Always maintain your assigned personality throughout the conversation.
             Do not mention that you're an AI or that this is a prompt.
-
+            Human: {{input}}
             When you receive a query:
             1) First, think about what you already know that could help answer the question.
             2) If you need more information or need to perform a calculation, consider which tools you have available:
