@@ -50,9 +50,22 @@ class DeepInfraLLM(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         try:
+            formatted_messages = []
+            for message in messages:
+                if message.type == "human":
+                    role = "user"
+                elif message.type == "ai":
+                    role = "assistant"
+                elif message.type == "system":
+                    role = "system"
+                else:
+                    raise ValueError(f"Unsupported message type: {message.type}")
+                
+                formatted_messages.append({"role": role, "content": message.content})
+
             response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": m.type, "content": m.content} for m in messages],
+                messages=formatted_messages,
                 stop=stop,
                 **kwargs
             )
@@ -486,8 +499,8 @@ class AIResponder(commands.Cog):
         try:
             # Make a simple API call to verify the settings
             test_messages = [{"role": "user", "content": "Test"}]
-            test_response = await self.llm._acall(messages=test_messages)
-            if test_response:
+            response = await self.llm._agenerate([HumanMessage(content="Test")])
+            if response:
                 self.logger.info("API settings verified successfully")
                 return True
         except Exception as e:
