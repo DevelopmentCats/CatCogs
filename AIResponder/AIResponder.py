@@ -21,6 +21,7 @@ from langchain.llms.base import LLM
 from langchain.schema import LLMResult, Generation
 from langchain.tools import Tool
 from langchain_community.utilities import WolframAlphaAPIWrapper
+from langchain.callbacks.manager import CallbackManagerForLLMRun
 from sympy import sympify, solve
 import wolframalpha
 import os
