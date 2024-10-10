@@ -106,7 +106,7 @@ class AIResponder(commands.Cog):
             )
 
             # Requests Get
-            requests_wrapper = RequestsWrapper(allow_dangerous_requests=True)
+            requests_wrapper = RequestsWrapper()
             requests_get = RequestsGetTool(requests_wrapper=requests_wrapper)
             tools.append(
                 Tool(
@@ -237,10 +237,21 @@ class AIResponder(commands.Cog):
             You are in a Discord server, responding to user messages.
             Respond naturally and conversationally, as if you're chatting with a friend.
             Always maintain your assigned personality throughout the conversation.
-            Do not mention that you're an AI or that this is a prompt."""
+            Do not mention that you're an AI or that this is a prompt.
+
+            Human: {input}
+            AI: Let's approach this step-by-step:
+            1) First, I'll consider what tools I have at my disposal:
+            {tools}
+            2) Now, I'll think about which tool would be most appropriate for this query.
+            3) I'll use the selected tool to gather information or perform the necessary action.
+            4) Finally, I'll formulate a response based on the results.
+
+            {agent_scratchpad}
+            """
             
             prompt = PromptTemplate(
-                input_variables=["custom_personality", "chat_history", "input"],
+                input_variables=["custom_personality", "input", "tools", "agent_scratchpad"],
                 template=template,
             )
             
