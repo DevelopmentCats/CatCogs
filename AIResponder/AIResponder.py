@@ -403,15 +403,6 @@ class AIResponder(commands.Cog):
             memory = self.agent_executor.memory
             chat_history = memory.chat_memory.messages if memory else []
 
-            # Prepare messages for the API call
-            messages = [{"role": "system", "content": await self.config.custom_personality()}]
-            for message in chat_history:
-                if isinstance(message, HumanMessage):
-                    messages.append({"role": "user", "content": message.content})
-                elif isinstance(message, AIMessage):
-                    messages.append({"role": "assistant", "content": message.content})
-            messages.append({"role": "user", "content": content})
-
             # Create a custom callback handler to log thoughts and tool usage
             class LoggingCallbackHandler(BaseCallbackHandler):
                 def __init__(self, response_message):
@@ -474,7 +465,13 @@ class AIResponder(commands.Cog):
 
         except ValueError as e:
             self.logger.error(f"Value error in agent execution: {str(e)}")
-            return f"I encountered an issue: {str(e)}. Could you rephrase your request?"
+            # If there's a parsing error, return the raw output
+            if "Could not parse LLM output" in str(e):
+                start = str(e).find('`') + 1
+                end = str(e).rfind('`')
+                if start > 0 and end > start:
+                    return str(e)[start:end]
+            return "I encountered an issue processing your request. Could you rephrase it?"
         except asyncio.TimeoutError:
             self.logger.error("Query processing timed out")
             return "I'm sorry, but it's taking me longer than expected to process your request. Could you try asking a simpler question?"
