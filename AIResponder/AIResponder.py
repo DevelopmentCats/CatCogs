@@ -8,32 +8,30 @@ import logging
 from datetime import datetime
 from openai import AsyncOpenAI, APIConnectionError, APIError, RateLimitError
 from langchain.schema import HumanMessage, AIMessage
-from langchain.agents import Tool, AgentExecutor, create_react_agent
+from langchain.agents import AgentExecutor
 from langchain.memory import ConversationBufferWindowMemory
-from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder, PromptTemplate
-from langchain.tools import StructuredTool
-from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper, RequestsWrapper
+from langchain.prompts import PromptTemplate
+from langchain.tools import Tool
+from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper, RequestsWrapper, WolframAlphaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_experimental.tools import PythonAstREPLTool
 from langchain_community.tools.requests.tool import RequestsGetTool
 from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
-from langchain.llms.base import LLM
-from langchain.schema import LLMResult, Generation
-from langchain.tools import Tool
-from langchain_community.utilities import WolframAlphaAPIWrapper
 from langchain.callbacks.manager import CallbackManagerForLLMRun
-from sympy import sympify, solve
+from langchain.schema import LLMResult
+from sympy import sympify
 import wolframalpha
 import os
-from pydantic import Field
+from pydantic import Field, BaseModel
 from langchain.callbacks.base import BaseCallbackHandler
 import random
+from langchain.agents.react.base import DocstoreExplorer
+from langchain.agents import create_react_agent
 
-class DeepInfraLLM(LLM):
+class DeepInfraLLM(BaseModel):
     client: AsyncOpenAI = Field(...)
     model: str = Field(...)
     
-    @property
     def _llm_type(self) -> str:
         return "deepinfra"
 
@@ -460,17 +458,20 @@ class AIResponder(commands.Cog):
             callback_handler = LoggingCallbackHandler(response_message)
 
             # Run the agent with the custom callback handler
-            response = await self.agent_executor.arun(
-                input=content,
+            response = await self.agent_executor.ainvoke(
+                {"input": content, "chat_history": chat_history},
                 callbacks=[callback_handler]
             )
+
+            # Extract the output from the response
+            output = response.get('output', "I couldn't generate a response. Please try again.")
 
             # Update memory with the new message pair
             if memory:
                 memory.chat_memory.add_user_message(content)
-                memory.chat_memory.add_ai_message(response)
+                memory.chat_memory.add_ai_message(output)
 
-            return response
+            return output
 
         except ValueError as e:
             self.logger.error(f"Value error in agent execution: {str(e)}")
