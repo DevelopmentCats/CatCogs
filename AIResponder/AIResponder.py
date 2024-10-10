@@ -6,7 +6,7 @@ from typing import Dict, List, Tuple, Any, Optional
 import asyncio
 import logging
 from datetime import datetime
-from openai import AsyncOpenAI, APIConnectionError
+from openai import AsyncOpenAI, APIConnectionError, APIError, RateLimitError
 from langchain.schema import HumanMessage, AIMessage
 from langchain.agents import Tool, AgentExecutor, create_react_agent
 from langchain.memory import ConversationBufferWindowMemory
@@ -43,15 +43,22 @@ class DeepInfraLLM(LLM):
         **kwargs: Any,
     ) -> str:
         try:
+            messages = [{"role": "user", "content": prompt}]
             response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=messages,
                 stop=stop,
                 **kwargs
             )
             return response.choices[0].message.content
+        except APIConnectionError as e:
+            raise ValueError(f"Connection error with DeepInfra API: {str(e)}")
+        except APIError as e:
+            raise ValueError(f"API error from DeepInfra: {str(e)}")
+        except RateLimitError as e:
+            raise ValueError(f"Rate limit exceeded: {str(e)}")
         except Exception as e:
-            raise ValueError(f"Error calling DeepInfra API: {str(e)}")
+            raise ValueError(f"Unexpected error calling DeepInfra API: {str(e)}")
 
     def _call(
         self,
@@ -119,6 +126,8 @@ class AIResponder(commands.Cog):
             max_iterations=5,
             handle_parsing_errors=True
         )
+
+        await self.verify_api_settings()
 
     async def setup_tools(self):
         tools = []
@@ -385,18 +394,38 @@ class AIResponder(commands.Cog):
             
             if self.agent_executor is None:
                 self.logger.error("Agent executor is not initialized")
-                await self.update_langchain_components()  # Try to reinitialize
+                await self.update_langchain_components()
                 if self.agent_executor is None:
                     return "I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
             
-            result = await self.bot.loop.run_in_executor(None, self.agent_executor.invoke, {"input": content})
-            return result["output"]
+            # Get conversation history
+            memory = self.agent_executor.memory
+            chat_history = memory.chat_memory.messages if memory else []
+            
+            # Prepare messages for the API call
+            messages = [{"role": "system", "content": await self.config.custom_personality()}]
+            for message in chat_history:
+                if isinstance(message, HumanMessage):
+                    messages.append({"role": "user", "content": message.content})
+                elif isinstance(message, AIMessage):
+                    messages.append({"role": "assistant", "content": message.content})
+            messages.append({"role": "user", "content": content})
+            
+            # Make the API call
+            response = await self.llm._acall(messages=messages)
+            
+            # Update memory with the new message pair
+            if memory:
+                memory.chat_memory.add_user_message(content)
+                memory.chat_memory.add_ai_message(response)
+            
+            return response
+        except ValueError as e:
+            self.logger.error(f"Value error in agent execution: {str(e)}")
+            return f"I encountered an issue: {str(e)}. Could you rephrase your request?"
         except asyncio.TimeoutError:
             self.logger.error("Query processing timed out")
             return "I'm sorry, but it's taking me longer than expected to process your request. Could you try asking a simpler question?"
-        except ValueError as e:
-            self.logger.error(f"Value error in agent execution: {str(e)}")
-            return "I encountered an issue understanding part of your request. Could you rephrase it?"
         except APIConnectionError as e:
             self.logger.error(f"API Connection Error: {str(e)}")
             return "I'm having trouble connecting to my knowledge base. Please try again later."
@@ -408,6 +437,22 @@ class AIResponder(commands.Cog):
         api_key = await self.config.api_key()
         model = await self.config.model()
         return bool(api_key and model)
+
+    async def verify_api_settings(self):
+        api_key = await self.config.api_key()
+        model = await self.config.model()
+        if not api_key or not model:
+            self.logger.error("API key or model not set")
+            return False
+        try:
+            # Make a simple API call to verify the settings
+            test_response = await self.llm._acall(prompt="Test")
+            if test_response:
+                self.logger.info("API settings verified successfully")
+                return True
+        except Exception as e:
+            self.logger.error(f"Error verifying API settings: {str(e)}")
+        return False
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
