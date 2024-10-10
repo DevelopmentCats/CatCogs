@@ -31,7 +31,7 @@ class DeepInfraLLM(BaseLLM):
     logger: logging.Logger
 
     def __init__(self, client: AsyncOpenAI, model: str, logger: logging.Logger):
-        super().__init__(client=client, model=model)
+        super().__init__()
         self.client = client
         self.model = model
         self.logger = logger
@@ -294,7 +294,7 @@ class AIResponder(commands.Cog):
                 early_stopping_method="generate",
                 handle_parsing_errors=True
             )
-
+            
             self.logger.info("LangChain components updated successfully")
         except Exception as e:
             self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
