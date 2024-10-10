@@ -26,6 +26,8 @@ from sympy import sympify, solve
 import wolframalpha
 import os
 from pydantic import Field
+from langchain.callbacks.base import BaseCallbackHandler
+import random
 
 class DeepInfraLLM(LLM):
     client: AsyncOpenAI = Field(...)
@@ -379,43 +381,31 @@ class AIResponder(commands.Cog):
             return
 
         async with message.channel.typing():
-            response_message = await message.channel.send("🤔 Pondering the depths of knowledge...")
+            response_message = await message.channel.send("🤔 Thinking...")
             
             try:
                 full_response = await self.process_query(content, response_message)
                 
-                for chunk in pagify(full_response, delims=["\n", " "], page_length=1900):
-                    await message.channel.send(chunk)
-                
-                await response_message.delete()
+                # Replace the status message with the final response
+                await response_message.edit(content=full_response)
             except Exception as e:
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
                 await response_message.edit(content="😵 Oops! My circuits got a bit tangled there. Can you try again?")
 
     async def process_query(self, content: str, response_message: discord.Message) -> str:
-        status_messages = [
-            "🔍 Diving into the sea of information...",
-            "🧠 Neurons firing at maximum capacity...",
-            "🌟 Consulting the cosmic database...",
-            "🔮 Peering into the crystal ball of knowledge...",
-            "🚀 Launching thought experiments...",
-        ]
-        
         try:
-            for i in range(len(status_messages)):
-                await response_message.edit(content=status_messages[i])
-                await asyncio.sleep(1)  # Add a small delay between status updates
-            
+            await response_message.edit(content="🤔 Thinking...")
+
             if self.agent_executor is None:
                 self.logger.error("Agent executor is not initialized")
                 await self.update_langchain_components()
                 if self.agent_executor is None:
                     return "I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
-            
+
             # Get conversation history
             memory = self.agent_executor.memory
             chat_history = memory.chat_memory.messages if memory else []
-            
+
             # Prepare messages for the API call
             messages = [{"role": "system", "content": await self.config.custom_personality()}]
             for message in chat_history:
@@ -424,16 +414,64 @@ class AIResponder(commands.Cog):
                 elif isinstance(message, AIMessage):
                     messages.append({"role": "assistant", "content": message.content})
             messages.append({"role": "user", "content": content})
-            
-            # Make the API call
-            response = await self.llm._acall(messages=messages)
-            
+
+            # Create a custom callback handler to log thoughts and tool usage
+            class LoggingCallbackHandler(BaseCallbackHandler):
+                def __init__(self, response_message):
+                    self.response_message = response_message
+                    self.thought_count = 1
+
+                async def on_llm_start(self, serialized, prompts, **kwargs):
+                    thinking_messages = [
+                        f"🧠 Thought {self.thought_count}: Pondering the mysteries of your query...",
+                        f"💡 Idea {self.thought_count}: A lightbulb moment is brewing!",
+                        f"🤔 Contemplation {self.thought_count}: Diving deep into the realm of possibilities...",
+                        f"🌟 Eureka {self.thought_count}: Channeling the spirit of great thinkers...",
+                        f"🔍 Investigation {self.thought_count}: Examining your question from all angles..."
+                    ]
+                    await self.response_message.edit(content=random.choice(thinking_messages))
+                    self.thought_count += 1
+
+                async def on_tool_start(self, serialized, input_str, **kwargs):
+                    tool_name = serialized["name"]
+                    tool_messages = [
+                        f"🔧 Tinkering with the {tool_name} gadget...",
+                        f"🚀 Launching the {tool_name} module into action!",
+                        f"🔬 Analyzing data with the {tool_name} tool...",
+                        f"🧰 Pulling out the {tool_name} from my toolbox...",
+                        f"⚡ Powering up the {tool_name} for some fact-finding..."
+                    ]
+                    await self.response_message.edit(content=random.choice(tool_messages))
+
+                async def on_tool_end(self, output, **kwargs):
+                    tool_end_messages = [
+                        "✅ Tool usage complete! Processing the juicy results...",
+                        "🎉 Data gathered! Time to make sense of it all...",
+                        "📊 Information acquired! Crunching the numbers...",
+                        "🧩 Pieces collected! Assembling the puzzle...",
+                        "🏁 Research phase complete! Formulating a response..."
+                    ]
+                    await self.response_message.edit(content=random.choice(tool_end_messages))
+
+                async def on_agent_action(self, action, **kwargs):
+                    await self.response_message.edit(content=f"🤖 Taking action: {action.tool}")
+
+            # Create the callback handler
+            callback_handler = LoggingCallbackHandler(response_message)
+
+            # Run the agent with the custom callback handler
+            response = await self.agent_executor.arun(
+                input=content,
+                callbacks=[callback_handler]
+            )
+
             # Update memory with the new message pair
             if memory:
                 memory.chat_memory.add_user_message(content)
                 memory.chat_memory.add_ai_message(response)
-            
+
             return response
+
         except ValueError as e:
             self.logger.error(f"Value error in agent execution: {str(e)}")
             return f"I encountered an issue: {str(e)}. Could you rephrase your request?"
