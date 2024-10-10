@@ -45,7 +45,12 @@ class DeepInfraLLM(BaseLLM):
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                stop=stop
+                stop=stop,
+                temperature=0.7,  # You can adjust this value
+                max_tokens=2000,  # Adjust as needed
+                top_p=1,
+                frequency_penalty=0,
+                presence_penalty=0
             )
             generations.append([Generation(text=response.choices[0].message.content)])
         return LLMResult(generations=generations)
@@ -277,7 +282,8 @@ class AIResponder(commands.Cog):
                 memory=memory,
                 verbose=True,
                 max_iterations=5,
-                early_stopping_method="generate"
+                early_stopping_method="generate",
+                handle_parsing_errors=True
             )
 
             self.logger.info("LangChain components updated successfully")
