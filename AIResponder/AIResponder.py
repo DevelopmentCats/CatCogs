@@ -107,7 +107,7 @@ class AIResponder(commands.Cog):
 
             # Requests Get
             requests_wrapper = RequestsWrapper()
-            requests_get = RequestsGetTool(requests_wrapper=requests_wrapper)
+            requests_get = RequestsGetTool(requests_wrapper=requests_wrapper, allow_dangerous_requests=True)
             tools.append(
                 Tool(
                     name="Web Fetch",
@@ -244,6 +244,7 @@ class AIResponder(commands.Cog):
             1) First, I'll consider what tools I have at my disposal:
             {tools}
             2) Now, I'll think about which tool would be most appropriate for this query.
+            Available tools: {tool_names}
             3) I'll use the selected tool to gather information or perform the necessary action.
             4) Finally, I'll formulate a response based on the results.
 
@@ -251,7 +252,7 @@ class AIResponder(commands.Cog):
             """
             
             prompt = PromptTemplate(
-                input_variables=["custom_personality", "input", "tools", "agent_scratchpad"],
+                input_variables=["custom_personality", "input", "tools", "tool_names", "agent_scratchpad"],
                 template=template,
             )
             
