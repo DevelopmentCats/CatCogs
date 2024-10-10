@@ -6,7 +6,7 @@ from typing import Dict, List, Tuple, Any, Optional
 import asyncio
 import logging
 from datetime import datetime
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIConnectionError
 from langchain.schema import HumanMessage, AIMessage
 from langchain.agents import Tool, AgentExecutor, create_react_agent
 from langchain.memory import ConversationBufferWindowMemory
@@ -42,17 +42,24 @@ class DeepInfraLLM(BaseLLM):
         generations = []
         for prompt in prompts:
             messages = [{"role": "user", "content": prompt}]
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                stop=stop,
-                temperature=0.7,  # You can adjust this value
-                max_tokens=2000,  # Adjust as needed
-                top_p=1,
-                frequency_penalty=0,
-                presence_penalty=0
-            )
-            generations.append([Generation(text=response.choices[0].message.content)])
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    stop=stop,
+                    temperature=0.7,
+                    max_tokens=1000,
+                    top_p=1,
+                    frequency_penalty=0,
+                    presence_penalty=0
+                )
+                generations.append([Generation(text=response.choices[0].message.content)])
+            except APIConnectionError as e:
+                self.logger.error(f"API Connection Error: {str(e)}")
+                generations.append([Generation(text="I'm sorry, but I'm having trouble connecting to my knowledge base. Please try again later.")])
+            except Exception as e:
+                self.logger.error(f"Unexpected error in API call: {str(e)}")
+                generations.append([Generation(text="I encountered an unexpected error. Please try again or contact the bot owner if the issue persists.")])
         return LLMResult(generations=generations)
 
     def _generate(self, prompts: List[str], stop: Optional[List[str]] = None) -> LLMResult:
@@ -356,6 +363,9 @@ class AIResponder(commands.Cog):
         except ValueError as e:
             self.logger.error(f"Value error in agent execution: {str(e)}")
             return "I encountered an issue understanding part of your request. Could you rephrase it?"
+        except APIConnectionError as e:
+            self.logger.error(f"API Connection Error: {str(e)}")
+            return "I'm having trouble connecting to my knowledge base. Please try again later."
         except Exception as e:
             self.logger.error(f"Unexpected error in agent execution: {str(e)}", exc_info=True)
             return "I encountered an unexpected error while processing your request. Please try again or contact the bot owner if the issue persists."
