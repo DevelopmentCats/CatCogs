@@ -275,8 +275,8 @@ class AIResponder(commands.Cog):
                 early_stopping_method="generate"
             )
 
-            # Add this line to include custom_personality in the agent's input
-            self.agent_executor.agent.llm_chain.prompt.partial_variables["custom_personality"] = custom_personality
+            # Update the prompt with the custom personality
+            self.agent_executor.agent.prompt.partial_variables["custom_personality"] = custom_personality
 
             self.logger.info("LangChain components updated successfully")
         except Exception as e:
