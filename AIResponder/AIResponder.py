@@ -276,7 +276,7 @@ class AIResponder(commands.Cog):
             )
 
             # Update the prompt with the custom personality
-            self.agent_executor.agent.prompt.partial_variables["custom_personality"] = custom_personality
+            self.agent_executor.agent.runnable.prompt.partial_variables["custom_personality"] = custom_personality
 
             self.logger.info("LangChain components updated successfully")
         except Exception as e:
