@@ -274,6 +274,10 @@ class AIResponder(commands.Cog):
                 max_iterations=5,
                 early_stopping_method="generate"
             )
+
+            # Add this line to include custom_personality in the agent's input
+            self.agent_executor.agent.llm_chain.prompt.partial_variables["custom_personality"] = custom_personality
+
             self.logger.info("LangChain components updated successfully")
         except Exception as e:
             self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
