@@ -32,7 +32,10 @@ class DeepInfraLLM(BaseLLM):
     logger: logging.Logger = Field(...)
 
     def __init__(self, client: AsyncOpenAI, model: str, logger: logging.Logger):
-        super().__init__(client=client, model=model, logger=logger)
+        super().__init__()
+        self.client = client
+        self.model = model
+        self.logger = logger
 
     @property
     def _llm_type(self) -> str:
@@ -289,7 +292,6 @@ class AIResponder(commands.Cog):
                 memory=memory,
                 verbose=True,
                 max_iterations=5,
-                early_stopping_method="generate",
                 handle_parsing_errors=True
             )
             
