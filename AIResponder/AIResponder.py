@@ -28,11 +28,13 @@ import os
 class DeepInfraLLM(BaseLLM):
     client: AsyncOpenAI
     model: str
+    logger: logging.Logger
 
-    def __init__(self, client: AsyncOpenAI, model: str):
+    def __init__(self, client: AsyncOpenAI, model: str, logger: logging.Logger):
         super().__init__(client=client, model=model)
         self.client = client
         self.model = model
+        self.logger = logger
 
     @property
     def _llm_type(self) -> str:
@@ -246,7 +248,7 @@ class AIResponder(commands.Cog):
                 api_key=api_key,
                 base_url=api_url,
             )
-            self.llm = DeepInfraLLM(client=openai_client, model=model)
+            self.llm = DeepInfraLLM(client=openai_client, model=model, logger=self.logger)
             
             custom_personality = await self.config.custom_personality()
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
