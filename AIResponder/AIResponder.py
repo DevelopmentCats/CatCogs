@@ -17,7 +17,7 @@ from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_experimental.tools import PythonAstREPLTool
 from langchain_community.tools.requests.tool import RequestsGetTool
 from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
-from langchain.llms.base import BaseLLM, LLM
+from langchain.llms.base import LLM
 from langchain.schema import LLMResult, Generation
 from langchain.tools import Tool
 from langchain_community.utilities import WolframAlphaAPIWrapper
@@ -27,42 +27,39 @@ import os
 from pydantic import Field
 
 class DeepInfraLLM(LLM):
-    client: AsyncOpenAI
-    model: str
-    logger: logging.Logger
-
-    def __init__(self, client: AsyncOpenAI, model: str, logger: logging.Logger):
-        super().__init__()
-        self.client = client
-        self.model = model
-        self.logger = logger
-
+    client: AsyncOpenAI = Field(...)
+    model: str = Field(...)
+    
     @property
     def _llm_type(self) -> str:
         return "deepinfra"
 
-    async def _acall(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+    async def _acall(
+        self,
+        prompt: str,
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> str:
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 stop=stop,
-                temperature=0.7,
-                max_tokens=1000,
-                top_p=1,
-                frequency_penalty=0,
-                presence_penalty=0
+                **kwargs
             )
             return response.choices[0].message.content
-        except APIConnectionError as e:
-            self.logger.error(f"API Connection Error: {str(e)}")
-            return "I'm sorry, but I'm having trouble connecting to my knowledge base. Please try again later."
         except Exception as e:
-            self.logger.error(f"Unexpected error in API call: {str(e)}")
-            return "I encountered an unexpected error. Please try again or contact the bot owner if the issue persists."
+            raise ValueError(f"Error calling DeepInfra API: {str(e)}")
 
-    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
-        return asyncio.run(self._acall(prompt, stop))
+    def _call(
+        self,
+        prompt: str,
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> str:
+        return asyncio.run(self._acall(prompt, stop, run_manager, **kwargs))
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -82,7 +79,44 @@ class AIResponder(commands.Cog):
         self.logger = logging.getLogger("red.airesponder")
 
     async def initialize(self):
-        await self.update_langchain_components()
+        api_url = await self.config.api_url()
+        api_key = await self.config.api_key()
+        model = await self.config.model()
+
+        openai_client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=api_url,
+        )
+
+        self.llm = DeepInfraLLM(client=openai_client, model=model)
+
+        # Set up tools and agent executor
+        tools = await self.setup_tools()
+        memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
+
+        custom_personality = await self.config.custom_personality()
+        prompt = ChatPromptTemplate.from_messages([
+            SystemMessagePromptTemplate.from_template(
+                f"You are an AI assistant with the following personality: {custom_personality}"
+                "You are in a Discord server, responding to user messages. "
+                "Respond naturally and conversationally, as if you're chatting with a friend. "
+                "Always maintain your assigned personality throughout the conversation. "
+                "Do not mention that you're an AI or that this is a prompt."
+            ),
+            MessagesPlaceholder(variable_name="chat_history"),
+            HumanMessagePromptTemplate.from_template("{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ])
+
+        agent = create_react_agent(self.llm, tools, prompt)
+        self.agent_executor = AgentExecutor.from_agent_and_tools(
+            agent=agent,
+            tools=tools,
+            memory=memory,
+            verbose=True,
+            max_iterations=5,
+            handle_parsing_errors=True
+        )
 
     async def setup_tools(self):
         tools = []
