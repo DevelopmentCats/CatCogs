@@ -220,14 +220,13 @@ class AIResponder(commands.Cog):
 
         self.logger.info("Setting up tools")
         tools = await self.setup_tools()
-
-        tool_names = ", ".join([tool.name for tool in tools])
+        tools_str = "\n".join([f"- {tool.name}: {tool.description}" for tool in tools])
 
         self.logger.info("Creating agent executor")
         agent = create_react_agent(
             llm=self.llm,
             tools=tools,
-            prompt=prompt
+            prompt=prompt.partial(tools=tools_str)
         )
 
         self.agent_executor = AgentExecutor.from_agent_and_tools(
@@ -467,14 +466,13 @@ class AIResponder(commands.Cog):
             
             self.logger.info("Setting up tools")
             tools = await self.setup_tools()
-            
-            tool_names = ", ".join([tool.name for tool in tools])
+            tools_str = "\n".join([f"- {tool.name}: {tool.description}" for tool in tools])
             
             self.logger.info("Creating agent executor")
             agent = create_react_agent(
                 llm=self.llm,
                 tools=tools,
-                prompt=prompt
+                prompt=prompt.partial(tools=tools_str)
             )
             self.agent_executor = AgentExecutor.from_agent_and_tools(
                 agent=agent,
