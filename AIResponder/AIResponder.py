@@ -7,181 +7,58 @@ import asyncio
 import logging
 from datetime import datetime
 from openai import AsyncOpenAI, APIConnectionError, APIError, RateLimitError
-from langchain.schema import HumanMessage, AIMessage
-from langchain_core.agents import AgentExecutor
-from langchain.memory import ConversationBufferWindowMemory
-from langchain_core.prompts import PromptTemplate
+
+# Updated LangChain V3 imports
+from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
 from langchain_core.tools import Tool
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.outputs import ChatResult, ChatGeneration
+from langchain.schema import LLMResult
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain.agents.format_scratchpad import format_to_openai_function_messages
+from langchain.agents.output_parsers import ReActSingleInputOutputParser
+from langchain.memory import ConversationBufferMemory
+from langchain.callbacks.manager import CallbackManagerForLLMRun
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper, WolframAlphaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
-from langchain_experimental.tools import PythonAstREPLTool
 from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
-from langchain.callbacks.manager import CallbackManagerForLLMRun
-from langchain.schema import LLMResult
+
+from langchain_experimental.tools import PythonAstREPLTool
+from langchain_community.llms.deepinfra import DeepInfra
+
 from sympy import sympify
 import wolframalpha
 import os
 from pydantic import Field, BaseModel
-from langchain.callbacks.base import BaseCallbackHandler
 import random
-from langchain.agents.react.base import DocstoreExplorer
-from langchain.agents import create_react_agent
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage
-from langchain_core.outputs import ChatResult, ChatGeneration
 import json
 
-class DeepInfraLLM(BaseChatModel):
-    client: Any = Field(...)
-    model: str = Field(...)
-    
-    class Config:
-        arbitrary_types_allowed = True
-    
-    @property
-    def _llm_type(self) -> str:
-        return "deepinfra"
-
-    async def _agenerate(
-        self,
-        messages: List[BaseMessage],
-        stop: Optional[Union[str, List[str]]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        try:
-            formatted_messages = []
-            for message in messages:
-                if message.type == "human":
-                    role = "user"
-                elif message.type == "ai":
-                    role = "assistant"
-                elif message.type == "system":
-                    role = "system"
-                else:
-                    raise ValueError(f"Unsupported message type: {message.type}")
-                
-                formatted_messages.append({"role": role, "content": message.content})
-
-            # Add default stopping parameters if not provided
-            if 'max_tokens' not in kwargs:
-                kwargs['max_tokens'] = 8000  # Adjust this value as needed
-            if 'temperature' not in kwargs:
-                kwargs['temperature'] = 0.7  # Adjust this value as needed
-            if 'top_p' not in kwargs:
-                kwargs['top_p'] = 0.9  # Adjust this value as needed
-
-            # Handle the stop parameter
-            if stop is not None:
-                if isinstance(stop, str):
-                    kwargs['stop'] = [stop]
-                elif isinstance(stop, list):
-                    kwargs['stop'] = stop[:16]  # Limit to 16 sequences
-                else:
-                    raise ValueError("Stop parameter must be a string or list of strings")
-
-            response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=formatted_messages,
-                **kwargs
-            )
-            
-            if not response.choices:
-                raise ValueError("No choices returned from DeepInfra API")
-            
-            choice = response.choices[0]
-            content = choice.message.content
-            if content is None:
-                raise ValueError("Empty content in response from DeepInfra API")
-            
-            # Create the ChatGeneration object with additional information
-            generation = ChatGeneration(
-                message=AIMessage(content=content),
-                generation_info={
-                    "finish_reason": choice.finish_reason,
-                    "index": choice.index,
-                }
-            )
-            
-            # Create the ChatResult object with usage information
-            return ChatResult(
-                generations=[generation],
-                llm_output={
-                    "token_usage": {
-                        "prompt_tokens": response.usage.prompt_tokens,
-                        "completion_tokens": response.usage.completion_tokens,
-                        "total_tokens": response.usage.total_tokens,
-                    },
-                    "model_name": response.model,
-                    "estimated_cost": response.usage.estimated_cost,
-                }
-            )
-        except Exception as e:
-            logging.error(f"Error calling DeepInfra API: {str(e)}")
-            raise ValueError(f"Error calling DeepInfra API: {str(e)}")
-
-    def _generate(
-        self,
-        messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        return asyncio.run(self._agenerate(messages, stop, run_manager, **kwargs))
-
-class LoggingCallbackHandler(BaseCallbackHandler):
-    def __init__(self, response_message, tool_dict):
-        self.response_message = response_message
-        self.thought_count = 1
-        self.tool_dict = tool_dict
-        self.current_content = ""
+class DiscordCallbackHandler(BaseCallbackHandler):
+    def __init__(self, discord_message):
+        self.discord_message = discord_message
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
-        thinking_messages = [
-            f"🧠 Thought {self.thought_count}: Pondering the mysteries of your query...",
-            f"💡 Idea {self.thought_count}: A lightbulb moment is brewing!",
-            f"🤔 Contemplation {self.thought_count}: Diving deep into the realm of possibilities...",
-            f"🌟 Eureka {self.thought_count}: Channeling the spirit of great thinkers...",
-            f"🔍 Investigation {self.thought_count}: Examining your question from all angles..."
-        ]
-        await self.response_message.edit(content=random.choice(thinking_messages))
-        self.thought_count += 1
+        await self.discord_message.edit(content="🤔 Thinking...")
 
-    async def on_llm_new_token(self, token: str, **kwargs):
-        self.current_content += token
-        if len(self.current_content) > 1500:  # Truncate if it gets too long
-            self.current_content = self.current_content[-1500:]
-        await self.response_message.edit(content=self.current_content)
+    async def on_llm_new_token(self, token, **kwargs):
+        current_content = self.discord_message.content
+        new_content = current_content + token
+        if len(new_content) > 2000:
+            new_content = new_content[-2000:]
+        await self.discord_message.edit(content=new_content)
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
-        tool_name = serialized["name"]
-        tool_description = self.tool_dict.get(tool_name, "Unknown tool")
-        tool_messages = [
-            f"🔧 Tinkering with the {tool_name} gadget...",
-            f"🚀 Launching the {tool_name} module into action!",
-            f"🔬 Analyzing data with the {tool_name} tool...",
-            f"🧰 Pulling out the {tool_name} from my toolbox...",
-            f"⚡ Powering up the {tool_name} for some fact-finding..."
-        ]
-        await self.response_message.edit(content=random.choice(tool_messages))
+        await self.discord_message.edit(content=f"🔧 Using tool: {serialized['name']}")
 
     async def on_tool_end(self, output, **kwargs):
-        tool_end_messages = [
-            "✅ Tool usage complete! Processing the juicy results...",
-            "🎉 Data gathered! Time to make sense of it all...",
-            "📊 Information acquired! Crunching the numbers...",
-            "🧩 Pieces collected! Assembling the puzzle...",
-            "🏁 Research phase complete! Formulating a response..."
-        ]
-        await self.response_message.edit(content=random.choice(tool_end_messages))
+        await self.discord_message.edit(content="✅ Tool used. Processing results...")
 
-    async def on_agent_action(self, action, **kwargs):
-        await self.response_message.edit(content=f"🤖 Taking action: {action.tool}")
-
-    async def on_llm_error(self, error: Union[Exception, KeyboardInterrupt], **kwargs: Any) -> None:
-        error_message = f"❌ Oops! I encountered an error: {str(error)}"
-        await self.response_message.edit(content=error_message)
-        logging.error(f"LLM Error: {str(error)}")
+    async def on_chain_end(self, outputs, **kwargs):
+        await self.discord_message.edit(content=outputs['output'][:2000])
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -206,12 +83,17 @@ class AIResponder(commands.Cog):
         api_key = await self.config.api_key()
         model = await self.config.model()
 
-        openai_client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=api_url,
+        self.llm = DeepInfra(
+            model_id=model,
+            deepinfra_api_key=api_key,
+            deepinfra_api_url=api_url
         )
-
-        self.llm = DeepInfraLLM(client=openai_client, model=model)
+        self.llm.model_kwargs = {
+            "temperature": 0.7,
+            "repetition_penalty": 1.2,
+            "max_new_tokens": 250,
+            "top_p": 0.9,
+        }
 
         # Set up tools and agent executor
         tools = await self.setup_tools()
@@ -276,21 +158,16 @@ class AIResponder(commands.Cog):
         {{agent_scratchpad}}
         """
 
-        prompt = PromptTemplate(
-            input_variables=["input", "agent_scratchpad", "tools", "tool_names"],
-            template=template
-        )
-
-        self.logger.info("Setting up tools")
-        tools = await self.setup_tools()
-        tools_str = "\n".join([f"- {tool.name}: {tool.description}" for tool in tools])
-        tool_names = ", ".join([tool.name for tool in tools])
-
         self.logger.info("Creating agent executor")
+        prompt = ChatPromptTemplate.from_messages([
+            SystemMessage(content=custom_personality),
+            HumanMessage(content=template)
+        ])
+
         agent = create_react_agent(
             llm=self.llm,
             tools=tools,
-            prompt=prompt.partial(tools=tools_str, tool_names=tool_names)
+            prompt=prompt
         )
 
         self.agent_executor = AgentExecutor(
@@ -300,7 +177,6 @@ class AIResponder(commands.Cog):
             verbose=True,
             max_iterations=10,
             handle_parsing_errors=True,
-            max_execution_time=120,
         )
 
         await self.verify_api_settings()
@@ -314,8 +190,8 @@ class AIResponder(commands.Cog):
             tools.append(
                 Tool(
                     name="DuckDuckGo Search",
-                    func=ddg_search.run,
-                    description="Useful for searching the internet for current information on various topics. Use only when the query requires up-to-date or external information not available in your knowledge base."
+                    func=DuckDuckGoSearchResults(api_wrapper=ddg_search).run,
+                    description="Useful for searching the internet for current information on various topics."
                 )
             )
 
@@ -324,7 +200,7 @@ class AIResponder(commands.Cog):
             tools.append(
                 Tool(
                     name="Wikipedia",
-                    func=wikipedia.run,
+                    func=WikipediaQueryRun(api_wrapper=wikipedia).run,
                     description="Useful for getting detailed information on a wide range of topics."
                 )
             )
@@ -399,6 +275,16 @@ class AIResponder(commands.Cog):
         await self.config.model.set(model)
         await ctx.send(f"Model has been set to {model}.")
 
+    @commands.command()
+    async def model_info(self, ctx: commands.Context):
+        """Display information about the current AI model."""
+        if not await self.is_configured():
+            await ctx.send("The AI responder is not configured yet.")
+            return
+    
+        model_info = await self.get_model_info()
+        await ctx.send(f"```json\n{model_info}\n```")
+
     @air.command(name="personality")
     @commands.is_owner()
     async def set_personality(self, ctx: commands.Context, *, personality: str):
@@ -453,11 +339,17 @@ class AIResponder(commands.Cog):
             model = await self.config.model()
             
             self.logger.info(f"Using API URL: {api_url}, Model: {model}")
-            openai_client = AsyncOpenAI(
-                api_key=api_key,
-                base_url=api_url,
+            self.llm = DeepInfra(
+                model_id=model,
+                deepinfra_api_key=api_key,
+                deepinfra_api_url=api_url
             )
-            self.llm = DeepInfraLLM(client=openai_client, model=model)
+            self.llm.model_kwargs = {
+                "temperature": 0.7,
+                "repetition_penalty": 1.2,
+                "max_new_tokens": 5000,
+                "top_p": 0.9,
+            }
             
             custom_personality = await self.config.custom_personality()
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
@@ -520,21 +412,21 @@ class AIResponder(commands.Cog):
             {{agent_scratchpad}}
             """
             
-            prompt = PromptTemplate(
-                input_variables=["input", "agent_scratchpad", "tools", "tool_names"],
-                template=template
-            )
-            
             self.logger.info("Setting up tools")
             tools = await self.setup_tools()
             tools_str = "\n".join([f"- {tool.name}: {tool.description}" for tool in tools])
             tool_names = ", ".join([tool.name for tool in tools])
             
             self.logger.info("Creating agent executor")
+            prompt = ChatPromptTemplate.from_messages([
+                SystemMessage(content=custom_personality),
+                HumanMessage(content=template)
+            ])
+
             agent = create_react_agent(
                 llm=self.llm,
                 tools=tools,
-                prompt=prompt.partial(tools=tools_str, tool_names=tool_names)
+                prompt=prompt
             )
             self.agent_executor = AgentExecutor(
                 agent=agent,
@@ -543,7 +435,6 @@ class AIResponder(commands.Cog):
                 verbose=True,
                 max_iterations=10,
                 handle_parsing_errors=True,
-                max_execution_time=120,
             )
             
             self.logger.info("LangChain components updated successfully")
@@ -600,11 +491,11 @@ class AIResponder(commands.Cog):
             chat_history = memory.chat_memory.messages if memory else []
 
             tool_dict = {tool.name: tool.description for tool in self.agent_executor.tools}
-            callback_handler = LoggingCallbackHandler(response_message, tool_dict)
+            callback_handler = DiscordCallbackHandler(response_message)
 
             self.logger.info(f"Invoking agent with input: {content}")
             
-            result = await self.agent_executor.ainvoke(
+            stream = self.agent_executor.astream(
                 {
                     "input": content,
                     "chat_history": chat_history
@@ -612,15 +503,19 @@ class AIResponder(commands.Cog):
                 config={"callbacks": [callback_handler]}
             )
 
-            final_response = result.get('output', "I'm sorry, but I couldn't generate a complete response. Could you try rephrasing your question?")
+            full_response = ""
+            async for chunk in stream:
+                if 'output' in chunk:
+                    full_response += chunk['output']
+                    await response_message.edit(content=full_response[:2000])  # Discord message limit
 
-            self.logger.info(f"Final response: {final_response}")
+            self.logger.info(f"Final response: {full_response}")
 
             if memory:
                 memory.chat_memory.add_user_message(content)
-                memory.chat_memory.add_ai_message(final_response)
+                memory.chat_memory.add_ai_message(full_response)
 
-            return final_response
+            return full_response
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
@@ -663,14 +558,25 @@ class AIResponder(commands.Cog):
             return False
         try:
             # Make a simple API call to verify the settings
-            test_messages = [{"role": "user", "content": "Test"}]
-            response = await self.llm._agenerate([HumanMessage(content="Test")])
+            response = await self.llm.agenerate(["Test"])
             if response:
                 self.logger.info("API settings verified successfully")
                 return True
         except Exception as e:
             self.logger.error(f"Error verifying API settings: {str(e)}")
         return False
+
+    async def stream_response(self, prompt: str):
+        response_parts = []
+        async for chunk in self.llm.astream(prompt):
+            response_parts.append(chunk)
+            yield chunk
+        return "".join(response_parts)
+
+    async def get_model_info(self):
+        model_id = self.llm.model_id
+        model_kwargs = self.llm.model_kwargs
+        return f"Current model: {model_id}\nModel parameters: {json.dumps(model_kwargs, indent=2)}"
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
