@@ -2,7 +2,7 @@ import discord
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, pagify
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any, Optional, Union
 import asyncio
 import logging
 from datetime import datetime
@@ -71,8 +71,12 @@ class DeepInfraLLM(BaseChatModel):
             )
             
             content = response.choices[0].message.content
+            if not content:
+                raise ValueError("Empty response from DeepInfra API")
+            
             return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
         except Exception as e:
+            logging.error(f"Error calling DeepInfra API: {str(e)}")
             raise ValueError(f"Error calling DeepInfra API: {str(e)}")
 
     def _generate(
@@ -125,6 +129,11 @@ class LoggingCallbackHandler(BaseCallbackHandler):
 
     async def on_agent_action(self, action, **kwargs):
         await self.response_message.edit(content=f"🤖 Taking action: {action.tool}")
+
+    async def on_llm_error(self, error: Union[Exception, KeyboardInterrupt], **kwargs: Any) -> None:
+        error_message = f"❌ Oops! I encountered an error: {str(error)}"
+        await self.response_message.edit(content=error_message)
+        logging.error(f"LLM Error: {str(error)}")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -531,17 +540,13 @@ class AIResponder(commands.Cog):
                 if self.agent_executor is None:
                     return "I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
 
-            # Get conversation history
             memory = self.agent_executor.memory
             chat_history = memory.chat_memory.messages if memory else []
 
-            # Create a dictionary of tool names and descriptions
             tool_dict = {tool.name: tool.description for tool in self.agent_executor.tools}
-
-            # Create the callback handler with the tool dictionary
             callback_handler = LoggingCallbackHandler(response_message, tool_dict)
 
-            # Run the agent with the custom callback handler
+            self.logger.info(f"Invoking agent with input: {content}")
             response = await self.agent_executor.ainvoke(
                 {
                     "input": content,
@@ -549,11 +554,10 @@ class AIResponder(commands.Cog):
                 },
                 callbacks=[callback_handler]
             )
+            self.logger.info(f"Agent response: {response}")
 
-            # Extract the output from the response
             output = response.get('output', "I couldn't generate a response. Please try again.")
 
-            # Update memory with the new message pair
             if memory:
                 memory.chat_memory.add_user_message(content)
                 memory.chat_memory.add_ai_message(output)
