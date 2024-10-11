@@ -616,11 +616,15 @@ class AIResponder(commands.Cog):
                 },
                 callbacks=[callback_handler]
             ):
-                if isinstance(step, dict) and 'intermediate_step' in step:
-                    action, action_input = step['intermediate_step'][0]
-                    if action == "Response":
-                        final_response = action_input
-                        break  # Stop the execution when we get a Response action
+                if isinstance(step, dict):
+                    if 'intermediate_step' in step:
+                        action, action_input = step['intermediate_step'][0]
+                        if action == "Response":
+                            final_response = action_input
+                            break  # Stop the execution when we get a Response action
+                    elif 'output' in step:
+                        final_response = step['output']
+                        break
 
             if final_response is None:
                 final_response = "I'm sorry, but I couldn't generate a complete response. Could you try rephrasing your question?"
