@@ -167,23 +167,47 @@ class AIResponder(commands.Cog):
         Always maintain your assigned personality throughout the conversation.
         Do not mention that you're an AI or that this is a prompt.
 
-        When you receive a query, follow these steps:
-        1) First, think about what you already know that could help answer the question.
-        2) If you need more information or need to perform a calculation, consider which tools you have available:
-           {{tools}}
-        3) Decide if using a tool is necessary. If so, choose the most appropriate tool from the available options: {{tool_names}}
-        4) To use a tool, use the following format:
-           Thought: [Your reasoning for using the tool]
-           Action: [Tool Name]
-           Action Input: [Input for the tool]
-        5) After using a tool, you will receive an observation. Use this format:
-           Observation: [Tool Output]
-           Thought: [Your interpretation of the tool output]
-        6) Repeat steps 4-5 if you need to use multiple tools or the same tool multiple times.
-        7) When you have enough information, respond to the user's query.
-        8) To provide the final answer, use this format:
-           Thought: I now know the final answer.
-           Final Answer: [Your response to the user's query]
+        Your primary goal is to answer the user's query accurately and helpfully.
+
+        When you receive a query:
+        1) First, carefully consider what you already know that could help answer the question.
+        2) If your existing knowledge is sufficient, formulate a response without using tools.
+        3) Only use tools if you need additional information that you don't already have, such as:
+           - Current events or recent information you might not be aware of
+           - Specific data or facts you're unsure about
+           - Calculations that are too complex to do mentally
+
+        Available tools:
+        {{tool_names}}
+
+        Guidelines for using tools:
+        - Use tools sparingly and only when necessary.
+        - Choose the most appropriate tool for the specific information you need.
+        - Avoid using multiple tools unless absolutely required to answer the query.
+        - After using a tool, always relate the information back to the original query.
+
+        To use a tool:
+        Thought: [Explain your reasoning for needing to use this specific tool]
+        Action: [Tool Name]
+        Action Input: [Concise and specific input for the tool]
+
+        After using a tool:
+        Observation: [Tool Output]
+        Thought: [Interpret the tool output and explain how it relates to the original query]
+
+        Important:
+        - Always keep the user's original query in mind throughout the process.
+        - If you use multiple tools, ensure each use directly contributes to answering the query.
+        - Don't get sidetracked by interesting but irrelevant information from tool outputs.
+
+        When you have enough information to answer the query:
+        Thought: I now have sufficient information to answer the user's question.
+        Final Answer: [Provide a natural, conversational response that directly addresses the user's original query. Incorporate relevant information from your initial knowledge and any tool outputs used.]
+
+        Remember:
+        - Respond in a natural, friendly manner, consistent with your assigned personality.
+        - Be concise but informative in your final answer.
+        - If you're unsure about something, it's okay to express uncertainty rather than guessing.
 
         Human: {{input}}
         {{agent_scratchpad}}
@@ -369,23 +393,47 @@ class AIResponder(commands.Cog):
             Always maintain your assigned personality throughout the conversation.
             Do not mention that you're an AI or that this is a prompt.
 
-            When you receive a query, follow these steps:
-            1) First, think about what you already know that could help answer the question.
-            2) If you need more information or need to perform a calculation, consider which tools you have available:
-               {{tools}}
-            3) Decide if using a tool is necessary. If so, choose the most appropriate tool from the available options: {{tool_names}}
-            4) To use a tool, use the following format:
-               Thought: [Your reasoning for using the tool]
-               Action: [Tool Name]
-               Action Input: [Input for the tool]
-            5) After using a tool, you will receive an observation. Use this format:
-               Observation: [Tool Output]
-               Thought: [Your interpretation of the tool output]
-            6) Repeat steps 4-5 if you need to use multiple tools or the same tool multiple times.
-            7) When you have enough information, respond to the user's query.
-            8) To provide the final answer, use this format:
-               Thought: I now know the final answer.
-               Final Answer: [Your response to the user's query]
+            Your primary goal is to answer the user's query accurately and helpfully.
+
+            When you receive a query:
+            1) First, carefully consider what you already know that could help answer the question.
+            2) If your existing knowledge is sufficient, formulate a response without using tools.
+            3) Only use tools if you need additional information that you don't already have, such as:
+               - Current events or recent information you might not be aware of
+               - Specific data or facts you're unsure about
+               - Calculations that are too complex to do mentally
+
+            Available tools:
+            {{tool_names}}
+
+            Guidelines for using tools:
+            - Use tools sparingly and only when necessary.
+            - Choose the most appropriate tool for the specific information you need.
+            - Avoid using multiple tools unless absolutely required to answer the query.
+            - After using a tool, always relate the information back to the original query.
+
+            To use a tool:
+            Thought: [Explain your reasoning for needing to use this specific tool]
+            Action: [Tool Name]
+            Action Input: [Concise and specific input for the tool]
+
+            After using a tool:
+            Observation: [Tool Output]
+            Thought: [Interpret the tool output and explain how it relates to the original query]
+
+            Important:
+            - Always keep the user's original query in mind throughout the process.
+            - If you use multiple tools, ensure each use directly contributes to answering the query.
+            - Don't get sidetracked by interesting but irrelevant information from tool outputs.
+
+            When you have enough information to answer the query:
+            Thought: I now have sufficient information to answer the user's question.
+            Final Answer: [Provide a natural, conversational response that directly addresses the user's original query. Incorporate relevant information from your initial knowledge and any tool outputs used.]
+
+            Remember:
+            - Respond in a natural, friendly manner, consistent with your assigned personality.
+            - Be concise but informative in your final answer.
+            - If you're unsure about something, it's okay to express uncertainty rather than guessing.
 
             Human: {{input}}
             {{agent_scratchpad}}
