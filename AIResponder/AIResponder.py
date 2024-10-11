@@ -183,8 +183,8 @@ class AIResponder(commands.Cog):
 
         When responding to the user's message:
         1) First, carefully consider what you already know that could help answer the question or address the user's input.
-        2) If your existing knowledge is sufficient, formulate a response without using tools.
-        3) Only use tools if you need additional information that you don't already have.
+        2) If your existing knowledge is sufficient, formulate a response WITHOUT using any tools.
+        3) Only use tools if you absolutely need additional, specific information that you don't already have.
 
         Available tools:
         {{tools}}
@@ -192,24 +192,25 @@ class AIResponder(commands.Cog):
         Tool names: {{tool_names}}
 
         Guidelines for using tools:
-        - Use tools sparingly and only when necessary to address the user's specific input.
+        - Use tools ONLY when absolutely necessary to address the user's specific input.
         - Choose the most appropriate tool for the specific information you need.
         - Avoid using multiple tools unless absolutely required to answer the query.
         - After using a tool, always relate the information back to the user's original message.
 
         To use a tool, ALWAYS use this exact format:
-        Thought: [Your reasoning for using the tool]
+        Thought: [Your detailed reasoning for why this specific tool is necessary]
         Action: [Tool Name]
-        Action Input: [Specific input for the tool]
+        Action Input: [Specific, concise input for the tool]
 
         After using a tool:
         Observation: [Tool Output]
-        Thought: [Interpret the tool output and relate it to the user's message]
+        Thought: [Interpret the tool output and relate it directly to the user's message]
 
         Important:
         - Always keep the user's original message in mind throughout the process.
         - Stay focused on addressing the specific input provided by the user.
         - Don't get sidetracked by interesting but irrelevant information from tool outputs.
+        - If you can answer without tools, do so immediately without mentioning tools.
 
         When you have enough information to respond:
         Thought: I now have sufficient information to address the user's message.
@@ -248,8 +249,9 @@ class AIResponder(commands.Cog):
             tools=tools,
             memory=memory,
             verbose=True,
-            max_iterations=5,
-            handle_parsing_errors=True
+            max_iterations=6,  
+            handle_parsing_errors=True,
+            early_stopping_method="generate",  # Stop earlier if a good response is generated
         )
 
         await self.verify_api_settings()
@@ -264,7 +266,7 @@ class AIResponder(commands.Cog):
                 Tool(
                     name="DuckDuckGo Search",
                     func=ddg_search.run,
-                    description="Useful for searching the internet for current information on various topics."
+                    description="Useful for searching the internet for current information on various topics. Use only when the query requires up-to-date or external information not available in your knowledge base."
                 )
             )
 
@@ -424,8 +426,8 @@ class AIResponder(commands.Cog):
 
             When responding to the user's message:
             1) First, carefully consider what you already know that could help answer the question or address the user's input.
-            2) If your existing knowledge is sufficient, formulate a response without using tools.
-            3) Only use tools if you need additional information that you don't already have.
+            2) If your existing knowledge is sufficient, formulate a response WITHOUT using any tools.
+            3) Only use tools if you absolutely need additional, specific information that you don't already have.
 
             Available tools:
             {{tools}}
@@ -433,24 +435,25 @@ class AIResponder(commands.Cog):
             Tool names: {{tool_names}}
 
             Guidelines for using tools:
-            - Use tools sparingly and only when necessary to address the user's specific input.
+            - Use tools ONLY when absolutely necessary to address the user's specific input.
             - Choose the most appropriate tool for the specific information you need.
             - Avoid using multiple tools unless absolutely required to answer the query.
             - After using a tool, always relate the information back to the user's original message.
 
             To use a tool, ALWAYS use this exact format:
-            Thought: [Your reasoning for using the tool]
+            Thought: [Your detailed reasoning for why this specific tool is necessary]
             Action: [Tool Name]
-            Action Input: [Specific input for the tool]
+            Action Input: [Specific, concise input for the tool]
 
             After using a tool:
             Observation: [Tool Output]
-            Thought: [Interpret the tool output and relate it to the user's message]
+            Thought: [Interpret the tool output and relate it directly to the user's message]
 
             Important:
             - Always keep the user's original message in mind throughout the process.
             - Stay focused on addressing the specific input provided by the user.
             - Don't get sidetracked by interesting but irrelevant information from tool outputs.
+            - If you can answer without tools, do so immediately without mentioning tools.
 
             When you have enough information to respond:
             Thought: I now have sufficient information to address the user's message.
@@ -488,8 +491,9 @@ class AIResponder(commands.Cog):
                 tools=tools,
                 memory=memory,
                 verbose=True,
-                max_iterations=5,
-                handle_parsing_errors=True
+                max_iterations=6,
+                handle_parsing_errors=True,
+                early_stopping_method="generate",  # Stop earlier if a good response is generated
             )
             
             self.logger.info("LangChain components updated successfully")
