@@ -213,15 +213,15 @@ class AIResponder(commands.Cog):
 
         When you have enough information to respond:
         Thought: I now have sufficient information to address the user's message.
-        Final Answer: [Provide a natural, conversational response that directly addresses the user's original input. Incorporate relevant information from your initial knowledge and any tool outputs used.]
+        Response: [Provide your complete response here. Include all relevant information, explanations, and the full answer you've crafted. Make sure it's natural and conversational, suitable for a Discord chat. Do not include any labels like 'Final Answer:' or 'Response:' in your actual response.]
 
         Remember:
         - Respond in a natural, friendly manner, consistent with your assigned personality.
-        - Be concise but informative in your final answer.
+        - Be informative but concise, considering Discord's message length limitations.
         - If you're unsure about something, it's okay to express uncertainty rather than guessing.
         - Always use the format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
-        - Always end your response with a "Final Answer:" when you're ready to respond to the user.
         - Stay focused on the original message and avoid introducing unrelated topics.
+        - Format your response appropriately for Discord, using markdown for emphasis or code blocks if necessary.
 
         {{agent_scratchpad}}
         """
@@ -452,15 +452,15 @@ class AIResponder(commands.Cog):
 
             When you have enough information to respond:
             Thought: I now have sufficient information to address the user's message.
-            Final Answer: [Provide a natural, conversational response that directly addresses the user's original input. Incorporate relevant information from your initial knowledge and any tool outputs used.]
+            Response: [Provide your complete response here. Include all relevant information, explanations, and the full answer you've crafted. Make sure it's natural and conversational, suitable for a Discord chat. Do not include any labels like 'Final Answer:' or 'Response:' in your actual response.]
 
             Remember:
             - Respond in a natural, friendly manner, consistent with your assigned personality.
-            - Be concise but informative in your final answer.
+            - Be informative but concise, considering Discord's message length limitations.
             - If you're unsure about something, it's okay to express uncertainty rather than guessing.
             - Always use the format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
-            - Always end your response with a "Final Answer:" when you're ready to respond to the user.
             - Stay focused on the original message and avoid introducing unrelated topics.
+            - Format your response appropriately for Discord, using markdown for emphasis or code blocks if necessary.
 
             {{agent_scratchpad}}
             """
@@ -556,7 +556,8 @@ class AIResponder(commands.Cog):
             )
             self.logger.info(f"Agent response: {response}")
 
-            output = response.get('output', "I couldn't generate a response. Please try again.")
+            # Extract the full output from the response
+            output = response['output']
 
             if memory:
                 memory.chat_memory.add_user_message(content)
