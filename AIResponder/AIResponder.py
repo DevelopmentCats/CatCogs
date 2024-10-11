@@ -614,13 +614,16 @@ class AIResponder(commands.Cog):
                     "input": content,
                     "chat_history": chat_history
                 },
-                callbacks=[callback_handler],
-                return_only_outputs=True
+                callbacks=[callback_handler]
             ):
                 if isinstance(step, dict):
                     if 'output' in step:
                         final_response = step['output']
                         break
+                    elif 'intermediate_step' in step:
+                        # Process intermediate steps (tool calls, thoughts, etc.)
+                        intermediate_step = step['intermediate_step']
+                        await self.process_intermediate_step(intermediate_step, response_message)
 
             if final_response is None:
                 final_response = "I'm sorry, but I couldn't generate a complete response. Could you try rephrasing your question?"
@@ -636,6 +639,16 @@ class AIResponder(commands.Cog):
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
             return "I encountered an unexpected error while processing your request. Please try again or contact the bot owner if the issue persists."
+
+    async def process_intermediate_step(self, step, response_message):
+        if isinstance(step, tuple) and len(step) == 2:
+            action, observation = step
+            if isinstance(action, dict) and 'tool' in action:
+                tool_name = action['tool']
+                tool_input = action.get('tool_input', '')
+                await response_message.edit(content=f"🔧 Using {tool_name}: {tool_input}")
+            elif isinstance(observation, str):
+                await response_message.edit(content=f"💡 Thinking: {observation[:100]}...")  # Truncate long observations
 
     def clean_agent_output(self, output: str) -> str:
         lines = output.split('\n')
