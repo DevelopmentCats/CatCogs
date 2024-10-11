@@ -12,10 +12,9 @@ from langchain.agents import AgentExecutor
 from langchain.memory import ConversationBufferWindowMemory
 from langchain.prompts import PromptTemplate
 from langchain.tools import Tool
-from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper, RequestsWrapper, WolframAlphaAPIWrapper
+from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper, WolframAlphaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_experimental.tools import PythonAstREPLTool
-from langchain_community.tools.requests.tool import RequestsGetTool
 from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
 from langchain.callbacks.manager import CallbackManagerForLLMRun
 from langchain.schema import LLMResult
@@ -174,10 +173,7 @@ class AIResponder(commands.Cog):
         When you receive a query:
         1) First, carefully consider what you already know that could help answer the question.
         2) If your existing knowledge is sufficient, formulate a response without using tools.
-        3) Only use tools if you need additional information that you don't already have, such as:
-           - Current events or recent information you might not be aware of
-           - Specific data or facts you're unsure about
-           - Calculations that are too complex to do mentally
+        3) Only use tools if you need additional information that you don't already have.
 
         Available tools:
         {{tools}}
@@ -201,6 +197,7 @@ class AIResponder(commands.Cog):
 
         Important:
         - Always keep the user's original query in mind throughout the process.
+        - Stay focused on the specific question asked and avoid irrelevant tangents.
         - If you use multiple tools, ensure each use directly contributes to answering the query.
         - Don't get sidetracked by interesting but irrelevant information from tool outputs.
 
@@ -212,6 +209,7 @@ class AIResponder(commands.Cog):
         - Respond in a natural, friendly manner, consistent with your assigned personality.
         - Be concise but informative in your final answer.
         - If you're unsure about something, it's okay to express uncertainty rather than guessing.
+        - Stay focused on the original question and avoid introducing unrelated topics.
         - Always use the format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
         - Always end your response with a "Final Answer:" when you're ready to respond to the user.
 
@@ -278,17 +276,6 @@ class AIResponder(commands.Cog):
                     name="Python REPL",
                     func=python_repl.run,
                     description="Useful for running Python code and performing calculations."
-                )
-            )
-
-            # Requests Get
-            requests_wrapper = RequestsWrapper()
-            requests_get = RequestsGetTool(requests_wrapper=requests_wrapper, allow_dangerous_requests=True)
-            tools.append(
-                Tool(
-                    name="Web Fetch",
-                    func=requests_get.run,
-                    description="Useful for fetching content from web pages."
                 )
             )
 
@@ -425,10 +412,7 @@ class AIResponder(commands.Cog):
             When you receive a query:
             1) First, carefully consider what you already know that could help answer the question.
             2) If your existing knowledge is sufficient, formulate a response without using tools.
-            3) Only use tools if you need additional information that you don't already have, such as:
-               - Current events or recent information you might not be aware of
-               - Specific data or facts you're unsure about
-               - Calculations that are too complex to do mentally
+            3) Only use tools if you need additional information that you don't already have.
 
             Available tools:
             {{tools}}
@@ -452,6 +436,7 @@ class AIResponder(commands.Cog):
 
             Important:
             - Always keep the user's original query in mind throughout the process.
+            - Stay focused on the specific question asked and avoid irrelevant tangents.
             - If you use multiple tools, ensure each use directly contributes to answering the query.
             - Don't get sidetracked by interesting but irrelevant information from tool outputs.
 
@@ -463,6 +448,7 @@ class AIResponder(commands.Cog):
             - Respond in a natural, friendly manner, consistent with your assigned personality.
             - Be concise but informative in your final answer.
             - If you're unsure about something, it's okay to express uncertainty rather than guessing.
+            - Stay focused on the original question and avoid introducing unrelated topics.
             - Always use the format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
             - Always end your response with a "Final Answer:" when you're ready to respond to the user.
 
