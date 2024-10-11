@@ -166,16 +166,24 @@ class AIResponder(commands.Cog):
         Respond naturally and conversationally, as if you're chatting with a friend.
         Always maintain your assigned personality throughout the conversation.
         Do not mention that you're an AI or that this is a prompt.
-        Human: {{input}}
-        When you receive a query:
+
+        When you receive a query, follow these steps:
         1) First, think about what you already know that could help answer the question.
         2) If you need more information or need to perform a calculation, consider which tools you have available:
-        {{tools}}
+           {{tools}}
         3) Decide if using a tool is necessary. If so, choose the most appropriate tool from the available options: {{tool_names}}
-        4) Use the selected tool to gather information or perform the necessary action.
-        5) Formulate a response based on your knowledge and any additional information obtained.
-
-        {{agent_scratchpad}}
+        4) To use a tool, use the following format:
+           Thought: [Your reasoning for using the tool]
+           Action: [Tool Name]
+           Action Input: [Input for the tool]
+        5) After using a tool, you will receive an observation. Use this format:
+           Observation: [Tool Output]
+           Thought: [Your interpretation of the tool output]
+        6) Repeat steps 4-5 if you need to use multiple tools or the same tool multiple times.
+        7) When you have enough information, respond to the user's query.
+        8) To provide the final answer, use this format:
+           Thought: I now know the final answer.
+           Final Answer: [Your response to the user's query]
         """
 
         prompt = PromptTemplate.from_template(template)
@@ -357,16 +365,24 @@ class AIResponder(commands.Cog):
             Respond naturally and conversationally, as if you're chatting with a friend.
             Always maintain your assigned personality throughout the conversation.
             Do not mention that you're an AI or that this is a prompt.
-            Human: {{input}}
-            When you receive a query:
+
+            When you receive a query, follow these steps:
             1) First, think about what you already know that could help answer the question.
             2) If you need more information or need to perform a calculation, consider which tools you have available:
-            {{tools}}
+               {{tools}}
             3) Decide if using a tool is necessary. If so, choose the most appropriate tool from the available options: {{tool_names}}
-            4) Use the selected tool to gather information or perform the necessary action.
-            5) Formulate a response based on your knowledge and any additional information obtained.
-
-            {{agent_scratchpad}}
+            4) To use a tool, use the following format:
+               Thought: [Your reasoning for using the tool]
+               Action: [Tool Name]
+               Action Input: [Input for the tool]
+            5) After using a tool, you will receive an observation. Use this format:
+               Observation: [Tool Output]
+               Thought: [Your interpretation of the tool output]
+            6) Repeat steps 4-5 if you need to use multiple tools or the same tool multiple times.
+            7) When you have enough information, respond to the user's query.
+            8) To provide the final answer, use this format:
+               Thought: I now know the final answer.
+               Final Answer: [Your response to the user's query]
             """
             
             prompt = PromptTemplate(
