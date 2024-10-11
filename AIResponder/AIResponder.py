@@ -86,9 +86,10 @@ class DeepInfraLLM(BaseChatModel):
         return asyncio.run(self._agenerate(messages, stop, run_manager, **kwargs))
 
 class LoggingCallbackHandler(BaseCallbackHandler):
-    def __init__(self, response_message):
+    def __init__(self, response_message, tool_dict):
         self.response_message = response_message
         self.thought_count = 1
+        self.tool_dict = tool_dict
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
         thinking_messages = [
@@ -103,6 +104,7 @@ class LoggingCallbackHandler(BaseCallbackHandler):
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
         tool_name = serialized["name"]
+        tool_description = self.tool_dict.get(tool_name, "Unknown tool")
         tool_messages = [
             f"🔧 Tinkering with the {tool_name} gadget...",
             f"🚀 Launching the {tool_name} module into action!",
@@ -537,8 +539,11 @@ class AIResponder(commands.Cog):
             memory = self.agent_executor.memory
             chat_history = memory.chat_memory.messages if memory else []
 
-            # Create the callback handler
-            callback_handler = LoggingCallbackHandler(response_message)
+            # Create a dictionary of tool names and descriptions
+            tool_dict = {tool.name: tool.description for tool in self.agent_executor.tools}
+
+            # Create the callback handler with the tool dictionary
+            callback_handler = LoggingCallbackHandler(response_message, tool_dict)
 
             # Run the agent with the custom callback handler
             response = await self.agent_executor.ainvoke(
