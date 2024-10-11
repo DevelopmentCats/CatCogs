@@ -178,7 +178,7 @@ class AIResponder(commands.Cog):
            - Calculations that are too complex to do mentally
 
         Available tools:
-        {tools}
+        {{tools}}
 
         Guidelines for using tools:
         - Use tools sparingly and only when necessary.
@@ -424,7 +424,7 @@ class AIResponder(commands.Cog):
                - Calculations that are too complex to do mentally
 
             Available tools:
-            {tools}
+            {{tools}}
 
             Guidelines for using tools:
             - Use tools sparingly and only when necessary.
