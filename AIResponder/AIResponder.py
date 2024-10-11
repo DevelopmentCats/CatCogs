@@ -620,14 +620,22 @@ class AIResponder(commands.Cog):
             if not output or output == "Agent stopped due to iteration limit or time limit.":
                 output = "I'm sorry, but I couldn't generate a complete response. Could you try rephrasing your question?"
 
+            # Handle case where no action is needed
+            if "Action: None" in output or "I now have sufficient information to address the user's message." in output:
+                # Extract the final response
+                response_start = output.rfind("Response:")
+                if response_start != -1:
+                    final_response = output[response_start + 9:].strip()
+                else:
+                    final_response = self.clean_agent_output(output)
+            else:
+                final_response = self.clean_agent_output(output)
+
             if memory:
                 memory.chat_memory.add_user_message(content)
-                memory.chat_memory.add_ai_message(output)
+                memory.chat_memory.add_ai_message(final_response)
 
-            # Clean up the response by removing any incomplete thoughts or actions
-            cleaned_output = self.clean_agent_output(output)
-
-            return cleaned_output
+            return final_response
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
@@ -636,11 +644,15 @@ class AIResponder(commands.Cog):
     def clean_agent_output(self, output: str) -> str:
         lines = output.split('\n')
         cleaned_lines = []
+        response_found = False
         for line in lines:
-            if line.startswith(('Thought:', 'Action:', 'Action Input:', 'Observation:')):
-                continue
-            if line.strip() and not line.strip().startswith(('Thought:', 'Action:', 'Action Input:', 'Observation:')):
-                cleaned_lines.append(line)
+            if line.startswith('Response:'):
+                response_found = True
+                cleaned_lines.append(line[9:].strip())  # Remove 'Response:' prefix
+            elif response_found:
+                cleaned_lines.append(line.strip())
+            elif not line.startswith(('Thought:', 'Action:', 'Action Input:', 'Observation:')):
+                cleaned_lines.append(line.strip())
         return '\n'.join(cleaned_lines)
 
     async def is_configured(self) -> bool:
