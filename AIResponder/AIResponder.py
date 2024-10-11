@@ -262,13 +262,14 @@ class AIResponder(commands.Cog):
 
         When you have enough information to respond:
         Thought: I now have sufficient information to address the user's message.
-        Response: [Your complete response here, natural and conversational, suitable for Discord]
+        Action: Response
+        Action Input: [Your complete response here, natural and conversational, suitable for Discord]
 
         Remember:
         - Respond in a natural, friendly manner, consistent with your assigned personality.
         - Be informative but concise, considering Discord's message length limitations.
         - If you're unsure about something, it's okay to express uncertainty rather than guessing.
-        - ALWAYS use the exact format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
+        - ALWAYS use the exact format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools or responding.
         - Stay focused on the original message and avoid introducing unrelated topics.
         - Format your response appropriately for Discord, using markdown for emphasis or code blocks if necessary.
 
@@ -507,13 +508,14 @@ class AIResponder(commands.Cog):
 
             When you have enough information to respond:
             Thought: I now have sufficient information to address the user's message.
-            Response: [Your complete response here, natural and conversational, suitable for Discord]
+            Action: Response
+            Action Input: [Your complete response here, natural and conversational, suitable for Discord]
 
             Remember:
             - Respond in a natural, friendly manner, consistent with your assigned personality.
             - Be informative but concise, considering Discord's message length limitations.
             - If you're unsure about something, it's okay to express uncertainty rather than guessing.
-            - ALWAYS use the exact format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
+            - ALWAYS use the exact format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools or responding.
             - Stay focused on the original message and avoid introducing unrelated topics.
             - Format your response appropriately for Discord, using markdown for emphasis or code blocks if necessary.
 
@@ -620,8 +622,8 @@ class AIResponder(commands.Cog):
             if not output or output == "Agent stopped due to iteration limit or time limit.":
                 output = "I'm sorry, but I couldn't generate a complete response. Could you try rephrasing your question?"
 
-            # Handle case where no action is needed
-            if "Action: None" in output or "I now have sufficient information to address the user's message." in output:
+            # Handle case where no action is needed or final response is given
+            if "Action: Response" in output or "I now have sufficient information to address the user's message." in output:
                 # Extract the final response
                 response_start = output.rfind("Response:")
                 if response_start != -1:
