@@ -134,6 +134,7 @@ class LoggingCallbackHandler(BaseCallbackHandler):
         self.response_message = response_message
         self.thought_count = 1
         self.tool_dict = tool_dict
+        self.current_content = ""
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
         thinking_messages = [
@@ -145,6 +146,12 @@ class LoggingCallbackHandler(BaseCallbackHandler):
         ]
         await self.response_message.edit(content=random.choice(thinking_messages))
         self.thought_count += 1
+
+    async def on_llm_new_token(self, token: str, **kwargs):
+        self.current_content += token
+        if len(self.current_content) > 1500:  # Truncate if it gets too long
+            self.current_content = self.current_content[-1500:]
+        await self.response_message.edit(content=self.current_content)
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
         tool_name = serialized["name"]
@@ -175,10 +182,6 @@ class LoggingCallbackHandler(BaseCallbackHandler):
         error_message = f"❌ Oops! I encountered an error: {str(error)}"
         await self.response_message.edit(content=error_message)
         logging.error(f"LLM Error: {str(error)}")
-
-    async def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
-        if token.strip():
-            await self.response_message.edit(content=f"{self.response_message.content}\n{token}")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -626,19 +629,8 @@ class AIResponder(commands.Cog):
 
             return cleaned_output
 
-        except ValueError as e:
-            self.logger.error(f"Value error in agent execution: {str(e)}")
-            if "Error calling DeepInfra API" in str(e):
-                return "I'm having trouble connecting to my knowledge base. Please try again later."
-            return "I encountered an issue processing your request. Could you rephrase it?"
-        except asyncio.TimeoutError:
-            self.logger.error("Query processing timed out")
-            return "I'm sorry, but it's taking me longer than expected to process your request. Could you try asking a simpler question?"
-        except APIConnectionError as e:
-            self.logger.error(f"API Connection Error: {str(e)}")
-            return "I'm having trouble connecting to my knowledge base. Please try again later."
         except Exception as e:
-            self.logger.error(f"Unexpected error in agent execution: {str(e)}", exc_info=True)
+            self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
             return "I encountered an unexpected error while processing your request. Please try again or contact the bot owner if the issue persists."
 
     def clean_agent_output(self, output: str) -> str:
