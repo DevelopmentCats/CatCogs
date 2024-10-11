@@ -45,7 +45,7 @@ class DeepInfraLLM(BaseChatModel):
     async def _agenerate(
         self,
         messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
+        stop: Optional[Union[str, List[str]]] = None,
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> ChatResult:
@@ -63,18 +63,59 @@ class DeepInfraLLM(BaseChatModel):
                 
                 formatted_messages.append({"role": role, "content": message.content})
 
+            # Add default stopping parameters if not provided
+            if 'max_tokens' not in kwargs:
+                kwargs['max_tokens'] = 8000  # Adjust this value as needed
+            if 'temperature' not in kwargs:
+                kwargs['temperature'] = 0.7  # Adjust this value as needed
+            if 'top_p' not in kwargs:
+                kwargs['top_p'] = 0.9  # Adjust this value as needed
+
+            # Handle the stop parameter
+            if stop is not None:
+                if isinstance(stop, str):
+                    kwargs['stop'] = [stop]
+                elif isinstance(stop, list):
+                    kwargs['stop'] = stop[:16]  # Limit to 16 sequences
+                else:
+                    raise ValueError("Stop parameter must be a string or list of strings")
+
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=formatted_messages,
-                stop=stop,
                 **kwargs
             )
             
-            content = response.choices[0].message.content
-            if not content:
-                raise ValueError("Empty response from DeepInfra API")
+            if not response.choices:
+                raise ValueError("No choices returned from DeepInfra API")
             
-            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
+            choice = response.choices[0]
+            content = choice.message.content
+            if content is None:
+                raise ValueError("Empty content in response from DeepInfra API")
+            
+            # Create the ChatGeneration object with additional information
+            generation = ChatGeneration(
+                message=AIMessage(content=content),
+                generation_info={
+                    "finish_reason": choice.finish_reason,
+                    "index": choice.index,
+                }
+            )
+            
+            # Create the ChatResult object with usage information
+            return ChatResult(
+                generations=[generation],
+                llm_output={
+                    "token_usage": {
+                        "prompt_tokens": response.usage.prompt_tokens,
+                        "completion_tokens": response.usage.completion_tokens,
+                        "total_tokens": response.usage.total_tokens,
+                    },
+                    "model_name": response.model,
+                    "estimated_cost": response.usage.estimated_cost,
+                }
+            )
         except Exception as e:
             logging.error(f"Error calling DeepInfra API: {str(e)}")
             raise ValueError(f"Error calling DeepInfra API: {str(e)}")
@@ -249,9 +290,10 @@ class AIResponder(commands.Cog):
             tools=tools,
             memory=memory,
             verbose=True,
-            max_iterations=6,  
+            max_iterations=6,
             handle_parsing_errors=True,
-            early_stopping_method="generate",  # Stop earlier if a good response is generated
+            max_execution_time=60,  # Limit execution time to 60 seconds
+            early_stopping_method=None,  # Remove this line
         )
 
         await self.verify_api_settings()
@@ -493,7 +535,8 @@ class AIResponder(commands.Cog):
                 verbose=True,
                 max_iterations=6,
                 handle_parsing_errors=True,
-                early_stopping_method="generate",  # Stop earlier if a good response is generated
+                max_execution_time=60,  # Limit execution time to 60 seconds
+                early_stopping_method=None,  # Remove this line
             )
             
             self.logger.info("LangChain components updated successfully")
