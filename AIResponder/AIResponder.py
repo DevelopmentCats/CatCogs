@@ -468,8 +468,11 @@ class AIResponder(commands.Cog):
             # Try to parse the output as JSON
             try:
                 parsed_output = json.loads(output)
-                if isinstance(parsed_output, dict) and 'action_input' in parsed_output:
-                    output = parsed_output['action_input']
+                if isinstance(parsed_output, dict):
+                    if 'action' in parsed_output and parsed_output['action'] == "Final Answer":
+                        output = parsed_output.get('action_input', output)
+                    elif 'action_input' in parsed_output:
+                        output = parsed_output['action_input']
             except json.JSONDecodeError:
                 # If it's not JSON, use the output as is
                 pass
@@ -483,12 +486,20 @@ class AIResponder(commands.Cog):
 
         except ValueError as e:
             self.logger.error(f"Value error in agent execution: {str(e)}")
-            # If there's a parsing error, return the raw output
+            # If there's a parsing error, log the raw output and return it
             if "Could not parse LLM output" in str(e):
                 start = str(e).find('`') + 1
                 end = str(e).rfind('`')
                 if start > 0 and end > start:
-                    return str(e)[start:end]
+                    raw_output = str(e)[start:end]
+                    self.logger.error(f"Raw LLM output: {raw_output}")
+                    try:
+                        parsed_raw = json.loads(raw_output)
+                        if isinstance(parsed_raw, dict) and 'action_input' in parsed_raw:
+                            return parsed_raw['action_input']
+                    except json.JSONDecodeError:
+                        pass
+                    return raw_output
             return "I encountered an issue processing your request. Could you rephrase it?"
         except asyncio.TimeoutError:
             self.logger.error("Query processing timed out")
