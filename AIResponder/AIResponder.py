@@ -8,10 +8,10 @@ import logging
 from datetime import datetime
 from openai import AsyncOpenAI, APIConnectionError, APIError, RateLimitError
 from langchain.schema import HumanMessage, AIMessage
-from langchain.agents import AgentExecutor
+from langchain_core.agents import AgentExecutor
 from langchain.memory import ConversationBufferWindowMemory
-from langchain.prompts import PromptTemplate
-from langchain.tools import Tool
+from langchain_core.prompts import PromptTemplate
+from langchain_core.tools import Tool
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper, WolframAlphaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_experimental.tools import PythonAstREPLTool
@@ -293,16 +293,14 @@ class AIResponder(commands.Cog):
             prompt=prompt.partial(tools=tools_str, tool_names=tool_names)
         )
 
-        self.agent_executor = AgentExecutor.from_agent_and_tools(
+        self.agent_executor = AgentExecutor(
             agent=agent,
             tools=tools,
             memory=memory,
             verbose=True,
             max_iterations=10,
             handle_parsing_errors=True,
-            max_execution_time=120,  # Increased to 120 seconds
-            return_intermediate_steps=True,
-            agent_kwargs={"return_only_outputs": False}
+            max_execution_time=120,
         )
 
         await self.verify_api_settings()
@@ -538,16 +536,14 @@ class AIResponder(commands.Cog):
                 tools=tools,
                 prompt=prompt.partial(tools=tools_str, tool_names=tool_names)
             )
-            self.agent_executor = AgentExecutor.from_agent_and_tools(
+            self.agent_executor = AgentExecutor(
                 agent=agent,
                 tools=tools,
                 memory=memory,
                 verbose=True,
                 max_iterations=10,
                 handle_parsing_errors=True,
-                max_execution_time=120,  # Increased to 120 seconds
-                return_intermediate_steps=True,
-                agent_kwargs={"return_only_outputs": False}
+                max_execution_time=120,
             )
             
             self.logger.info("LangChain components updated successfully")
@@ -608,25 +604,15 @@ class AIResponder(commands.Cog):
 
             self.logger.info(f"Invoking agent with input: {content}")
             
-            final_response = None
-            async for step in self.agent_executor.astream(
+            result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
                     "chat_history": chat_history
                 },
-                callbacks=[callback_handler]
-            ):
-                if isinstance(step, dict):
-                    if 'output' in step:
-                        final_response = step['output']
-                        break
-                    elif 'intermediate_step' in step:
-                        # Process intermediate steps (tool calls, thoughts, etc.)
-                        intermediate_step = step['intermediate_step']
-                        await self.process_intermediate_step(intermediate_step, response_message)
+                config={"callbacks": [callback_handler]}
+            )
 
-            if final_response is None:
-                final_response = "I'm sorry, but I couldn't generate a complete response. Could you try rephrasing your question?"
+            final_response = result.get('output', "I'm sorry, but I couldn't generate a complete response. Could you try rephrasing your question?")
 
             self.logger.info(f"Final response: {final_response}")
 
