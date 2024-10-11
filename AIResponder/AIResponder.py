@@ -614,15 +614,11 @@ class AIResponder(commands.Cog):
                     "input": content,
                     "chat_history": chat_history
                 },
-                callbacks=[callback_handler]
+                callbacks=[callback_handler],
+                return_only_outputs=True
             ):
                 if isinstance(step, dict):
-                    if 'intermediate_step' in step:
-                        action, action_input = step['intermediate_step'][0]
-                        if action == "Response":
-                            final_response = action_input
-                            break  # Stop the execution when we get a Response action
-                    elif 'output' in step:
+                    if 'output' in step:
                         final_response = step['output']
                         break
 
