@@ -213,10 +213,31 @@ class AIResponder(commands.Cog):
         {{agent_scratchpad}}
         """
 
-        prompt = PromptTemplate.from_template(template)
+        prompt = PromptTemplate(
+            input_variables=["input", "agent_scratchpad", "tool_names"],
+            template=template
+        )
 
-        agent = create_react_agent(self.llm, tools, prompt)
-        self.agent_executor = AgentExecutor(agent=agent, tools=tools, memory=memory, verbose=True, handle_parsing_errors=True)
+        self.logger.info("Setting up tools")
+        tools = await self.setup_tools()
+
+        tool_names = ", ".join([tool.name for tool in tools])
+
+        self.logger.info("Creating agent executor")
+        agent = create_react_agent(
+            llm=self.llm,
+            tools=tools,
+            prompt=prompt
+        )
+
+        self.agent_executor = AgentExecutor.from_agent_and_tools(
+            agent=agent,
+            tools=tools,
+            memory=memory,
+            verbose=True,
+            max_iterations=5,
+            handle_parsing_errors=True
+        )
 
         await self.verify_api_settings()
 
@@ -440,18 +461,20 @@ class AIResponder(commands.Cog):
             """
             
             prompt = PromptTemplate(
-                input_variables=["input", "tools", "tool_names", "agent_scratchpad"],
-                template=template,
+                input_variables=["input", "agent_scratchpad", "tool_names"],
+                template=template
             )
             
             self.logger.info("Setting up tools")
             tools = await self.setup_tools()
             
+            tool_names = ", ".join([tool.name for tool in tools])
+            
             self.logger.info("Creating agent executor")
             agent = create_react_agent(
                 llm=self.llm,
                 tools=tools,
-                prompt=prompt,
+                prompt=prompt
             )
             self.agent_executor = AgentExecutor.from_agent_and_tools(
                 agent=agent,
