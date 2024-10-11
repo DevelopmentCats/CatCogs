@@ -607,31 +607,25 @@ class AIResponder(commands.Cog):
             callback_handler = LoggingCallbackHandler(response_message, tool_dict)
 
             self.logger.info(f"Invoking agent with input: {content}")
-            response = await self.agent_executor.ainvoke(
+            
+            final_response = None
+            async for step in self.agent_executor.astream(
                 {
                     "input": content,
                     "chat_history": chat_history
                 },
                 callbacks=[callback_handler]
-            )
-            self.logger.info(f"Agent response: {response}")
+            ):
+                if isinstance(step, dict) and 'intermediate_step' in step:
+                    action, action_input = step['intermediate_step'][0]
+                    if action == "Response":
+                        final_response = action_input
+                        break  # Stop the execution when we get a Response action
 
-            # Extract the full output from the response
-            output = response.get('output', '')
+            if final_response is None:
+                final_response = "I'm sorry, but I couldn't generate a complete response. Could you try rephrasing your question?"
 
-            if not output or output == "Agent stopped due to iteration limit or time limit.":
-                output = "I'm sorry, but I couldn't generate a complete response. Could you try rephrasing your question?"
-
-            # Handle case where no action is needed or final response is given
-            if "Action: Response" in output or "I now have sufficient information to address the user's message." in output:
-                # Extract the final response
-                response_start = output.rfind("Response:")
-                if response_start != -1:
-                    final_response = output[response_start + 9:].strip()
-                else:
-                    final_response = self.clean_agent_output(output)
-            else:
-                final_response = self.clean_agent_output(output)
+            self.logger.info(f"Final response: {final_response}")
 
             if memory:
                 memory.chat_memory.add_user_message(content)
