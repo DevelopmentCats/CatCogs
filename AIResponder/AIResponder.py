@@ -178,7 +178,7 @@ class AIResponder(commands.Cog):
            - Calculations that are too complex to do mentally
 
         Available tools:
-        {{tool_names}}
+        {tools}
 
         Guidelines for using tools:
         - Use tools sparingly and only when necessary.
@@ -214,7 +214,7 @@ class AIResponder(commands.Cog):
         """
 
         prompt = PromptTemplate(
-            input_variables=["input", "agent_scratchpad", "tool_names"],
+            input_variables=["input", "agent_scratchpad", "tools"],
             template=template
         )
 
@@ -425,7 +425,7 @@ class AIResponder(commands.Cog):
                - Calculations that are too complex to do mentally
 
             Available tools:
-            {{tool_names}}
+            {tools}
 
             Guidelines for using tools:
             - Use tools sparingly and only when necessary.
@@ -461,7 +461,7 @@ class AIResponder(commands.Cog):
             """
             
             prompt = PromptTemplate(
-                input_variables=["input", "agent_scratchpad", "tool_names"],
+                input_variables=["input", "agent_scratchpad", "tools"],
                 template=template
             )
             
