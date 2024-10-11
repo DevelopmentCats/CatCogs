@@ -92,6 +92,46 @@ class DeepInfraLLM(BaseChatModel):
     ) -> ChatResult:
         return asyncio.run(self._agenerate(messages, stop, run_manager, **kwargs))
 
+class LoggingCallbackHandler(BaseCallbackHandler):
+    def __init__(self, response_message):
+        self.response_message = response_message
+        self.thought_count = 1
+
+    async def on_llm_start(self, serialized, prompts, **kwargs):
+        thinking_messages = [
+            f"🧠 Thought {self.thought_count}: Pondering the mysteries of your query...",
+            f"💡 Idea {self.thought_count}: A lightbulb moment is brewing!",
+            f"🤔 Contemplation {self.thought_count}: Diving deep into the realm of possibilities...",
+            f"🌟 Eureka {self.thought_count}: Channeling the spirit of great thinkers...",
+            f"🔍 Investigation {self.thought_count}: Examining your question from all angles..."
+        ]
+        await self.response_message.edit(content=random.choice(thinking_messages))
+        self.thought_count += 1
+
+    async def on_tool_start(self, serialized, input_str, **kwargs):
+        tool_name = serialized["name"]
+        tool_messages = [
+            f"🔧 Tinkering with the {tool_name} gadget...",
+            f"🚀 Launching the {tool_name} module into action!",
+            f"🔬 Analyzing data with the {tool_name} tool...",
+            f"🧰 Pulling out the {tool_name} from my toolbox...",
+            f"⚡ Powering up the {tool_name} for some fact-finding..."
+        ]
+        await self.response_message.edit(content=random.choice(tool_messages))
+
+    async def on_tool_end(self, output, **kwargs):
+        tool_end_messages = [
+            "✅ Tool usage complete! Processing the juicy results...",
+            "🎉 Data gathered! Time to make sense of it all...",
+            "📊 Information acquired! Crunching the numbers...",
+            "🧩 Pieces collected! Assembling the puzzle...",
+            "🏁 Research phase complete! Formulating a response..."
+        ]
+        await self.response_message.edit(content=random.choice(tool_end_messages))
+
+    async def on_agent_action(self, action, **kwargs):
+        await self.response_message.edit(content=f"🤖 Taking action: {action.tool}")
+
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
