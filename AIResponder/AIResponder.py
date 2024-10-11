@@ -72,25 +72,9 @@ class DeepInfraLLM(BaseChatModel):
             )
             
             content = response.choices[0].message.content
-
-            # Try to format the content as a JSON string if it's not already
-            try:
-                json.loads(content)
-            except json.JSONDecodeError:
-                content = json.dumps({"action": "Final Answer", "action_input": content})
-
             return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
         except Exception as e:
             raise ValueError(f"Error calling DeepInfra API: {str(e)}")
-
-    def _generate(
-        self,
-        messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        return asyncio.run(self._agenerate(messages, stop, run_manager, **kwargs))
 
 class LoggingCallbackHandler(BaseCallbackHandler):
     def __init__(self, response_message):
@@ -188,7 +172,7 @@ class AIResponder(commands.Cog):
         prompt = PromptTemplate.from_template(template)
 
         agent = create_react_agent(self.llm, tools, prompt)
-        self.agent_executor = AgentExecutor(agent=agent, tools=tools, memory=memory, verbose=True)
+        self.agent_executor = AgentExecutor(agent=agent, tools=tools, memory=memory, verbose=True, handle_parsing_errors=True)
 
         await self.verify_api_settings()
 
@@ -465,18 +449,6 @@ class AIResponder(commands.Cog):
             # Extract the output from the response
             output = response.get('output', "I couldn't generate a response. Please try again.")
 
-            # Try to parse the output as JSON
-            try:
-                parsed_output = json.loads(output)
-                if isinstance(parsed_output, dict):
-                    if 'action' in parsed_output and parsed_output['action'] == "Final Answer":
-                        output = parsed_output.get('action_input', output)
-                    elif 'action_input' in parsed_output:
-                        output = parsed_output['action_input']
-            except json.JSONDecodeError:
-                # If it's not JSON, use the output as is
-                pass
-
             # Update memory with the new message pair
             if memory:
                 memory.chat_memory.add_user_message(content)
@@ -486,20 +458,8 @@ class AIResponder(commands.Cog):
 
         except ValueError as e:
             self.logger.error(f"Value error in agent execution: {str(e)}")
-            # If there's a parsing error, log the raw output and return it
-            if "Could not parse LLM output" in str(e):
-                start = str(e).find('`') + 1
-                end = str(e).rfind('`')
-                if start > 0 and end > start:
-                    raw_output = str(e)[start:end]
-                    self.logger.error(f"Raw LLM output: {raw_output}")
-                    try:
-                        parsed_raw = json.loads(raw_output)
-                        if isinstance(parsed_raw, dict) and 'action_input' in parsed_raw:
-                            return parsed_raw['action_input']
-                    except json.JSONDecodeError:
-                        pass
-                    return raw_output
+            if "Error calling DeepInfra API" in str(e):
+                return "I'm having trouble connecting to my knowledge base. Please try again later."
             return "I encountered an issue processing your request. Could you rephrase it?"
         except asyncio.TimeoutError:
             self.logger.error("Query processing timed out")
