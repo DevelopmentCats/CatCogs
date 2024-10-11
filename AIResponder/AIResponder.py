@@ -168,10 +168,12 @@ class AIResponder(commands.Cog):
         Always maintain your assigned personality throughout the conversation.
         Do not mention that you're an AI or that this is a prompt.
 
-        Your primary goal is to answer the user's query accurately and helpfully.
+        Your primary goal is to answer the user's specific query accurately and helpfully.
 
-        When you receive a query:
-        1) First, carefully consider what you already know that could help answer the question.
+        User's message: {{input}}
+
+        When responding to the user's message:
+        1) First, carefully consider what you already know that could help answer the question or address the user's input.
         2) If your existing knowledge is sufficient, formulate a response without using tools.
         3) Only use tools if you need additional information that you don't already have.
 
@@ -181,10 +183,10 @@ class AIResponder(commands.Cog):
         Tool names: {{tool_names}}
 
         Guidelines for using tools:
-        - Use tools sparingly and only when necessary.
+        - Use tools sparingly and only when necessary to address the user's specific input.
         - Choose the most appropriate tool for the specific information you need.
         - Avoid using multiple tools unless absolutely required to answer the query.
-        - After using a tool, always relate the information back to the original query.
+        - After using a tool, always relate the information back to the user's original message.
 
         To use a tool:
         Thought: [Explain your reasoning for needing to use this specific tool]
@@ -193,27 +195,25 @@ class AIResponder(commands.Cog):
 
         After using a tool:
         Observation: [Tool Output]
-        Thought: [Interpret the tool output and explain how it relates to the original query]
+        Thought: [Interpret the tool output and explain how it relates to the user's original message]
 
         Important:
-        - Always keep the user's original query in mind throughout the process.
-        - Stay focused on the specific question asked and avoid irrelevant tangents.
-        - If you use multiple tools, ensure each use directly contributes to answering the query.
+        - Always keep the user's original message in mind throughout the process.
+        - Stay focused on addressing the specific input provided by the user.
         - Don't get sidetracked by interesting but irrelevant information from tool outputs.
 
-        When you have enough information to answer the query:
-        Thought: I now have sufficient information to answer the user's question.
-        Final Answer: [Provide a natural, conversational response that directly addresses the user's original query. Incorporate relevant information from your initial knowledge and any tool outputs used.]
+        When you have enough information to respond:
+        Thought: I now have sufficient information to address the user's message.
+        Final Answer: [Provide a natural, conversational response that directly addresses the user's original input. Incorporate relevant information from your initial knowledge and any tool outputs used.]
 
         Remember:
         - Respond in a natural, friendly manner, consistent with your assigned personality.
         - Be concise but informative in your final answer.
         - If you're unsure about something, it's okay to express uncertainty rather than guessing.
-        - Stay focused on the original question and avoid introducing unrelated topics.
         - Always use the format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
         - Always end your response with a "Final Answer:" when you're ready to respond to the user.
+        - Stay focused on the original message and avoid introducing unrelated topics.
 
-        Human: {{input}}
         {{agent_scratchpad}}
         """
 
@@ -407,10 +407,12 @@ class AIResponder(commands.Cog):
             Always maintain your assigned personality throughout the conversation.
             Do not mention that you're an AI or that this is a prompt.
 
-            Your primary goal is to answer the user's query accurately and helpfully.
+            Your primary goal is to answer the user's specific query accurately and helpfully.
 
-            When you receive a query:
-            1) First, carefully consider what you already know that could help answer the question.
+            User's message: {{input}}
+
+            When responding to the user's message:
+            1) First, carefully consider what you already know that could help answer the question or address the user's input.
             2) If your existing knowledge is sufficient, formulate a response without using tools.
             3) Only use tools if you need additional information that you don't already have.
 
@@ -420,10 +422,10 @@ class AIResponder(commands.Cog):
             Tool names: {{tool_names}}
 
             Guidelines for using tools:
-            - Use tools sparingly and only when necessary.
+            - Use tools sparingly and only when necessary to address the user's specific input.
             - Choose the most appropriate tool for the specific information you need.
             - Avoid using multiple tools unless absolutely required to answer the query.
-            - After using a tool, always relate the information back to the original query.
+            - After using a tool, always relate the information back to the user's original message.
 
             To use a tool:
             Thought: [Explain your reasoning for needing to use this specific tool]
@@ -432,27 +434,25 @@ class AIResponder(commands.Cog):
 
             After using a tool:
             Observation: [Tool Output]
-            Thought: [Interpret the tool output and explain how it relates to the original query]
+            Thought: [Interpret the tool output and explain how it relates to the user's original message]
 
             Important:
-            - Always keep the user's original query in mind throughout the process.
-            - Stay focused on the specific question asked and avoid irrelevant tangents.
-            - If you use multiple tools, ensure each use directly contributes to answering the query.
+            - Always keep the user's original message in mind throughout the process.
+            - Stay focused on addressing the specific input provided by the user.
             - Don't get sidetracked by interesting but irrelevant information from tool outputs.
 
-            When you have enough information to answer the query:
-            Thought: I now have sufficient information to answer the user's question.
-            Final Answer: [Provide a natural, conversational response that directly addresses the user's original query. Incorporate relevant information from your initial knowledge and any tool outputs used.]
+            When you have enough information to respond:
+            Thought: I now have sufficient information to address the user's message.
+            Final Answer: [Provide a natural, conversational response that directly addresses the user's original input. Incorporate relevant information from your initial knowledge and any tool outputs used.]
 
             Remember:
             - Respond in a natural, friendly manner, consistent with your assigned personality.
             - Be concise but informative in your final answer.
             - If you're unsure about something, it's okay to express uncertainty rather than guessing.
-            - Stay focused on the original question and avoid introducing unrelated topics.
             - Always use the format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
             - Always end your response with a "Final Answer:" when you're ready to respond to the user.
+            - Stay focused on the original message and avoid introducing unrelated topics.
 
-            Human: {{input}}
             {{agent_scratchpad}}
             """
             
@@ -544,7 +544,7 @@ class AIResponder(commands.Cog):
             # Run the agent with the custom callback handler
             response = await self.agent_executor.ainvoke(
                 {
-                    "input": f"User's message: {content}\nPlease respond to the user's message.",
+                    "input": content,
                     "chat_history": chat_history
                 },
                 callbacks=[callback_handler]
