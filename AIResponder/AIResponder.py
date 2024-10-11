@@ -184,6 +184,9 @@ class AIResponder(commands.Cog):
         8) To provide the final answer, use this format:
            Thought: I now know the final answer.
            Final Answer: [Your response to the user's query]
+
+        Human: {{input}}
+        {{agent_scratchpad}}
         """
 
         prompt = PromptTemplate.from_template(template)
@@ -383,6 +386,9 @@ class AIResponder(commands.Cog):
             8) To provide the final answer, use this format:
                Thought: I now know the final answer.
                Final Answer: [Your response to the user's query]
+
+            Human: {{input}}
+            {{agent_scratchpad}}
             """
             
             prompt = PromptTemplate(
