@@ -197,14 +197,14 @@ class AIResponder(commands.Cog):
         - Avoid using multiple tools unless absolutely required to answer the query.
         - After using a tool, always relate the information back to the user's original message.
 
-        To use a tool:
-        Thought: [Explain your reasoning for needing to use this specific tool]
+        To use a tool, ALWAYS use this exact format:
+        Thought: [Your reasoning for using the tool]
         Action: [Tool Name]
-        Action Input: [Concise and specific input for the tool]
+        Action Input: [Specific input for the tool]
 
         After using a tool:
         Observation: [Tool Output]
-        Thought: [Interpret the tool output and explain how it relates to the user's original message]
+        Thought: [Interpret the tool output and relate it to the user's message]
 
         Important:
         - Always keep the user's original message in mind throughout the process.
@@ -213,13 +213,13 @@ class AIResponder(commands.Cog):
 
         When you have enough information to respond:
         Thought: I now have sufficient information to address the user's message.
-        Response: [Provide your complete response here. Include all relevant information, explanations, and the full answer you've crafted. Make sure it's natural and conversational, suitable for a Discord chat. Do not include any labels like 'Final Answer:' or 'Response:' in your actual response.]
+        Response: [Your complete response here, natural and conversational, suitable for Discord]
 
         Remember:
         - Respond in a natural, friendly manner, consistent with your assigned personality.
         - Be informative but concise, considering Discord's message length limitations.
         - If you're unsure about something, it's okay to express uncertainty rather than guessing.
-        - Always use the format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
+        - ALWAYS use the exact format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
         - Stay focused on the original message and avoid introducing unrelated topics.
         - Format your response appropriately for Discord, using markdown for emphasis or code blocks if necessary.
 
@@ -306,16 +306,18 @@ class AIResponder(commands.Cog):
             # Calculator
             def calculator(expression: str) -> str:
                 try:
-                    result = sympify(expression)
+                    # Remove any non-mathematical characters
+                    cleaned_expression = ''.join(char for char in expression if char.isdigit() or char in '+-*/().^ ')
+                    result = sympify(cleaned_expression)
                     return str(result.evalf())
                 except Exception as e:
-                    return f"Error: {str(e)}"
+                    return f"Error: Unable to calculate. Please provide a valid mathematical expression. ({str(e)})"
 
             tools.append(
                 Tool(
                     name="Calculator",
                     func=calculator,
-                    description="Useful for performing basic and advanced mathematical calculations."
+                    description="Useful for performing basic and advanced mathematical calculations. Provide a valid mathematical expression."
                 )
             )
 
@@ -436,14 +438,14 @@ class AIResponder(commands.Cog):
             - Avoid using multiple tools unless absolutely required to answer the query.
             - After using a tool, always relate the information back to the user's original message.
 
-            To use a tool:
-            Thought: [Explain your reasoning for needing to use this specific tool]
+            To use a tool, ALWAYS use this exact format:
+            Thought: [Your reasoning for using the tool]
             Action: [Tool Name]
-            Action Input: [Concise and specific input for the tool]
+            Action Input: [Specific input for the tool]
 
             After using a tool:
             Observation: [Tool Output]
-            Thought: [Interpret the tool output and explain how it relates to the user's original message]
+            Thought: [Interpret the tool output and relate it to the user's message]
 
             Important:
             - Always keep the user's original message in mind throughout the process.
@@ -452,13 +454,13 @@ class AIResponder(commands.Cog):
 
             When you have enough information to respond:
             Thought: I now have sufficient information to address the user's message.
-            Response: [Provide your complete response here. Include all relevant information, explanations, and the full answer you've crafted. Make sure it's natural and conversational, suitable for a Discord chat. Do not include any labels like 'Final Answer:' or 'Response:' in your actual response.]
+            Response: [Your complete response here, natural and conversational, suitable for Discord]
 
             Remember:
             - Respond in a natural, friendly manner, consistent with your assigned personality.
             - Be informative but concise, considering Discord's message length limitations.
             - If you're unsure about something, it's okay to express uncertainty rather than guessing.
-            - Always use the format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
+            - ALWAYS use the exact format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
             - Stay focused on the original message and avoid introducing unrelated topics.
             - Format your response appropriately for Discord, using markdown for emphasis or code blocks if necessary.
 
@@ -557,7 +559,10 @@ class AIResponder(commands.Cog):
             self.logger.info(f"Agent response: {response}")
 
             # Extract the full output from the response
-            output = response['output']
+            output = response.get('output', '')
+
+            if not output or output == "Agent stopped due to iteration limit or time limit.":
+                output = "I'm sorry, but I couldn't generate a complete response. Could you try rephrasing your question?"
 
             if memory:
                 memory.chat_memory.add_user_message(content)
