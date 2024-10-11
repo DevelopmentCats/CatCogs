@@ -293,7 +293,6 @@ class AIResponder(commands.Cog):
             max_iterations=6,
             handle_parsing_errors=True,
             max_execution_time=60,  # Limit execution time to 60 seconds
-            early_stopping_method=None,  # Remove this line
         )
 
         await self.verify_api_settings()
@@ -536,7 +535,6 @@ class AIResponder(commands.Cog):
                 max_iterations=6,
                 handle_parsing_errors=True,
                 max_execution_time=60,  # Limit execution time to 60 seconds
-                early_stopping_method=None,  # Remove this line
             )
             
             self.logger.info("LangChain components updated successfully")
