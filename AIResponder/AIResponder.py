@@ -176,6 +176,10 @@ class LoggingCallbackHandler(BaseCallbackHandler):
         await self.response_message.edit(content=error_message)
         logging.error(f"LLM Error: {str(error)}")
 
+    async def on_llm_new_token(self, token: str, **kwargs: Any) -> None:
+        if token.strip():
+            await self.response_message.edit(content=f"{self.response_message.content}\n{token}")
+
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
@@ -290,9 +294,11 @@ class AIResponder(commands.Cog):
             tools=tools,
             memory=memory,
             verbose=True,
-            max_iterations=6,
+            max_iterations=10,
             handle_parsing_errors=True,
-            max_execution_time=60,  # Limit execution time to 60 seconds
+            max_execution_time=120,  # Increased to 120 seconds
+            return_intermediate_steps=True,
+            agent_kwargs={"return_only_outputs": False}
         )
 
         await self.verify_api_settings()
@@ -532,9 +538,11 @@ class AIResponder(commands.Cog):
                 tools=tools,
                 memory=memory,
                 verbose=True,
-                max_iterations=6,
+                max_iterations=10,
                 handle_parsing_errors=True,
-                max_execution_time=60,  # Limit execution time to 60 seconds
+                max_execution_time=120,  # Increased to 120 seconds
+                return_intermediate_steps=True,
+                agent_kwargs={"return_only_outputs": False}
             )
             
             self.logger.info("LangChain components updated successfully")
@@ -613,7 +621,10 @@ class AIResponder(commands.Cog):
                 memory.chat_memory.add_user_message(content)
                 memory.chat_memory.add_ai_message(output)
 
-            return output
+            # Clean up the response by removing any incomplete thoughts or actions
+            cleaned_output = self.clean_agent_output(output)
+
+            return cleaned_output
 
         except ValueError as e:
             self.logger.error(f"Value error in agent execution: {str(e)}")
@@ -629,6 +640,16 @@ class AIResponder(commands.Cog):
         except Exception as e:
             self.logger.error(f"Unexpected error in agent execution: {str(e)}", exc_info=True)
             return "I encountered an unexpected error while processing your request. Please try again or contact the bot owner if the issue persists."
+
+    def clean_agent_output(self, output: str) -> str:
+        lines = output.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            if line.startswith(('Thought:', 'Action:', 'Action Input:', 'Observation:')):
+                continue
+            if line.strip() and not line.strip().startswith(('Thought:', 'Action:', 'Action Input:', 'Observation:')):
+                cleaned_lines.append(line)
+        return '\n'.join(cleaned_lines)
 
     async def is_configured(self) -> bool:
         api_key = await self.config.api_key()
