@@ -182,6 +182,8 @@ class AIResponder(commands.Cog):
         Available tools:
         {{tools}}
 
+        Tool names: {{tool_names}}
+
         Guidelines for using tools:
         - Use tools sparingly and only when necessary.
         - Choose the most appropriate tool for the specific information you need.
@@ -216,19 +218,20 @@ class AIResponder(commands.Cog):
         """
 
         prompt = PromptTemplate(
-            input_variables=["input", "agent_scratchpad", "tools"],
+            input_variables=["input", "agent_scratchpad", "tools", "tool_names"],
             template=template
         )
 
         self.logger.info("Setting up tools")
         tools = await self.setup_tools()
         tools_str = "\n".join([f"- {tool.name}: {tool.description}" for tool in tools])
+        tool_names = ", ".join([tool.name for tool in tools])
 
         self.logger.info("Creating agent executor")
         agent = create_react_agent(
             llm=self.llm,
             tools=tools,
-            prompt=prompt.partial(tools=tools_str)
+            prompt=prompt.partial(tools=tools_str, tool_names=tool_names)
         )
 
         self.agent_executor = AgentExecutor.from_agent_and_tools(
@@ -428,6 +431,8 @@ class AIResponder(commands.Cog):
             Available tools:
             {{tools}}
 
+            Tool names: {{tool_names}}
+
             Guidelines for using tools:
             - Use tools sparingly and only when necessary.
             - Choose the most appropriate tool for the specific information you need.
@@ -462,19 +467,20 @@ class AIResponder(commands.Cog):
             """
             
             prompt = PromptTemplate(
-                input_variables=["input", "agent_scratchpad", "tools"],
+                input_variables=["input", "agent_scratchpad", "tools", "tool_names"],
                 template=template
             )
             
             self.logger.info("Setting up tools")
             tools = await self.setup_tools()
             tools_str = "\n".join([f"- {tool.name}: {tool.description}" for tool in tools])
+            tool_names = ", ".join([tool.name for tool in tools])
             
             self.logger.info("Creating agent executor")
             agent = create_react_agent(
                 llm=self.llm,
                 tools=tools,
-                prompt=prompt.partial(tools=tools_str)
+                prompt=prompt.partial(tools=tools_str, tool_names=tool_names)
             )
             self.agent_executor = AgentExecutor.from_agent_and_tools(
                 agent=agent,
