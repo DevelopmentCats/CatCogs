@@ -212,6 +212,8 @@ class AIResponder(commands.Cog):
         - Respond in a natural, friendly manner, consistent with your assigned personality.
         - Be concise but informative in your final answer.
         - If you're unsure about something, it's okay to express uncertainty rather than guessing.
+        - Always use the format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
+        - Always end your response with a "Final Answer:" when you're ready to respond to the user.
 
         Human: {{input}}
         {{agent_scratchpad}}
@@ -461,6 +463,8 @@ class AIResponder(commands.Cog):
             - Respond in a natural, friendly manner, consistent with your assigned personality.
             - Be concise but informative in your final answer.
             - If you're unsure about something, it's okay to express uncertainty rather than guessing.
+            - Always use the format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools.
+            - Always end your response with a "Final Answer:" when you're ready to respond to the user.
 
             Human: {{input}}
             {{agent_scratchpad}}
@@ -553,7 +557,10 @@ class AIResponder(commands.Cog):
 
             # Run the agent with the custom callback handler
             response = await self.agent_executor.ainvoke(
-                {"input": content, "chat_history": chat_history},
+                {
+                    "input": f"User's message: {content}\nPlease respond to the user's message.",
+                    "chat_history": chat_history
+                },
                 callbacks=[callback_handler]
             )
 
