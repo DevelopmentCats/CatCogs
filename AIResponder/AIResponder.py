@@ -76,6 +76,15 @@ class DeepInfraLLM(BaseChatModel):
         except Exception as e:
             raise ValueError(f"Error calling DeepInfra API: {str(e)}")
 
+    def _generate(
+        self,
+        messages: List[BaseMessage],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        return asyncio.run(self._agenerate(messages, stop, run_manager, **kwargs))
+
 class LoggingCallbackHandler(BaseCallbackHandler):
     def __init__(self, response_message):
         self.response_message = response_message
