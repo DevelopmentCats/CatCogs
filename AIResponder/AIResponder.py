@@ -30,6 +30,7 @@ from langchain.agents import create_react_agent
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatResult, ChatGeneration
+import json
 
 class DeepInfraLLM(BaseChatModel):
     client: Any = Field(...)
@@ -69,7 +70,16 @@ class DeepInfraLLM(BaseChatModel):
                 stop=stop,
                 **kwargs
             )
-            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=response.choices[0].message.content))])
+            
+            content = response.choices[0].message.content
+
+            # Try to format the content as a JSON string if it's not already
+            try:
+                json.loads(content)
+            except json.JSONDecodeError:
+                content = json.dumps({"action": "Final Answer", "action_input": content})
+
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
         except Exception as e:
             raise ValueError(f"Error calling DeepInfra API: {str(e)}")
 
@@ -403,47 +413,6 @@ class AIResponder(commands.Cog):
             memory = self.agent_executor.memory
             chat_history = memory.chat_memory.messages if memory else []
 
-            # Create a custom callback handler to log thoughts and tool usage
-            class LoggingCallbackHandler(BaseCallbackHandler):
-                def __init__(self, response_message):
-                    self.response_message = response_message
-                    self.thought_count = 1
-
-                async def on_llm_start(self, serialized, prompts, **kwargs):
-                    thinking_messages = [
-                        f"🧠 Thought {self.thought_count}: Pondering the mysteries of your query...",
-                        f"💡 Idea {self.thought_count}: A lightbulb moment is brewing!",
-                        f"🤔 Contemplation {self.thought_count}: Diving deep into the realm of possibilities...",
-                        f"🌟 Eureka {self.thought_count}: Channeling the spirit of great thinkers...",
-                        f"🔍 Investigation {self.thought_count}: Examining your question from all angles..."
-                    ]
-                    await self.response_message.edit(content=random.choice(thinking_messages))
-                    self.thought_count += 1
-
-                async def on_tool_start(self, serialized, input_str, **kwargs):
-                    tool_name = serialized["name"]
-                    tool_messages = [
-                        f"🔧 Tinkering with the {tool_name} gadget...",
-                        f"🚀 Launching the {tool_name} module into action!",
-                        f"🔬 Analyzing data with the {tool_name} tool...",
-                        f"🧰 Pulling out the {tool_name} from my toolbox...",
-                        f"⚡ Powering up the {tool_name} for some fact-finding..."
-                    ]
-                    await self.response_message.edit(content=random.choice(tool_messages))
-
-                async def on_tool_end(self, output, **kwargs):
-                    tool_end_messages = [
-                        "✅ Tool usage complete! Processing the juicy results...",
-                        "🎉 Data gathered! Time to make sense of it all...",
-                        "📊 Information acquired! Crunching the numbers...",
-                        "🧩 Pieces collected! Assembling the puzzle...",
-                        "🏁 Research phase complete! Formulating a response..."
-                    ]
-                    await self.response_message.edit(content=random.choice(tool_end_messages))
-
-                async def on_agent_action(self, action, **kwargs):
-                    await self.response_message.edit(content=f"🤖 Taking action: {action.tool}")
-
             # Create the callback handler
             callback_handler = LoggingCallbackHandler(response_message)
 
@@ -455,6 +424,15 @@ class AIResponder(commands.Cog):
 
             # Extract the output from the response
             output = response.get('output', "I couldn't generate a response. Please try again.")
+
+            # Try to parse the output as JSON
+            try:
+                parsed_output = json.loads(output)
+                if isinstance(parsed_output, dict) and 'action_input' in parsed_output:
+                    output = parsed_output['action_input']
+            except json.JSONDecodeError:
+                # If it's not JSON, use the output as is
+                pass
 
             # Update memory with the new message pair
             if memory:
