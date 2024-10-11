@@ -91,7 +91,7 @@ class AIResponder(commands.Cog):
         self.llm.model_kwargs = {
             "temperature": 0.7,
             "repetition_penalty": 1.2,
-            "max_new_tokens": 250,
+            "max_new_tokens": 5000,
             "top_p": 0.9,
         }
 
@@ -567,11 +567,8 @@ class AIResponder(commands.Cog):
         return False
 
     async def stream_response(self, prompt: str):
-        response_parts = []
         async for chunk in self.llm.astream(prompt):
-            response_parts.append(chunk)
             yield chunk
-        return "".join(response_parts)
 
     async def get_model_info(self):
         model_id = self.llm.model_id
