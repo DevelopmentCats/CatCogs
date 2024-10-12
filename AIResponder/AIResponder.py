@@ -382,11 +382,19 @@ class AIResponder(commands.Cog):
                 {"input": content},
                 {"callbacks": [DiscordCallbackHandler(response_message)]}
             )
-            full_response = result.get('output', '')
+            
+            if not result or 'output' not in result:
+                self.logger.error("Agent executor returned an invalid result")
+                return "I'm sorry, but I couldn't generate a proper response. Please try again or contact the bot owner."
 
+            full_response = result['output']
             self.logger.info(f"Final response: {full_response}")
 
             return full_response
+
+        except AssertionError as e:
+            self.logger.error(f"AssertionError in process_query: {str(e)}", exc_info=True)
+            return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
