@@ -83,6 +83,9 @@ class AIResponder(commands.Cog):
                 deepinfra_api_token=api_key
             )
 
+            # Log LLM configuration
+            self.logger.info(f"LLM configuration: {self.llm.model_kwargs}")
+
             # Test the LLM
             try:
                 test_response = await self.llm.agenerate(["Test"])
@@ -397,19 +400,24 @@ class AIResponder(commands.Cog):
             self.logger.info(f"Invoking agent with input: {content}")
             
             try:
+                # Log the agent executor's configuration
+                self.logger.info(f"Agent executor config: {self.agent_executor.agent.llm_chain.prompt}")
+                self.logger.info(f"LLM config: {self.agent_executor.agent.llm_chain.llm.model_kwargs}")
+
                 result = await self.agent_executor.ainvoke(
                     {"input": content},
                     {"callbacks": [DiscordCallbackHandler(response_message)]}
                 )
+                self.logger.info(f"Agent executor result: {result}")
             except AssertionError as ae:
                 self.logger.error(f"AssertionError in agent_executor.ainvoke: {str(ae)}", exc_info=True)
-                # Fallback to direct LLM call
+                # Try to get more information about the LLM's state
                 try:
-                    direct_response = await self.llm.agenerate([content])
-                    return direct_response.generations[0][0].text
+                    test_response = await self.llm.agenerate(["Test message"])
+                    self.logger.info(f"LLM test response: {test_response}")
                 except Exception as llm_error:
-                    self.logger.error(f"Error in direct LLM call: {str(llm_error)}", exc_info=True)
-                    return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
+                    self.logger.error(f"Error in LLM test: {str(llm_error)}", exc_info=True)
+                return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
             except Exception as e:
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
                 return "An unexpected error occurred while processing your request. Please try again or contact the bot owner if the issue persists."
@@ -421,7 +429,7 @@ class AIResponder(commands.Cog):
             full_response = result['output']
             self.logger.info(f"Final response: {full_response}")
 
-            return full_response
+            return full_response[:2000]  # Truncate to 2000 characters
 
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
