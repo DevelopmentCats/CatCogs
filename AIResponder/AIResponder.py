@@ -92,8 +92,7 @@ class AIResponder(commands.Cog):
         memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
 
         custom_personality = await self.config.custom_personality()
-        template = f"""\
-        You are an AI assistant with the following personality: {custom_personality}
+        template = f"""You are an AI assistant with the following personality: {custom_personality}
         You are in a Discord server, responding to user messages.
         Respond naturally and conversationally, as if you're chatting with a friend.
         Always maintain your assigned personality throughout the conversation.
@@ -151,14 +150,10 @@ class AIResponder(commands.Cog):
         """
 
         self.logger.info("Creating agent executor")
-        tools = await self.setup_tools()
         tools_str = "\n".join([f"- {tool.name}: {tool.description}" for tool in tools])
         tool_names = ", ".join([tool.name for tool in tools])
 
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content=custom_personality),
-            HumanMessage(content=template)
-        ])
+        prompt = ChatPromptTemplate.from_template(template)
 
         agent = create_react_agent(
             llm=self.llm,
@@ -170,9 +165,7 @@ class AIResponder(commands.Cog):
             agent=agent,
             tools=tools,
             memory=memory,
-            verbose=True,
-            max_iterations=10,
-            handle_parsing_errors=True,
+            verbose=True
         )
 
         await self.verify_api_settings()
@@ -353,8 +346,7 @@ class AIResponder(commands.Cog):
             custom_personality = await self.config.custom_personality()
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
             
-            template = f"""\
-            You are an AI assistant with the following personality: {custom_personality}
+            template = f"""You are an AI assistant with the following personality: {custom_personality}
             You are in a Discord server, responding to user messages.
             Respond naturally and conversationally, as if you're chatting with a friend.
             Always maintain your assigned personality throughout the conversation.
@@ -417,10 +409,7 @@ class AIResponder(commands.Cog):
             tool_names = ", ".join([tool.name for tool in tools])
             
             self.logger.info("Creating agent executor")
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessage(content=custom_personality),
-                HumanMessage(content=template)
-            ])
+            prompt = ChatPromptTemplate.from_template(template)
 
             agent = create_react_agent(
                 llm=self.llm,
@@ -431,9 +420,7 @@ class AIResponder(commands.Cog):
                 agent=agent,
                 tools=tools,
                 memory=memory,
-                verbose=True,
-                max_iterations=10,
-                handle_parsing_errors=True,
+                verbose=True
             )
             
             self.logger.info("LangChain components updated successfully")
