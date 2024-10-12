@@ -9,24 +9,15 @@ from datetime import datetime
 from openai import AsyncOpenAI, APIConnectionError, APIError, RateLimitError
 
 # Updated LangChain V3 imports
-from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import Tool
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.outputs import ChatResult, ChatGeneration
-from langchain.schema import LLMResult
 from langchain.agents import AgentExecutor, create_react_agent
-from langchain.agents.format_scratchpad import format_to_openai_function_messages
-from langchain.agents.output_parsers import ReActSingleInputOutputParser
-from langchain.memory import ConversationBufferMemory
-from langchain.callbacks.manager import CallbackManagerForLLMRun
+from langchain.memory import ConversationBufferMemory, ConversationBufferWindowMemory
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper, WolframAlphaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
-
 from langchain_experimental.tools import PythonAstREPLTool
 from langchain_community.llms.deepinfra import DeepInfra
 
