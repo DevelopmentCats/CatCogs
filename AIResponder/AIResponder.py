@@ -378,10 +378,17 @@ class AIResponder(commands.Cog):
 
             self.logger.info(f"Invoking agent with input: {content}")
             
-            result = await self.agent_executor.ainvoke(
-                {"input": content},
-                {"callbacks": [DiscordCallbackHandler(response_message)]}
-            )
+            try:
+                result = await self.agent_executor.ainvoke(
+                    {"input": content},
+                    {"callbacks": [DiscordCallbackHandler(response_message)]}
+                )
+            except AssertionError as ae:
+                self.logger.error(f"AssertionError in agent_executor.ainvoke: {str(ae)}", exc_info=True)
+                return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
+            except Exception as e:
+                self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
+                return "An unexpected error occurred while processing your request. Please try again or contact the bot owner if the issue persists."
             
             if not result or 'output' not in result:
                 self.logger.error("Agent executor returned an invalid result")
@@ -392,12 +399,8 @@ class AIResponder(commands.Cog):
 
             return full_response
 
-        except AssertionError as e:
-            self.logger.error(f"AssertionError in process_query: {str(e)}", exc_info=True)
-            return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
-
         except Exception as e:
-            self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
+            self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
             return "I encountered an unexpected error while processing your request. Please try again or contact the bot owner if the issue persists."
 
     async def process_intermediate_step(self, step, response_message):
