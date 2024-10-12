@@ -69,58 +69,76 @@ class AIResponder(commands.Cog):
         self.bot.loop.create_task(self.initialize())
 
     async def initialize(self):
-        api_key = await self.config.api_key()
-        model = await self.config.model()
+        try:
+            api_key = await self.config.api_key()
+            model = await self.config.model()
 
-        if not api_key:
-            self.logger.error("API key not set. Please use the 'air apikey' command to set it.")
-            return
+            if not api_key:
+                self.logger.error("API key not set. Please use the 'air apikey' command to set it.")
+                return
 
-        self.llm = DeepInfra(
-            model_id=model,
-            deepinfra_api_token=api_key
-        )
+            self.logger.info(f"Initializing DeepInfra LLM with model: {model}")
+            self.llm = DeepInfra(
+                model_id=model,
+                deepinfra_api_token=api_key
+            )
 
-        # Set up tools and agent executor
-        tools = await self.setup_tools()
-        memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
+            # Test the LLM
+            try:
+                test_response = await self.llm.agenerate(["Test"])
+                self.logger.info(f"LLM test response: {test_response}")
+            except Exception as e:
+                self.logger.error(f"Error testing LLM: {str(e)}", exc_info=True)
+                return
 
-        custom_personality = await self.config.custom_personality()
-        template = f"""You are an AI assistant with the following personality: {custom_personality}
-        You are in a Discord server, responding to user messages.
-        Respond naturally and conversationally, as if you're chatting with a friend.
-        Always maintain your assigned personality throughout the conversation.
+            # Set up tools and agent executor
+            self.logger.info("Setting up tools")
+            tools = await self.setup_tools()
+            memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
 
-        Human: {{input}}
-        AI: To approach this, let's think step-by-step:
+            custom_personality = await self.config.custom_personality()
+            template = f"""You are an AI assistant with the following personality: {custom_personality}
+            You are in a Discord server, responding to user messages.
+            Respond naturally and conversationally, as if you're chatting with a friend.
+            Always maintain your assigned personality throughout the conversation.
 
-        {{agent_scratchpad}}
+            Human: {{input}}
+            AI: To approach this, let's think step-by-step:
 
-        Available tools:
-        {{tools}}
+            {{agent_scratchpad}}
 
-        Tool names: {{tool_names}}
+            Available tools:
+            {{tools}}
 
-        Remember to use tools only when necessary, and always explain your thought process.
-        """
+            Tool names: {{tool_names}}
 
-        prompt = ChatPromptTemplate.from_template(template)
+            Remember to use tools only when necessary, and always explain your thought process.
+            """
 
-        self.logger.info("Creating agent executor")
-        agent = create_react_agent(
-            llm=self.llm,
-            tools=tools,
-            prompt=prompt
-        )
+            prompt = ChatPromptTemplate.from_template(template)
 
-        self.agent_executor = AgentExecutor(
-            agent=agent,
-            tools=tools,
-            memory=memory,
-            verbose=True
-        )
+            self.logger.info("Creating agent executor")
+            try:
+                agent = create_react_agent(
+                    llm=self.llm,
+                    tools=tools,
+                    prompt=prompt
+                )
 
-        await self.verify_api_settings()
+                self.agent_executor = AgentExecutor(
+                    agent=agent,
+                    tools=tools,
+                    memory=memory,
+                    verbose=True
+                )
+                self.logger.info("Agent executor created successfully")
+            except Exception as e:
+                self.logger.error(f"Error creating agent executor: {str(e)}", exc_info=True)
+                self.agent_executor = None
+
+            await self.verify_api_settings()
+        except Exception as e:
+            self.logger.error(f"Unexpected error in initialize: {str(e)}", exc_info=True)
 
     async def setup_tools(self):
         tools = []
@@ -385,7 +403,13 @@ class AIResponder(commands.Cog):
                 )
             except AssertionError as ae:
                 self.logger.error(f"AssertionError in agent_executor.ainvoke: {str(ae)}", exc_info=True)
-                return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
+                # Fallback to direct LLM call
+                try:
+                    direct_response = await self.llm.agenerate([content])
+                    return direct_response.generations[0][0].text
+                except Exception as llm_error:
+                    self.logger.error(f"Error in direct LLM call: {str(llm_error)}", exc_info=True)
+                    return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
             except Exception as e:
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
                 return "An unexpected error occurred while processing your request. Please try again or contact the bot owner if the issue persists."
