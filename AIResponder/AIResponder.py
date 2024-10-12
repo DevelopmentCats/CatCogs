@@ -83,9 +83,13 @@ class AIResponder(commands.Cog):
         api_key = await self.config.api_key()
         model = await self.config.model()
 
+        if not api_key:
+            self.logger.error("API key not set. Please use the 'air apikey' command to set it.")
+            return
+
         self.llm = DeepInfra(
             model_id=model,
-            deepinfra_api_key=api_key,
+            deepinfra_api_token=api_key,
             deepinfra_api_url=api_url
         )
         self.llm.model_kwargs = {
@@ -266,7 +270,8 @@ class AIResponder(commands.Cog):
     async def set_api_key(self, ctx: commands.Context, api_key: str):
         """Set the DeepInfra API key."""
         await self.config.api_key.set(api_key)
-        await ctx.send("API key has been set.")
+        await self.update_langchain_components()
+        await ctx.send("API key has been set and components updated.")
 
     @air.command(name="model")
     @commands.is_owner()
@@ -338,10 +343,14 @@ class AIResponder(commands.Cog):
             api_key = await self.config.api_key()
             model = await self.config.model()
             
+            if not api_key:
+                self.logger.error("API key not set. Please use the 'air apikey' command to set it.")
+                return
+            
             self.logger.info(f"Using API URL: {api_url}, Model: {model}")
             self.llm = DeepInfra(
                 model_id=model,
-                deepinfra_api_key=api_key,
+                deepinfra_api_token=api_key,
                 deepinfra_api_url=api_url
             )
             self.llm.model_kwargs = {
