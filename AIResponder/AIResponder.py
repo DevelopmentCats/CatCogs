@@ -65,7 +65,6 @@ class AIResponder(commands.Cog):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         default_global = {
-            "api_url": "https://api.deepinfra.com/v1/openai",
             "api_key": "",
             "model": "meta-llama/Llama-3.2-11B-Vision-Instruct",
             "custom_personality": "You are a helpful AI assistant.",
@@ -79,7 +78,6 @@ class AIResponder(commands.Cog):
         self.bot.loop.create_task(self.initialize())
 
     async def initialize(self):
-        api_url = await self.config.api_url()
         api_key = await self.config.api_key()
         model = await self.config.model()
 
@@ -89,8 +87,7 @@ class AIResponder(commands.Cog):
 
         self.llm = DeepInfra(
             model_id=model,
-            deepinfra_api_token=api_key,
-            deepinfra_api_url=api_url
+            deepinfra_api_token=api_key
         )
         self.llm.model_kwargs = {
             "temperature": 0.7,
@@ -339,7 +336,6 @@ class AIResponder(commands.Cog):
     async def update_langchain_components(self):
         try:
             self.logger.info("Starting to update LangChain components")
-            api_url = await self.config.api_url()
             api_key = await self.config.api_key()
             model = await self.config.model()
             
@@ -347,11 +343,10 @@ class AIResponder(commands.Cog):
                 self.logger.error("API key not set. Please use the 'air apikey' command to set it.")
                 return
             
-            self.logger.info(f"Using API URL: {api_url}, Model: {model}")
+            self.logger.info(f"Using Model: {model}")
             self.llm = DeepInfra(
                 model_id=model,
-                deepinfra_api_token=api_key,
-                deepinfra_api_url=api_url
+                deepinfra_api_token=api_key
             )
             self.llm.model_kwargs = {
                 "temperature": 0.7,
