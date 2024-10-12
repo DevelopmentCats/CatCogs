@@ -332,14 +332,11 @@ class AIResponder(commands.Cog):
                 return
             
             self.logger.info(f"Using Model: {model}")
-            self.llm = DeepInfra(
-                model_id=model,
-                deepinfra_api_token=api_key
-            )
+            self.llm = DeepInfra(model_id=model, deepinfra_api_token=api_key)
             self.llm.model_kwargs = {
                 "temperature": 0.7,
                 "repetition_penalty": 1.2,
-                "max_new_tokens": 5000,
+                "max_new_tokens": 250,
                 "top_p": 0.9,
             }
             
@@ -350,72 +347,18 @@ class AIResponder(commands.Cog):
             You are in a Discord server, responding to user messages.
             Respond naturally and conversationally, as if you're chatting with a friend.
             Always maintain your assigned personality throughout the conversation.
-            Do not mention that you're an AI or that this is a prompt.
 
-            Your primary goal is to answer the user's specific query accurately and helpfully.
+            Human: {{input}}
+            AI: Let's think about this step by step:"""
 
-            User's message: {{input}}
-
-            When responding to the user's message:
-            1) First, carefully consider what you already know that could help answer the question or address the user's input.
-            2) If your existing knowledge is sufficient, formulate a response WITHOUT using any tools.
-            3) Only use tools if you absolutely need additional, specific information that you don't already have.
-
-            Available tools:
-            {{tools}}
-
-            Tool names: {{tool_names}}
-
-            Guidelines for using tools:
-            - Use tools ONLY when absolutely necessary to address the user's specific input.
-            - Choose the most appropriate tool for the specific information you need.
-            - Avoid using multiple tools unless absolutely required to answer the query.
-            - After using a tool, always relate the information back to the user's original message.
-
-            To use a tool, ALWAYS use this exact format:
-            Thought: [Your detailed reasoning for why this specific tool is necessary]
-            Action: [Tool Name]
-            Action Input: [Specific, concise input for the tool]
-
-            After using a tool:
-            Observation: [Tool Output]
-            Thought: [Interpret the tool output and relate it directly to the user's message]
-
-            Important:
-            - Always keep the user's original message in mind throughout the process.
-            - Stay focused on addressing the specific input provided by the user.
-            - Don't get sidetracked by interesting but irrelevant information from tool outputs.
-            - If you can answer without tools, do so immediately without mentioning tools.
-
-            When you have enough information to respond:
-            Thought: I now have sufficient information to address the user's message.
-            Action: Response
-            Action Input: [Your complete response here, natural and conversational, suitable for Discord]
-
-            Remember:
-            - Respond in a natural, friendly manner, consistent with your assigned personality.
-            - Be informative but concise, considering Discord's message length limitations.
-            - If you're unsure about something, it's okay to express uncertainty rather than guessing.
-            - ALWAYS use the exact format "Thought: [Your thought]\nAction: [Tool Name]\nAction Input: [Input]" when using tools or responding.
-            - Stay focused on the original message and avoid introducing unrelated topics.
-            - Format your response appropriately for Discord, using markdown for emphasis or code blocks if necessary.
-
-            {{agent_scratchpad}}
-            """
-            
-            self.logger.info("Setting up tools")
-            tools = await self.setup_tools()
-            tools_str = "\n".join([f"- {tool.name}: {tool.description}" for tool in tools])
-            tool_names = ", ".join([tool.name for tool in tools])
-            
-            self.logger.info("Creating agent executor")
             prompt = ChatPromptTemplate.from_template(template)
 
-            agent = create_react_agent(
-                llm=self.llm,
-                tools=tools,
-                prompt=prompt
-            )
+            self.logger.info("Setting up tools")
+            tools = await self.setup_tools()
+            
+            self.logger.info("Creating agent executor")
+            agent = create_react_agent(llm=self.llm, tools=tools, prompt=prompt)
+            
             self.agent_executor = AgentExecutor(
                 agent=agent,
                 tools=tools,
@@ -473,32 +416,12 @@ class AIResponder(commands.Cog):
                 if self.agent_executor is None:
                     return "I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
 
-            memory = self.agent_executor.memory
-            chat_history = memory.chat_memory.messages if memory else []
-
-            tool_dict = {tool.name: tool.description for tool in self.agent_executor.tools}
-            callback_handler = DiscordCallbackHandler(response_message)
-
             self.logger.info(f"Invoking agent with input: {content}")
             
-            try:
-                result = await self.agent_executor.ainvoke(
-                    {
-                        "input": content,
-                        "chat_history": chat_history
-                    },
-                    config={"callbacks": [callback_handler]}
-                )
-                full_response = result.get('output', '')
-            except Exception as agent_error:
-                self.logger.error(f"Error during agent execution: {str(agent_error)}", exc_info=True)
-                return f"I encountered an error while processing your request: {str(agent_error)}"
+            result = await self.agent_executor.ainvoke({"input": content})
+            full_response = result.get('output', '')
 
             self.logger.info(f"Final response: {full_response}")
-
-            if memory:
-                memory.chat_memory.add_user_message(content)
-                memory.chat_memory.add_ai_message(full_response)
 
             return full_response
 
