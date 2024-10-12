@@ -157,12 +157,7 @@ class AIResponder(commands.Cog):
 
         prompt = ChatPromptTemplate.from_messages([
             SystemMessage(content=custom_personality),
-            HumanMessage(content=template.format(
-                tools=tools_str,
-                tool_names=tool_names,
-                agent_scratchpad="{agent_scratchpad}",
-                input="{input}"
-            ))
+            HumanMessage(content=template)
         ])
 
         agent = create_react_agent(
@@ -424,12 +419,7 @@ class AIResponder(commands.Cog):
             self.logger.info("Creating agent executor")
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessage(content=custom_personality),
-                HumanMessage(content=template.format(
-                    tools=tools_str,
-                    tool_names=tool_names,
-                    agent_scratchpad="{agent_scratchpad}",
-                    input="{input}"
-                ))
+                HumanMessage(content=template)
             ])
 
             agent = create_react_agent(
