@@ -160,7 +160,8 @@ class AIResponder(commands.Cog):
             HumanMessage(content=template.format(
                 tools=tools_str,
                 tool_names=tool_names,
-                agent_scratchpad="{agent_scratchpad}"
+                agent_scratchpad="{agent_scratchpad}",
+                input="{input}"
             ))
         ])
 
@@ -426,7 +427,8 @@ class AIResponder(commands.Cog):
                 HumanMessage(content=template.format(
                     tools=tools_str,
                     tool_names=tool_names,
-                    agent_scratchpad="{agent_scratchpad}"
+                    agent_scratchpad="{agent_scratchpad}",
+                    input="{input}"
                 ))
             ])
 
