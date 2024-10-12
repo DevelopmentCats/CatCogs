@@ -92,7 +92,17 @@ class AIResponder(commands.Cog):
         Always maintain your assigned personality throughout the conversation.
 
         Human: {{input}}
-        AI: """
+        AI: To approach this, let's think step-by-step:
+
+        {{agent_scratchpad}}
+
+        Available tools:
+        {{tools}}
+
+        Tool names: {{tool_names}}
+
+        Remember to use tools only when necessary, and always explain your thought process.
+        """
 
         prompt = ChatPromptTemplate.from_template(template)
 
@@ -285,7 +295,17 @@ class AIResponder(commands.Cog):
             Always maintain your assigned personality throughout the conversation.
 
             Human: {{input}}
-            AI: """
+            AI: To approach this, let's think step-by-step:
+
+            {{agent_scratchpad}}
+
+            Available tools:
+            {{tools}}
+
+            Tool names: {{tool_names}}
+
+            Remember to use tools only when necessary, and always explain your thought process.
+            """
 
             prompt = ChatPromptTemplate.from_template(template)
 
@@ -293,7 +313,11 @@ class AIResponder(commands.Cog):
             tools = await self.setup_tools()
             
             self.logger.info("Creating agent executor")
-            agent = create_react_agent(llm=self.llm, tools=tools, prompt=prompt)
+            agent = create_react_agent(
+                llm=self.llm,
+                tools=tools,
+                prompt=prompt
+            )
             
             self.agent_executor = AgentExecutor(
                 agent=agent,
