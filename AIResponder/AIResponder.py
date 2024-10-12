@@ -481,19 +481,18 @@ class AIResponder(commands.Cog):
 
             self.logger.info(f"Invoking agent with input: {content}")
             
-            stream = self.agent_executor.astream(
-                {
-                    "input": content,
-                    "chat_history": chat_history
-                },
-                config={"callbacks": [callback_handler]}
-            )
-
-            full_response = ""
-            async for chunk in stream:
-                if 'output' in chunk:
-                    full_response += chunk['output']
-                    await response_message.edit(content=full_response[:2000])  # Discord message limit
+            try:
+                result = await self.agent_executor.ainvoke(
+                    {
+                        "input": content,
+                        "chat_history": chat_history
+                    },
+                    config={"callbacks": [callback_handler]}
+                )
+                full_response = result.get('output', '')
+            except Exception as agent_error:
+                self.logger.error(f"Error during agent execution: {str(agent_error)}", exc_info=True)
+                return f"I encountered an error while processing your request: {str(agent_error)}"
 
             self.logger.info(f"Final response: {full_response}")
 
