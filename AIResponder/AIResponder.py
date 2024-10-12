@@ -151,9 +151,17 @@ class AIResponder(commands.Cog):
         """
 
         self.logger.info("Creating agent executor")
+        tools = await self.setup_tools()
+        tools_str = "\n".join([f"- {tool.name}: {tool.description}" for tool in tools])
+        tool_names = ", ".join([tool.name for tool in tools])
+
         prompt = ChatPromptTemplate.from_messages([
             SystemMessage(content=custom_personality),
-            HumanMessage(content=template)
+            HumanMessage(content=template.format(
+                tools=tools_str,
+                tool_names=tool_names,
+                agent_scratchpad="{agent_scratchpad}"
+            ))
         ])
 
         agent = create_react_agent(
@@ -415,7 +423,11 @@ class AIResponder(commands.Cog):
             self.logger.info("Creating agent executor")
             prompt = ChatPromptTemplate.from_messages([
                 SystemMessage(content=custom_personality),
-                HumanMessage(content=template)
+                HumanMessage(content=template.format(
+                    tools=tools_str,
+                    tool_names=tool_names,
+                    agent_scratchpad="{agent_scratchpad}"
+                ))
             ])
 
             agent = create_react_agent(
