@@ -314,7 +314,14 @@ class AIResponder(commands.Cog):
                 return
             
             self.logger.info(f"Using Model: {model}")
-            self.llm = DeepInfra(model_id=model, deepinfra_api_token=api_key, max_tokens=2048)
+            self.llm = DeepInfra(
+                model_id=model,
+                deepinfra_api_token=api_key,
+                max_tokens=4096,  # Ensure enough tokens for tool usage
+                temperature=0.7,
+                top_p=0.95,
+                streaming=True
+            )
             
             custom_personality = await self.config.custom_personality()
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
@@ -354,7 +361,8 @@ class AIResponder(commands.Cog):
                 tools=tools,
                 memory=memory,
                 verbose=True,
-                max_iterations=5,
+                max_iterations=10,  # Allow more iterations
+                max_execution_time=60,  # Add a time limit
                 early_stopping_method="generate"
             )
             
@@ -414,8 +422,12 @@ class AIResponder(commands.Cog):
                 self.logger.info(f"Agent executor config: {self.agent_executor.agent}")
                 self.logger.info(f"LLM config: {self.llm.model_kwargs}")
 
+                # Ensure the input is correctly formatted
+                input_data = {"input": content}
+                self.logger.debug(f"Input data for LLM: {input_data}")
+
                 result = await self.agent_executor.ainvoke(
-                    {"input": content},
+                    input_data,
                     {"callbacks": [DiscordCallbackHandler(response_message)]}
                 )
                 self.logger.info(f"Agent executor result: {result}")
@@ -427,7 +439,15 @@ class AIResponder(commands.Cog):
                 full_response = result['output']
                 self.logger.info(f"Final response: {full_response}")
 
-                return full_response[:2000]  # Truncate to 2000 characters
+                # Split long responses into multiple messages
+                if len(full_response) > 2000:
+                    chunks = [full_response[i:i+2000] for i in range(0, len(full_response), 2000)]
+                    await response_message.edit(content=chunks[0])
+                    for chunk in chunks[1:]:
+                        await response_message.channel.send(chunk)
+                    return "Response sent in multiple messages due to length."
+                else:
+                    return full_response
 
             except AssertionError as ae:
                 self.logger.error(f"AssertionError in agent_executor.ainvoke: {str(ae)}", exc_info=True)
