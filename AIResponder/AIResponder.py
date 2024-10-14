@@ -453,6 +453,9 @@ class AIResponder(commands.Cog):
                 input_data = {"input": content}
                 self.logger.debug(f"Input data for LLM: {input_data}")
 
+                # Log the prompt template
+                self.logger.debug(f"Prompt template: {self.agent_executor.agent.llm_chain.prompt}")
+
                 # Test direct LLM call
                 try:
                     direct_response = await self.llm.agenerate([content])
@@ -461,11 +464,17 @@ class AIResponder(commands.Cog):
                     self.logger.error(f"Error in direct LLM call: {str(e)}", exc_info=True)
 
                 # Continue with the agent execution
+                self.logger.info("Starting agent execution")
                 result = await self.agent_executor.ainvoke(
                     input_data,
                     {"callbacks": [DiscordCallbackHandler(response_message)]}
                 )
                 self.logger.info(f"Agent executor result: {result}")
+
+                # Log intermediate steps
+                if 'intermediate_steps' in result:
+                    for i, step in enumerate(result['intermediate_steps']):
+                        self.logger.debug(f"Intermediate step {i}: {step}")
 
                 if not result or 'output' not in result:
                     self.logger.error("Agent executor returned an invalid result")
@@ -488,6 +497,8 @@ class AIResponder(commands.Cog):
 
             except AssertionError as ae:
                 self.logger.error(f"AssertionError in agent_executor.ainvoke: {str(ae)}", exc_info=True)
+                self.logger.error(f"Agent executor state: {self.agent_executor}")
+                self.logger.error(f"LLM state: {self.llm}")
                 return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
             except Exception as e:
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
