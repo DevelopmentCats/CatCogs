@@ -86,9 +86,9 @@ class AIResponder(commands.Cog):
                 self.logger.error("API key not set. Please use the 'air apikey' command to set it.")
                 return
 
-            self.logger.info(f"Initializing DeepInfra LLM with model: {model}")
-            self.llm = DeepInfra(
-                model_id=model,
+            self.logger.info(f"Initializing ChatDeepInfra LLM with model: {model}")
+            self.llm = ChatDeepInfra(
+                model=model,
                 deepinfra_api_token=api_key
             )
 
@@ -97,7 +97,7 @@ class AIResponder(commands.Cog):
 
             # Test the LLM
             try:
-                test_response = await self.llm.agenerate(["Test"])
+                test_response = await self.llm.agenerate([HumanMessage(content="Test")])
                 self.logger.info(f"LLM test response: {test_response}")
             except Exception as e:
                 self.logger.error(f"Error testing LLM: {str(e)}", exc_info=True)
@@ -127,21 +127,29 @@ class AIResponder(commands.Cog):
             Remember to use tools only when necessary, and always explain your thought process.
             """
 
-            prompt = ChatPromptTemplate.from_template(template)
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", template),
+                ("human", "{input}"),
+                ("ai", "{agent_scratchpad}"),
+            ])
 
             self.logger.info("Creating agent executor")
             try:
-                agent = create_react_agent(
+                agent = create_tool_calling_agent(
                     llm=self.llm,
                     tools=tools,
                     prompt=prompt
                 )
 
-                self.agent_executor = AgentExecutor.from_agent_and_tools(
+                self.agent_executor = AgentExecutor(
                     agent=agent,
                     tools=tools,
                     memory=memory,
-                    verbose=True
+                    verbose=True,
+                    max_iterations=10,
+                    max_execution_time=60,
+                    early_stopping_method="generate",
+                    stream_runnable=False
                 )
                 self.logger.info("Agent executor created successfully")
             except Exception as e:
@@ -515,7 +523,7 @@ class AIResponder(commands.Cog):
             return False
         try:
             # Make a simple API call to verify the settings
-            response = await self.llm.agenerate(["Test"])
+            response = await self.llm.agenerate([HumanMessage(content="Test")])
             if response:
                 self.logger.info("API settings verified successfully")
                 return True
