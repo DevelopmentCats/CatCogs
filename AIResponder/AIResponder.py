@@ -426,6 +426,14 @@ class AIResponder(commands.Cog):
                 input_data = {"input": content}
                 self.logger.debug(f"Input data for LLM: {input_data}")
 
+                # Test direct LLM call
+                try:
+                    direct_response = await self.llm.agenerate([content])
+                    self.logger.info(f"Direct LLM response: {direct_response}")
+                except Exception as e:
+                    self.logger.error(f"Error in direct LLM call: {str(e)}", exc_info=True)
+
+                # Continue with the agent execution
                 result = await self.agent_executor.ainvoke(
                     input_data,
                     {"callbacks": [DiscordCallbackHandler(response_message)]}
@@ -513,6 +521,23 @@ class AIResponder(commands.Cog):
         model_id = self.llm.model_id
         model_kwargs = self.llm.model_kwargs
         return f"Current model: {model_id}\nModel parameters: {json.dumps(model_kwargs, indent=2)}"
+
+    @commands.command(name="airtest")
+    @commands.is_owner()
+    async def test_llm(self, ctx: commands.Context, *, query: str):
+        """Test the LLM directly without using the agent."""
+        if not await self.is_configured():
+            await ctx.send("AIResponder is not configured. Please set up the API key and model first.")
+            return
+
+        async with ctx.typing():
+            try:
+                response = await self.llm.agenerate([query])
+                result = response.generations[0][0].text
+                await ctx.send(f"LLM Response:\n{result[:2000]}")
+            except Exception as e:
+                self.logger.error(f"Error in test_llm: {str(e)}", exc_info=True)
+                await ctx.send(f"An error occurred while testing the LLM: {str(e)[:1000]}")
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
