@@ -401,8 +401,8 @@ class AIResponder(commands.Cog):
             
             try:
                 # Log the agent executor's configuration
-                self.logger.info(f"Agent executor config: {self.agent_executor.agent.llm_chain.prompt}")
-                self.logger.info(f"LLM config: {self.agent_executor.agent.llm_chain.llm.model_kwargs}")
+                self.logger.info(f"Agent executor config: {self.agent_executor.agent}")
+                self.logger.info(f"LLM config: {self.llm.model_kwargs}")
 
                 result = await self.agent_executor.ainvoke(
                     {"input": content},
