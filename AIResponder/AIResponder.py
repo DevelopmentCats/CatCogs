@@ -228,7 +228,7 @@ class AIResponder(commands.Cog):
     @commands.guild_only()
     @commands.admin_or_permissions(manage_guild=True)
     async def air(self, ctx: commands.Context):
-        """Manage AIResponder settings."""
+        """AIResponder commands."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
@@ -302,6 +302,23 @@ class AIResponder(commands.Cog):
         """Set the Wolfram Alpha AppID."""
         await self.bot.set_shared_api_tokens("wolfram_alpha", app_id=app_id)
         await ctx.send("Wolfram Alpha AppID has been set.")
+
+    @air.command(name="test")
+    @commands.is_owner()
+    async def test_llm(self, ctx: commands.Context, *, query: str):
+        """Test the LLM directly without using the agent."""
+        if not await self.is_configured():
+            await ctx.send("AIResponder is not configured. Please set up the API key and model first.")
+            return
+
+        async with ctx.typing():
+            try:
+                response = await self.llm.agenerate([query])
+                result = response.generations[0][0].text
+                await ctx.send(f"LLM Response:\n{result[:2000]}")
+            except Exception as e:
+                self.logger.error(f"Error in test_llm: {str(e)}", exc_info=True)
+                await ctx.send(f"An error occurred while testing the LLM: {str(e)[:1000]}")
 
     async def update_langchain_components(self):
         try:
@@ -521,23 +538,6 @@ class AIResponder(commands.Cog):
         model_id = self.llm.model_id
         model_kwargs = self.llm.model_kwargs
         return f"Current model: {model_id}\nModel parameters: {json.dumps(model_kwargs, indent=2)}"
-
-    @commands.command(name="airtest")
-    @commands.is_owner()
-    async def test_llm(self, ctx: commands.Context, *, query: str):
-        """Test the LLM directly without using the agent."""
-        if not await self.is_configured():
-            await ctx.send("AIResponder is not configured. Please set up the API key and model first.")
-            return
-
-        async with ctx.typing():
-            try:
-                response = await self.llm.agenerate([query])
-                result = response.generations[0][0].text
-                await ctx.send(f"LLM Response:\n{result[:2000]}")
-            except Exception as e:
-                self.logger.error(f"Error in test_llm: {str(e)}", exc_info=True)
-                await ctx.send(f"An error occurred while testing the LLM: {str(e)[:1000]}")
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
