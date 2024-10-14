@@ -13,13 +13,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import Tool
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain.agents import AgentExecutor, create_react_agent
 from langchain.memory import ConversationBufferMemory, ConversationBufferWindowMemory
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper, WolframAlphaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
 from langchain_experimental.tools import PythonAstREPLTool
-from langchain_community.llms.deepinfra import DeepInfra
+from langchain_community.chat_models import ChatDeepInfra
+from langchain.agents import AgentExecutor, create_tool_calling_agent
 
 from sympy import sympify
 import wolframalpha
@@ -341,9 +341,9 @@ class AIResponder(commands.Cog):
                 return
             
             self.logger.info(f"Using Model: {model}")
-            self.llm = DeepInfra(
-                model_id=model,
-                deepinfra_api_token=api_key,
+            self.llm = ChatDeepInfra(
+                model=model,
+                deepinfra_api_token=api_key
             )
             
             custom_personality = await self.config.custom_personality()
@@ -367,26 +367,33 @@ class AIResponder(commands.Cog):
             Remember to use tools only when necessary, and always explain your thought process.
             """
             
-            prompt = ChatPromptTemplate.from_template(template)
+            prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", template),
+                    ("human", "{input}"),
+                    ("ai", "{agent_scratchpad}"),
+                ]
+            )
             
             self.logger.info("Setting up tools")
             tools = await self.setup_tools()
             
             self.logger.info("Creating agent executor")
-            agent = create_react_agent(
+            agent = create_tool_calling_agent(
                 llm=self.llm,
                 tools=tools,
                 prompt=prompt
             )
             
-            self.agent_executor = AgentExecutor.from_agent_and_tools(
+            self.agent_executor = AgentExecutor(
                 agent=agent,
                 tools=tools,
                 memory=memory,
                 verbose=True,
                 max_iterations=10,
                 max_execution_time=60,
-                early_stopping_method="generate"
+                early_stopping_method="generate",
+                stream_runnable=False
             )
             
             self.logger.info("LangChain components updated successfully")
