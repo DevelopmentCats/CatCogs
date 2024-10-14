@@ -460,7 +460,17 @@ class AIResponder(commands.Cog):
                 self.logger.info(f"Agent executor config: {self.agent_executor.agent}")
                 self.logger.info(f"LLM config: {self.llm.model_kwargs}")
 
-                input_data = {"input": content}
+                # Get the tools and tool names
+                tools = await self.setup_tools()
+                tool_names = ", ".join([tool.name for tool in tools])
+
+                input_data = {
+                    "input": content,
+                    "tools": "\n".join([f"{tool.name}: {tool.description}" for tool in tools]),
+                    "tool_names": tool_names,
+                    "chat_history": [],  # You may want to implement chat history if needed
+                    "agent_scratchpad": ""
+                }
                 self.logger.debug(f"Input data for agent: {input_data}")
 
                 result = await self.agent_executor.ainvoke(
