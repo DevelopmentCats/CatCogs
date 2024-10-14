@@ -344,10 +344,6 @@ class AIResponder(commands.Cog):
             self.llm = DeepInfra(
                 model_id=model,
                 deepinfra_api_token=api_key,
-                max_tokens=4096,  # Ensure enough tokens for tool usage
-                temperature=0.7,
-                top_p=0.95,
-                streaming=True
             )
             
             custom_personality = await self.config.custom_personality()
@@ -370,9 +366,9 @@ class AIResponder(commands.Cog):
 
             Remember to use tools only when necessary, and always explain your thought process.
             """
-
+            
             prompt = ChatPromptTemplate.from_template(template)
-
+            
             self.logger.info("Setting up tools")
             tools = await self.setup_tools()
             
@@ -388,8 +384,8 @@ class AIResponder(commands.Cog):
                 tools=tools,
                 memory=memory,
                 verbose=True,
-                max_iterations=10,  # Allow more iterations
-                max_execution_time=60,  # Add a time limit
+                max_iterations=10,
+                max_execution_time=60,
                 early_stopping_method="generate"
             )
             
@@ -449,32 +445,14 @@ class AIResponder(commands.Cog):
                 self.logger.info(f"Agent executor config: {self.agent_executor.agent}")
                 self.logger.info(f"LLM config: {self.llm.model_kwargs}")
 
-                # Ensure the input is correctly formatted
                 input_data = {"input": content}
-                self.logger.debug(f"Input data for LLM: {input_data}")
+                self.logger.debug(f"Input data for agent: {input_data}")
 
-                # Log the prompt template
-                self.logger.debug(f"Prompt template: {self.agent_executor.agent.llm_chain.prompt}")
-
-                # Test direct LLM call
-                try:
-                    direct_response = await self.llm.agenerate([content])
-                    self.logger.info(f"Direct LLM response: {direct_response}")
-                except Exception as e:
-                    self.logger.error(f"Error in direct LLM call: {str(e)}", exc_info=True)
-
-                # Continue with the agent execution
-                self.logger.info("Starting agent execution")
                 result = await self.agent_executor.ainvoke(
                     input_data,
                     {"callbacks": [DiscordCallbackHandler(response_message)]}
                 )
                 self.logger.info(f"Agent executor result: {result}")
-
-                # Log intermediate steps
-                if 'intermediate_steps' in result:
-                    for i, step in enumerate(result['intermediate_steps']):
-                        self.logger.debug(f"Intermediate step {i}: {step}")
 
                 if not result or 'output' not in result:
                     self.logger.error("Agent executor returned an invalid result")
@@ -483,26 +461,11 @@ class AIResponder(commands.Cog):
                 full_response = result['output']
                 self.logger.info(f"Final response: {full_response}")
 
-                # Split long responses into multiple messages
-                if len(full_response) > 2000:
-                    chunks = [full_response[i:i+2000] for i in range(0, len(full_response), 2000)]
-                    for i, chunk in enumerate(chunks):
-                        if i == 0:
-                            await response_message.edit(content=chunk)
-                        else:
-                            await response_message.channel.send(chunk)
-                    return f"Response sent in {len(chunks)} messages due to length."
-                else:
-                    return full_response
+                return full_response
 
-            except AssertionError as ae:
-                self.logger.error(f"AssertionError in agent_executor.ainvoke: {str(ae)}", exc_info=True)
-                self.logger.error(f"Agent executor state: {self.agent_executor}")
-                self.logger.error(f"LLM state: {self.llm}")
-                return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
             except Exception as e:
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
-                return "An unexpected error occurred while processing your request. Please try again or contact the bot owner if the issue persists."
+                return f"An error occurred while processing your request: {str(e)[:1000]}"
 
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
