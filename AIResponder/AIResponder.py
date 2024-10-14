@@ -318,15 +318,12 @@ class AIResponder(commands.Cog):
                 response = await self.llm.agenerate([query])
                 self.logger.info(f"Raw LLM response: {response}")
                 result = response.generations[0][0].text
-                
+
                 # Split the response into chunks if it's too long
                 chunks = [result[i:i+1990] for i in range(0, len(result), 1990)]
                 
-                for i, chunk in enumerate(chunks):
-                    if i == 0:
-                        await ctx.send(f"LLM Response (Part {i+1}/{len(chunks)}):\n{chunk}")
-                    else:
-                        await ctx.send(f"(Part {i+1}/{len(chunks)}):\n{chunk}")
+                for chunk in chunks:
+                    await ctx.send(chunk)
                 
                 self.logger.info(f"Sent response in {len(chunks)} part(s)")
             except Exception as e:
