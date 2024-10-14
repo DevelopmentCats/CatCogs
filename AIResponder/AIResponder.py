@@ -228,7 +228,7 @@ class AIResponder(commands.Cog):
     @commands.guild_only()
     @commands.admin_or_permissions(manage_guild=True)
     async def air(self, ctx: commands.Context):
-        """AIResponder commands."""
+        """Manage AIResponder settings."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
@@ -302,23 +302,6 @@ class AIResponder(commands.Cog):
         """Set the Wolfram Alpha AppID."""
         await self.bot.set_shared_api_tokens("wolfram_alpha", app_id=app_id)
         await ctx.send("Wolfram Alpha AppID has been set.")
-
-    @air.command(name="test")
-    @commands.is_owner()
-    async def test_llm(self, ctx: commands.Context, *, query: str):
-        """Test the LLM directly without using the agent."""
-        if not await self.is_configured():
-            await ctx.send("AIResponder is not configured. Please set up the API key and model first.")
-            return
-
-        async with ctx.typing():
-            try:
-                response = await self.llm.agenerate([query])
-                result = response.generations[0][0].text
-                await ctx.send(f"LLM Response:\n{result[:2000]}")
-            except Exception as e:
-                self.logger.error(f"Error in test_llm: {str(e)}", exc_info=True)
-                await ctx.send(f"An error occurred while testing the LLM: {str(e)[:1000]}")
 
     async def update_langchain_components(self):
         try:
@@ -467,10 +450,12 @@ class AIResponder(commands.Cog):
                 # Split long responses into multiple messages
                 if len(full_response) > 2000:
                     chunks = [full_response[i:i+2000] for i in range(0, len(full_response), 2000)]
-                    await response_message.edit(content=chunks[0])
-                    for chunk in chunks[1:]:
-                        await response_message.channel.send(chunk)
-                    return "Response sent in multiple messages due to length."
+                    for i, chunk in enumerate(chunks):
+                        if i == 0:
+                            await response_message.edit(content=chunk)
+                        else:
+                            await response_message.channel.send(chunk)
+                    return f"Response sent in {len(chunks)} messages due to length."
                 else:
                     return full_response
 
