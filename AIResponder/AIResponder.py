@@ -49,7 +49,10 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         await self.discord_message.edit(content="✅ Tool used. Processing results...")
 
     async def on_chain_end(self, outputs, **kwargs):
-        await self.discord_message.edit(content=outputs['output'][:2000])
+        if isinstance(outputs, dict) and 'output' in outputs:
+            await self.discord_message.edit(content=outputs['output'][:2000])
+        else:
+            await self.discord_message.edit(content="Finished processing, but couldn't format the output.")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -128,7 +131,7 @@ class AIResponder(commands.Cog):
                     prompt=prompt
                 )
 
-                self.agent_executor = AgentExecutor(
+                self.agent_executor = AgentExecutor.from_agent_and_tools(
                     agent=agent,
                     tools=tools,
                     memory=memory,
@@ -340,7 +343,7 @@ class AIResponder(commands.Cog):
                 prompt=prompt
             )
             
-            self.agent_executor = AgentExecutor(
+            self.agent_executor = AgentExecutor.from_agent_and_tools(
                 agent=agent,
                 tools=tools,
                 memory=memory,
@@ -400,7 +403,6 @@ class AIResponder(commands.Cog):
             self.logger.info(f"Invoking agent with input: {content}")
             
             try:
-                # Log the agent executor's configuration
                 self.logger.info(f"Agent executor config: {self.agent_executor.agent}")
                 self.logger.info(f"LLM config: {self.llm.model_kwargs}")
 
@@ -409,27 +411,19 @@ class AIResponder(commands.Cog):
                     {"callbacks": [DiscordCallbackHandler(response_message)]}
                 )
                 self.logger.info(f"Agent executor result: {result}")
-            except AssertionError as ae:
-                self.logger.error(f"AssertionError in agent_executor.ainvoke: {str(ae)}", exc_info=True)
-                # Try to get more information about the LLM's state
-                try:
-                    test_response = await self.llm.agenerate(["Test message"])
-                    self.logger.info(f"LLM test response: {test_response}")
-                except Exception as llm_error:
-                    self.logger.error(f"Error in LLM test: {str(llm_error)}", exc_info=True)
-                return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
+
+                if not result or 'output' not in result:
+                    self.logger.error("Agent executor returned an invalid result")
+                    return "I'm sorry, but I couldn't generate a proper response. Please try again or contact the bot owner."
+
+                full_response = result['output']
+                self.logger.info(f"Final response: {full_response}")
+
+                return full_response[:2000]  # Truncate to 2000 characters
+
             except Exception as e:
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
                 return "An unexpected error occurred while processing your request. Please try again or contact the bot owner if the issue persists."
-            
-            if not result or 'output' not in result:
-                self.logger.error("Agent executor returned an invalid result")
-                return "I'm sorry, but I couldn't generate a proper response. Please try again or contact the bot owner."
-
-            full_response = result['output']
-            self.logger.info(f"Final response: {full_response}")
-
-            return full_response[:2000]  # Truncate to 2000 characters
 
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
