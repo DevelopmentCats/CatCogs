@@ -36,11 +36,14 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         await self.discord_message.edit(content="🤔 Thinking...")
 
     async def on_llm_new_token(self, token, **kwargs):
-        current_content = self.discord_message.content
-        new_content = current_content + token
-        if len(new_content) > 2000:
-            new_content = new_content[-2000:]
-        await self.discord_message.edit(content=new_content)
+        try:
+            current_content = self.discord_message.content
+            new_content = current_content + token
+            if len(new_content) > 2000:
+                new_content = new_content[-2000:]
+            await self.discord_message.edit(content=new_content)
+        except Exception as e:
+            print(f"Error in on_llm_new_token: {str(e)}")
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
         await self.discord_message.edit(content=f"🔧 Using tool: {serialized['name']}")
@@ -53,6 +56,9 @@ class DiscordCallbackHandler(BaseCallbackHandler):
             await self.discord_message.edit(content=outputs['output'][:2000])
         else:
             await self.discord_message.edit(content="Finished processing, but couldn't format the output.")
+
+    async def on_chain_error(self, error, **kwargs):
+        await self.discord_message.edit(content=f"An error occurred: {str(error)[:1000]}")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -308,7 +314,7 @@ class AIResponder(commands.Cog):
                 return
             
             self.logger.info(f"Using Model: {model}")
-            self.llm = DeepInfra(model_id=model, deepinfra_api_token=api_key)
+            self.llm = DeepInfra(model_id=model, deepinfra_api_token=api_key, max_tokens=2048)
             
             custom_personality = await self.config.custom_personality()
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
@@ -347,7 +353,9 @@ class AIResponder(commands.Cog):
                 agent=agent,
                 tools=tools,
                 memory=memory,
-                verbose=True
+                verbose=True,
+                max_iterations=5,
+                early_stopping_method="generate"
             )
             
             self.logger.info("LangChain components updated successfully")
@@ -421,6 +429,9 @@ class AIResponder(commands.Cog):
 
                 return full_response[:2000]  # Truncate to 2000 characters
 
+            except AssertionError as ae:
+                self.logger.error(f"AssertionError in agent_executor.ainvoke: {str(ae)}", exc_info=True)
+                return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
             except Exception as e:
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
                 return "An unexpected error occurred while processing your request. Please try again or contact the bot owner if the issue persists."
