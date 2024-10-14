@@ -303,6 +303,36 @@ class AIResponder(commands.Cog):
         await self.bot.set_shared_api_tokens("wolfram_alpha", app_id=app_id)
         await ctx.send("Wolfram Alpha AppID has been set.")
 
+    @air.command(name="test")
+    @commands.is_owner()
+    async def test_llm(self, ctx: commands.Context, *, query: str):
+        """Test the LLM directly without using the agent."""
+        if not await self.is_configured():
+            await ctx.send("AIResponder is not configured. Please set up the API key and model first.")
+            return
+
+        self.logger.info(f"Testing LLM with query: {query}")
+        async with ctx.typing():
+            try:
+                self.logger.info("Generating response from LLM")
+                response = await self.llm.agenerate([query])
+                self.logger.info(f"Raw LLM response: {response}")
+                result = response.generations[0][0].text
+                
+                # Split the response into chunks if it's too long
+                chunks = [result[i:i+1990] for i in range(0, len(result), 1990)]
+                
+                for i, chunk in enumerate(chunks):
+                    if i == 0:
+                        await ctx.send(f"LLM Response (Part {i+1}/{len(chunks)}):\n{chunk}")
+                    else:
+                        await ctx.send(f"(Part {i+1}/{len(chunks)}):\n{chunk}")
+                
+                self.logger.info(f"Sent response in {len(chunks)} part(s)")
+            except Exception as e:
+                self.logger.error(f"Error in test_llm: {str(e)}", exc_info=True)
+                await ctx.send(f"An error occurred while testing the LLM: {str(e)[:1000]}")
+
     async def update_langchain_components(self):
         try:
             self.logger.info("Starting to update LangChain components")
