@@ -19,7 +19,7 @@ from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
 from langchain_experimental.tools import PythonAstREPLTool
 from langchain_community.chat_models import ChatDeepInfra
-from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.agents import AgentExecutor, create_tool_calling_agent, AgentType, initialize_agent
 
 from sympy import sympify
 import wolframalpha
@@ -27,6 +27,12 @@ import os
 from pydantic import Field, BaseModel
 import random
 import json
+import re
+
+def validate_input(prompt):
+    # Remove potentially harmful code execution patterns
+    safe_prompt = re.sub(r"(subprocess\.call|shutil\.rmtree|os\.system)\([^\)]+\)", "", prompt)
+    return safe_prompt
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message):
@@ -97,7 +103,7 @@ class AIResponder(commands.Cog):
 
             # Test the LLM
             try:
-                test_response = await self.llm.agenerate([HumanMessage(content="Test")])
+                test_response = await self.llm.agenerate([{"role": "user", "content": "Test"}])
                 self.logger.info(f"LLM test response: {test_response}")
             except Exception as e:
                 self.logger.error(f"Error testing LLM: {str(e)}", exc_info=True)
@@ -135,13 +141,15 @@ class AIResponder(commands.Cog):
 
             self.logger.info("Creating agent executor")
             try:
-                agent = create_tool_calling_agent(
-                    llm=self.llm,
-                    tools=tools,
-                    prompt=prompt
+                agent = initialize_agent(
+                    tools,
+                    self.llm,
+                    agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
+                    verbose=True,
+                    handle_parsing_errors=True
                 )
 
-                self.agent_executor = AgentExecutor(
+                self.agent_executor = AgentExecutor.from_agent_and_tools(
                     agent=agent,
                     tools=tools,
                     memory=memory,
@@ -149,7 +157,7 @@ class AIResponder(commands.Cog):
                     max_iterations=10,
                     max_execution_time=60,
                     early_stopping_method="generate",
-                    stream_runnable=False
+                    handle_parsing_errors=True
                 )
                 self.logger.info("Agent executor created successfully")
             except Exception as e:
@@ -351,7 +359,10 @@ class AIResponder(commands.Cog):
             self.logger.info(f"Using Model: {model}")
             self.llm = ChatDeepInfra(
                 model=model,
-                deepinfra_api_token=api_key
+                deepinfra_api_token=api_key,
+                streaming=True,  # Enable streaming
+                temperature=0.7,  # Add some randomness to responses
+                max_tokens=1000  # Limit the response length
             )
             
             custom_personality = await self.config.custom_personality()
@@ -385,13 +396,15 @@ class AIResponder(commands.Cog):
             tools = await self.setup_tools()
             
             self.logger.info("Creating agent executor")
-            agent = create_tool_calling_agent(
-                llm=self.llm,
-                tools=tools,
-                prompt=prompt
+            agent = initialize_agent(
+                tools,
+                self.llm,
+                agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
+                verbose=True,
+                handle_parsing_errors=True
             )
             
-            self.agent_executor = AgentExecutor(
+            self.agent_executor = AgentExecutor.from_agent_and_tools(
                 agent=agent,
                 tools=tools,
                 memory=memory,
@@ -458,35 +471,27 @@ class AIResponder(commands.Cog):
                 self.logger.info(f"Agent executor config: {self.agent_executor.agent}")
                 self.logger.info(f"LLM config: {self.llm.model_kwargs}")
 
-                # Get the tools and tool names
-                tools = await self.setup_tools()
-                tool_names = ", ".join([tool.name for tool in tools])
-
                 input_data = {
                     "input": content,
-                    "tools": "\n".join([f"{tool.name}: {tool.description}" for tool in tools]),
-                    "tool_names": tool_names,
-                    "chat_history": [],  # You may want to implement chat history if needed
+                    "chat_history": []  # You may want to implement chat history if needed
                 }
                 self.logger.debug(f"Input data for agent: {input_data}")
 
-                result = await self.agent_executor.ainvoke(
+                full_response = ""
+                async for chunk in self.agent_executor.astream(
                     input_data,
                     {"callbacks": [DiscordCallbackHandler(response_message)]}
-                )
-                self.logger.info(f"Agent executor result: {result}")
+                ):
+                    if isinstance(chunk, dict) and 'output' in chunk:
+                        full_response += chunk['output']
+                        await response_message.edit(content=full_response[:2000])  # Discord message limit
 
-                if not result or 'output' not in result:
-                    self.logger.error("Agent executor returned an invalid result")
-                    return "I'm sorry, but I couldn't generate a proper response. Please try again or contact the bot owner."
-
-                full_response = result['output']
                 self.logger.info(f"Final response: {full_response}")
 
                 return full_response
 
             except Exception as e:
-                self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
+                self.logger.error(f"Error in agent_executor.astream: {str(e)}", exc_info=True)
                 return f"An error occurred while processing your request: {str(e)[:1000]}"
 
         except Exception as e:
@@ -529,9 +534,8 @@ class AIResponder(commands.Cog):
             self.logger.error("API key or model not set")
             return False
         try:
-            # Make a simple API call to verify the settings
-            response = await self.llm.agenerate([HumanMessage(content="Test")])
-            if response:
+            response = await self.llm.agenerate([HumanMessage(content="Hello, can you hear me?")])
+            if response and response.generations:
                 self.logger.info("API settings verified successfully")
                 return True
         except Exception as e:
