@@ -97,7 +97,7 @@ class AIResponder(commands.Cog):
 
             # Test the LLM
             try:
-                test_response = await self.llm.agenerate([HumanMessage(content="Test")])
+                test_response = await self.llm.agenerate([{"role": "user", "content": "Test"}])
                 self.logger.info(f"LLM test response: {test_response}")
             except Exception as e:
                 self.logger.error(f"Error testing LLM: {str(e)}", exc_info=True)
@@ -375,13 +375,11 @@ class AIResponder(commands.Cog):
             Remember to use tools only when necessary, and always explain your thought process.
             """
             
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", template),
-                    ("human", "{input}"),
-                    ("ai", "{agent_scratchpad}"),
-                ]
-            )
+            prompt = ChatPromptTemplate.from_messages([
+                SystemMessage(content=template),
+                HumanMessage(content="{input}"),
+                AIMessage(content="{agent_scratchpad}")
+            ])
             
             self.logger.info("Setting up tools")
             tools = await self.setup_tools()
@@ -401,7 +399,8 @@ class AIResponder(commands.Cog):
                 max_iterations=10,
                 max_execution_time=60,
                 early_stopping_method="generate",
-                stream_runnable=False
+                stream_runnable=False,
+                handle_parsing_errors=True
             )
             
             self.logger.info("LangChain components updated successfully")
@@ -469,7 +468,6 @@ class AIResponder(commands.Cog):
                     "tools": "\n".join([f"{tool.name}: {tool.description}" for tool in tools]),
                     "tool_names": tool_names,
                     "chat_history": [],  # You may want to implement chat history if needed
-                    "agent_scratchpad": ""
                 }
                 self.logger.debug(f"Input data for agent: {input_data}")
 
