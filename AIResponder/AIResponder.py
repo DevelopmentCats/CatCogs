@@ -97,7 +97,7 @@ class AIResponder(commands.Cog):
 
             # Test the LLM
             try:
-                test_response = await self.llm.agenerate([{"role": "user", "content": "Test"}])
+                test_response = await self.llm.agenerate([HumanMessage(content="Test")])
                 self.logger.info(f"LLM test response: {test_response}")
             except Exception as e:
                 self.logger.error(f"Error testing LLM: {str(e)}", exc_info=True)
@@ -376,9 +376,9 @@ class AIResponder(commands.Cog):
             """
             
             prompt = ChatPromptTemplate.from_messages([
-                SystemMessage(content=template),
-                HumanMessage(content="{input}"),
-                AIMessage(content="{agent_scratchpad}")
+                ("system", template),
+                ("human", "{input}"),
+                ("ai", "{agent_scratchpad}")
             ])
             
             self.logger.info("Setting up tools")
@@ -399,7 +399,6 @@ class AIResponder(commands.Cog):
                 max_iterations=10,
                 max_execution_time=60,
                 early_stopping_method="generate",
-                stream_runnable=False,
                 handle_parsing_errors=True
             )
             
