@@ -103,7 +103,7 @@ class AIResponder(commands.Cog):
 
             # Test the LLM
             try:
-                test_response = await self.llm.agenerate([{"role": "user", "content": "Test"}])
+                test_response = await self.llm.agenerate([HumanMessage(content="Test")])
                 self.logger.info(f"LLM test response: {test_response}")
             except Exception as e:
                 self.logger.error(f"Error testing LLM: {str(e)}", exc_info=True)
@@ -140,29 +140,25 @@ class AIResponder(commands.Cog):
             ])
 
             self.logger.info("Creating agent executor")
-            try:
-                agent = initialize_agent(
-                    tools,
-                    self.llm,
-                    agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
-                    verbose=True,
-                    handle_parsing_errors=True
-                )
+            agent = initialize_agent(
+                tools,
+                self.llm,
+                agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION,
+                verbose=True,
+                handle_parsing_errors=True
+            )
 
-                self.agent_executor = AgentExecutor.from_agent_and_tools(
-                    agent=agent,
-                    tools=tools,
-                    memory=memory,
-                    verbose=True,
-                    max_iterations=10,
-                    max_execution_time=60,
-                    early_stopping_method="generate",
-                    handle_parsing_errors=True
-                )
-                self.logger.info("Agent executor created successfully")
-            except Exception as e:
-                self.logger.error(f"Error creating agent executor: {str(e)}", exc_info=True)
-                self.agent_executor = None
+            self.agent_executor = AgentExecutor.from_agent_and_tools(
+                agent=agent,
+                tools=tools,
+                memory=memory,
+                verbose=True,
+                max_iterations=10,
+                max_execution_time=60,
+                early_stopping_method="generate",
+                handle_parsing_errors=True
+            )
+            self.logger.info("Agent executor created successfully")
 
             await self.verify_api_settings()
         except Exception as e:
