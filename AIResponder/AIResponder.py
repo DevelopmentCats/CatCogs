@@ -88,8 +88,9 @@ class AIResponder(commands.Cog):
 
             # Test the LLM
             try:
-                # Update: Pass HumanMessage as a list of lists
-                test_response = await self.llm.agenerate([[HumanMessage(content="Test")]])
+                # Convert HumanMessage to a JSON-serializable format
+                test_message = {"role": "user", "content": "Test"}
+                test_response = await self.llm.agenerate([[test_message]])
                 self.logger.info(f"LLM test response: {test_response}")
             except Exception as e:
                 self.logger.error(f"Error testing LLM: {str(e)}", exc_info=True)
