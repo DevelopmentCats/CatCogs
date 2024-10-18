@@ -49,7 +49,13 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         await self.discord_message.edit(content="✅ Tool used. Processing results...")
 
     async def on_chain_end(self, outputs, **kwargs):
-        await self.discord_message.edit(content=outputs['output'][:2000])
+        try:
+            if isinstance(outputs, dict) and 'output' in outputs:
+                await self.discord_message.edit(content=outputs['output'][:2000])
+            else:
+                await self.discord_message.edit(content="Processing complete, but I couldn't generate a proper response.")
+        except Exception as e:
+            logging.error(f"Error in DiscordCallbackHandler.on_chain_end: {str(e)}")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -416,21 +422,16 @@ class AIResponder(commands.Cog):
                     {"callbacks": [DiscordCallbackHandler(response_message)]}
                 )
                 self.logger.info(f"Agent executor result: {result}")
-            except Exception as e:
+                if not result or 'output' not in result:
+                    raise ValueError("Invalid result from agent executor")
+                full_response = result['output']
+            except (AssertionError, ValueError) as e:
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
-                # Attempt to use the LLM directly if agent execution fails
-                try:
-                    direct_response = await self.llm.agenerate([content])
-                    return direct_response.generations[0][0].text[:2000]
-                except Exception as llm_error:
-                    self.logger.error(f"Error in direct LLM call: {str(llm_error)}", exc_info=True)
-                    return "I encountered an unexpected error. Please try again later or contact the bot owner."
+                # Fallback to direct LLM usage
+                self.logger.info("Falling back to direct LLM usage")
+                direct_response = await self.llm.agenerate([content])
+                full_response = direct_response.generations[0][0].text if direct_response.generations else "I couldn't generate a response. Please try again."
 
-            if not result or 'output' not in result:
-                self.logger.error("Agent executor returned an invalid result")
-                return "I'm sorry, but I couldn't generate a proper response. Please try again or contact the bot owner."
-
-            full_response = result['output']
             cleaned_response = self.clean_agent_output(full_response)
             self.logger.info(f"Final response: {cleaned_response}")
 
