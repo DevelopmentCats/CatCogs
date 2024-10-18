@@ -383,13 +383,16 @@ class AIResponder(commands.Cog):
             await message.channel.send("You mentioned me, but didn't ask anything. How can I help you?")
             return
 
+        # Verify API settings before processing
+        if not await self.verify_api_settings():
+            await message.channel.send("I'm having trouble connecting to my knowledge base. Please try again later or contact the bot owner.")
+            return
+
         async with message.channel.typing():
             response_message = await message.channel.send("🤔 Thinking...")
             
             try:
                 full_response = await self.process_query(content, response_message)
-                
-                # Replace the status message with the final response
                 await response_message.edit(content=full_response)
             except Exception as e:
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
@@ -408,36 +411,30 @@ class AIResponder(commands.Cog):
             self.logger.info(f"Invoking agent with input: {content}")
             
             try:
-                # Log the agent executor's configuration
-                self.logger.info(f"Agent executor config: {self.agent_executor.agent.llm_chain.prompt}")
-                self.logger.info(f"LLM config: {self.agent_executor.agent.llm_chain.llm.model_kwargs}")
-
                 result = await self.agent_executor.ainvoke(
                     {"input": content},
                     {"callbacks": [DiscordCallbackHandler(response_message)]}
                 )
                 self.logger.info(f"Agent executor result: {result}")
-            except AssertionError as ae:
-                self.logger.error(f"AssertionError in agent_executor.ainvoke: {str(ae)}", exc_info=True)
-                # Try to get more information about the LLM's state
-                try:
-                    test_response = await self.llm.agenerate(["Test message"])
-                    self.logger.info(f"LLM test response: {test_response}")
-                except Exception as llm_error:
-                    self.logger.error(f"Error in LLM test: {str(llm_error)}", exc_info=True)
-                return "I encountered an unexpected error while processing your request. This might be due to issues with the AI model or API. Please try again later or contact the bot owner."
             except Exception as e:
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
-                return "An unexpected error occurred while processing your request. Please try again or contact the bot owner if the issue persists."
-            
+                # Attempt to use the LLM directly if agent execution fails
+                try:
+                    direct_response = await self.llm.agenerate([content])
+                    return direct_response.generations[0][0].text[:2000]
+                except Exception as llm_error:
+                    self.logger.error(f"Error in direct LLM call: {str(llm_error)}", exc_info=True)
+                    return "I encountered an unexpected error. Please try again later or contact the bot owner."
+
             if not result or 'output' not in result:
                 self.logger.error("Agent executor returned an invalid result")
                 return "I'm sorry, but I couldn't generate a proper response. Please try again or contact the bot owner."
 
             full_response = result['output']
-            self.logger.info(f"Final response: {full_response}")
+            cleaned_response = self.clean_agent_output(full_response)
+            self.logger.info(f"Final response: {cleaned_response}")
 
-            return full_response[:2000]  # Truncate to 2000 characters
+            return cleaned_response[:2000]  # Truncate to 2000 characters
 
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
@@ -479,11 +476,15 @@ class AIResponder(commands.Cog):
             self.logger.error("API key or model not set")
             return False
         try:
-            # Make a simple API call to verify the settings
-            response = await self.llm.agenerate(["Test"])
-            if response:
+            test_prompt = "Hello, world!"
+            self.logger.info(f"Testing API with prompt: {test_prompt}")
+            response = await self.llm.agenerate([test_prompt])
+            if response and response.generations:
                 self.logger.info("API settings verified successfully")
                 return True
+            else:
+                self.logger.error("API response was empty or invalid")
+                return False
         except Exception as e:
             self.logger.error(f"Error verifying API settings: {str(e)}")
         return False
