@@ -89,11 +89,9 @@ class AIResponder(commands.Cog):
             # Test the LLM
             try:
                 # Construct the payload according to DeepInfra's expected format
-                test_message = [
-                    {"role": "user", "content": "Test"}
-                ]
-                self.logger.info(f"Testing payload: {test_message}")
-                test_response = await self.llm.agenerate([test_message])
+                test_prompt = "Hello, world!"
+                self.logger.info(f"Testing prompt: {test_prompt}")
+                test_response = await self.llm.agenerate([test_prompt])
                 self.logger.info(f"LLM test response: {test_response}")
             except Exception as e:
                 # Log detailed error information
