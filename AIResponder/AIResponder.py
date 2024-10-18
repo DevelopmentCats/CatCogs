@@ -97,7 +97,12 @@ class AIResponder(commands.Cog):
                 test_response = await self.llm.agenerate([test_message])
                 self.logger.info(f"LLM test response: {test_response}")
             except Exception as e:
-                self.logger.error(f"Error testing LLM: {str(e)}", exc_info=True)
+                # Log detailed error information
+                if hasattr(e, 'response') and e.response:
+                    error_content = await e.response.text()
+                    self.logger.error(f"Error testing LLM: {str(e)} - Response content: {error_content}", exc_info=True)
+                else:
+                    self.logger.error(f"Error testing LLM: {str(e)}", exc_info=True)
                 return
 
             # Set up tools and agent executor
