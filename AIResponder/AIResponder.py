@@ -92,22 +92,6 @@ class AIResponder(commands.Cog):
             # Log LLM configuration
             self.logger.info(f"LLM configuration: {self.llm.model_kwargs}")
 
-            # Test the LLM
-            try:
-                # Construct the payload according to DeepInfra's expected format
-                test_prompt = "Hello, world!"
-                self.logger.info(f"Testing prompt: {test_prompt}")
-                test_response = await self.llm.agenerate([test_prompt])
-                self.logger.info(f"LLM test response: {test_response}")
-            except Exception as e:
-                # Log detailed error information
-                if hasattr(e, 'response') and e.response:
-                    error_content = await e.response.text()
-                    self.logger.error(f"Error testing LLM: {str(e)} - Response content: {error_content}", exc_info=True)
-                else:
-                    self.logger.error(f"Error testing LLM: {str(e)}", exc_info=True)
-                return
-
             # Set up tools and agent executor
             self.logger.info("Setting up tools")
             tools = await self.setup_tools()
@@ -425,7 +409,7 @@ class AIResponder(commands.Cog):
                 if not result or 'output' not in result:
                     raise ValueError("Invalid result from agent executor")
                 full_response = result['output']
-            except (AssertionError, ValueError) as e:
+            except Exception as e:
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
                 # Fallback to direct LLM usage
                 self.logger.info("Falling back to direct LLM usage")
@@ -503,3 +487,4 @@ async def setup(bot: Red):
     cog = AIResponder(bot)
     await bot.add_cog(cog)
     await cog.initialize()
+
