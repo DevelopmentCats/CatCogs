@@ -6,26 +6,21 @@ from typing import Dict, List, Tuple, Any, Optional, Union
 import asyncio
 import logging
 from datetime import datetime
-from openai import AsyncOpenAI, APIConnectionError, APIError, RateLimitError
+from openai import AsyncOpenAI
 
-# Updated LangChain V3 imports
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import Tool
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain.memory import ConversationBufferMemory, ConversationBufferWindowMemory
-from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper, WolframAlphaAPIWrapper
+from langchain.agents import AgentExecutor, create_openai_functions_agent
+from langchain.memory import ConversationBufferWindowMemory
+from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
-from langchain_community.tools.wolfram_alpha.tool import WolframAlphaQueryRun
 from langchain_experimental.tools import PythonAstREPLTool
-from langchain_community.llms.deepinfra import DeepInfra
+from langchain_openai import ChatOpenAI
 
 from sympy import sympify
-import wolframalpha
 import os
-from pydantic import Field, BaseModel
-import random
 import json
 
 class DiscordCallbackHandler(BaseCallbackHandler):
@@ -66,7 +61,6 @@ class AIResponder(commands.Cog):
             "model": "meta-llama/Llama-3.2-11B-Vision-Instruct",
             "custom_personality": "You are a helpful AI assistant.",
             "enabled_channels": [],
-            "wolfram_alpha_appid": "",
         }
         self.config.register_global(**default_global)
         self.llm = None
@@ -84,13 +78,11 @@ class AIResponder(commands.Cog):
                 return
 
             self.logger.info(f"Initializing DeepInfra LLM with model: {model}")
-            self.llm = DeepInfra(
-                model_id=model,
-                deepinfra_api_token=api_key
+            self.llm = ChatOpenAI(
+                model=model,
+                openai_api_key=api_key,
+                openai_api_base="https://api.deepinfra.com/v1/openai",
             )
-
-            # Log LLM configuration
-            self.logger.info(f"LLM configuration: {self.llm.model_kwargs}")
 
             # Set up tools and agent executor
             self.logger.info("Setting up tools")
@@ -98,34 +90,19 @@ class AIResponder(commands.Cog):
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
 
             custom_personality = await self.config.custom_personality()
-            template = f"""You are an AI assistant with the following personality: {custom_personality}
-            You are in a Discord server, responding to user messages.
-            Respond naturally and conversationally, as if you're chatting with a friend.
-            Always maintain your assigned personality throughout the conversation.
-
-            Human: {{input}}
-            AI: To approach this, let's think step-by-step:
-
-            {{agent_scratchpad}}
-
-            Available tools:
-            {{tools}}
-
-            Tool names: {{tool_names}}
-
-            Remember to use tools only when necessary, and always explain your thought process.
-            """
-
-            prompt = ChatPromptTemplate.from_template(template)
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", f"You are an AI assistant with the following personality: {custom_personality}. "
+                           "You are in a Discord server, responding to user messages. "
+                           "Respond naturally and conversationally, as if you're chatting with a friend. "
+                           "Always maintain your assigned personality throughout the conversation."),
+                ("human", "{input}"),
+                ("ai", "To approach this, let's think step-by-step:"),
+                ("human", "Okay, let's proceed with your step-by-step approach."),
+            ])
 
             self.logger.info("Creating agent executor")
             try:
-                agent = create_react_agent(
-                    llm=self.llm,
-                    tools=tools,
-                    prompt=prompt
-                )
-
+                agent = create_openai_functions_agent(self.llm, tools, prompt)
                 self.agent_executor = AgentExecutor(
                     agent=agent,
                     tools=tools,
@@ -175,25 +152,9 @@ class AIResponder(commands.Cog):
                 )
             )
 
-            # Wolfram Alpha
-            wolfram_alpha_tokens = await self.bot.get_shared_api_tokens("wolfram_alpha")
-            wolfram_alpha_appid = wolfram_alpha_tokens.get("app_id")
-            if wolfram_alpha_appid:
-                wolfram = WolframAlphaAPIWrapper(wolfram_alpha_appid=wolfram_alpha_appid)
-                tools.append(
-                    Tool(
-                        name="Wolfram Alpha",
-                        func=wolfram.run,
-                        description="Useful for complex calculations and queries about math, science, and more."
-                    )
-                )
-            else:
-                self.logger.warning("Wolfram Alpha AppID not found. Wolfram Alpha tool will not be available.")
-
             # Calculator
             def calculator(expression: str) -> str:
                 try:
-                    # Remove any non-mathematical characters
                     cleaned_expression = ''.join(char for char in expression if char.isdigit() or char in '+-*/().^ ')
                     result = sympify(cleaned_expression)
                     return str(result.evalf())
@@ -303,40 +264,30 @@ class AIResponder(commands.Cog):
                 return
             
             self.logger.info(f"Using Model: {model}")
-            self.llm = DeepInfra(model_id=model, deepinfra_api_token=api_key)
+            self.llm = ChatOpenAI(
+                model=model,
+                openai_api_key=api_key,
+                openai_api_base="https://api.deepinfra.com/v1/openai",
+            )
             
             custom_personality = await self.config.custom_personality()
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
             
-            template = f"""You are an AI assistant with the following personality: {custom_personality}
-            You are in a Discord server, responding to user messages.
-            Respond naturally and conversationally, as if you're chatting with a friend.
-            Always maintain your assigned personality throughout the conversation.
-
-            Human: {{input}}
-            AI: To approach this, let's think step-by-step:
-
-            {{agent_scratchpad}}
-
-            Available tools:
-            {{tools}}
-
-            Tool names: {{tool_names}}
-
-            Remember to use tools only when necessary, and always explain your thought process.
-            """
-
-            prompt = ChatPromptTemplate.from_template(template)
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", f"You are an AI assistant with the following personality: {custom_personality}. "
+                           "You are in a Discord server, responding to user messages. "
+                           "Respond naturally and conversationally, as if you're chatting with a friend. "
+                           "Always maintain your assigned personality throughout the conversation."),
+                ("human", "{input}"),
+                ("ai", "To approach this, let's think step-by-step:"),
+                ("human", "Okay, let's proceed with your step-by-step approach."),
+            ])
 
             self.logger.info("Setting up tools")
             tools = await self.setup_tools()
             
             self.logger.info("Creating agent executor")
-            agent = create_react_agent(
-                llm=self.llm,
-                tools=tools,
-                prompt=prompt
-            )
+            agent = create_openai_functions_agent(self.llm, tools, prompt)
             
             self.agent_executor = AgentExecutor(
                 agent=agent,
@@ -406,8 +357,12 @@ class AIResponder(commands.Cog):
                 # Fallback to direct LLM usage
                 self.logger.info("Falling back to direct LLM usage")
                 try:
-                    direct_response = await self.llm.agenerate([content])
-                    full_response = direct_response.generations[0][0].text if direct_response.generations else "I couldn't generate a response. Please try again."
+                    messages = [
+                        SystemMessage(content="You are a helpful AI assistant."),
+                        HumanMessage(content=content)
+                    ]
+                    response = await self.llm.agenerate(messages=[messages])
+                    full_response = response.generations[0][0].text if response.generations else "I couldn't generate a response. Please try again."
                 except Exception as llm_error:
                     self.logger.error(f"Error in direct LLM call: {str(llm_error)}", exc_info=True)
                     return "I'm having trouble processing your request. Please try again later or contact the bot owner."
