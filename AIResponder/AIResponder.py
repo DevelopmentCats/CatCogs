@@ -24,10 +24,11 @@ import os
 import json
 
 class DiscordCallbackHandler(BaseCallbackHandler):
-    def __init__(self, discord_message):
+    def __init__(self, discord_message, logger):
         self.discord_message = discord_message
         self.full_response = ""
         self.last_update = 0
+        self.logger = logger
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
         await self.discord_message.edit(content="🤔 Thinking...")
@@ -54,9 +55,9 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         self.logger.info(f"Chain ended. Outputs: {outputs}")
         if isinstance(outputs, dict) and 'output' in outputs:
             self.full_response = outputs['output']
-            await self.discord_message.edit(content=self.full_response[:2000])
+            # Don't update Discord message here, we'll do it in process_query
         else:
-            await self.discord_message.edit(content="I apologize, but I couldn't generate a proper response. Please try asking your question again.")
+            self.logger.warning("Unexpected output format from chain")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -358,7 +359,7 @@ class AIResponder(commands.Cog):
 
     async def process_query(self, content: str, response_message: discord.Message) -> str:
         try:
-            callback_handler = DiscordCallbackHandler(response_message)
+            callback_handler = DiscordCallbackHandler(response_message, self.logger)
             await response_message.edit(content="🤔 Thinking...")
 
             if self.agent_executor is None:
@@ -379,30 +380,22 @@ class AIResponder(commands.Cog):
             full_response = result['output']
 
             cleaned_response = self.clean_agent_output(full_response)
-            self.logger.info(f"Final response: {cleaned_response}")
+            self.logger.info(f"Cleaned response: {cleaned_response}")
 
             if not cleaned_response.strip():
                 cleaned_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
 
-            return cleaned_response[:2000]  # Truncate to 2000 characters
+            final_response = self.extract_final_response(cleaned_response)
+            self.logger.info(f"Final response: {final_response}")
+
+            await response_message.edit(content=final_response[:2000])
+            return final_response[:2000]  # Truncate to 2000 characters
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
-            error_message = f"I encountered an error while processing your request: {str(e)}\n\nFalling back to direct LLM usage."
+            error_message = f"I encountered an error while processing your request. Please try again or contact the bot owner if the issue persists."
             await response_message.edit(content=error_message)
-            
-            # Fallback to direct LLM usage
-            try:
-                messages = [
-                    SystemMessage(content="You are a helpful AI assistant."),
-                    HumanMessage(content=content)
-                ]
-                response = await self.llm.agenerate(messages=[messages])
-                fallback_response = response.generations[0][0].text if response.generations else "I couldn't generate a response. Please try again."
-                return fallback_response[:2000]  # Truncate to 2000 characters
-            except Exception as llm_error:
-                self.logger.error(f"Error in direct LLM call: {str(llm_error)}", exc_info=True)
-                return "I'm having trouble processing your request. Please try again later or contact the bot owner."
+            return error_message
 
     async def process_intermediate_step(self, step, response_message):
         if isinstance(step, tuple) and len(step) == 2:
@@ -417,16 +410,20 @@ class AIResponder(commands.Cog):
     def clean_agent_output(self, output: str) -> str:
         lines = output.split('\n')
         cleaned_lines = []
-        response_found = False
         for line in lines:
-            if line.startswith('Response:'):
-                response_found = True
-                cleaned_lines.append(line[9:].strip())  # Remove 'Response:' prefix
-            elif response_found:
+            if not line.strip().lower().startswith(('thought:', 'action:', 'action input:', 'observation:')):
                 cleaned_lines.append(line.strip())
-            elif not line.startswith(('Thought:', 'Action:', 'Action Input:', 'Observation:')):
-                cleaned_lines.append(line.strip())
-        return '\n'.join(cleaned_lines)
+        return ' '.join(cleaned_lines)
+
+    def extract_final_response(self, cleaned_response: str) -> str:
+        # Split the response into sentences
+        sentences = cleaned_response.split('.')
+        # Remove any sentences that contain phrases indicating intermediate steps
+        final_sentences = [s for s in sentences if not any(phrase in s.lower() for phrase in ["step", "let me", "i've got", "according to my"])]
+        # Join the remaining sentences
+        final_response = '. '.join(final_sentences).strip()
+        # If we've filtered out everything, return the original cleaned response
+        return final_response if final_response else cleaned_response
 
     async def is_configured(self) -> bool:
         api_key = await self.config.api_key()
