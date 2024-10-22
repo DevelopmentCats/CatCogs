@@ -364,18 +364,10 @@ class AIResponder(commands.Cog):
             disabled_channels = await self.config.guild(message.guild).disabled_channels()
             if disabled_channels and message.channel.id in disabled_channels:
                 return
-        else:
-            # Handle DMs if needed
-            pass
 
         content = message.content.replace(f"<@{self.bot.user.id}>", "").strip()
         if not content:
             await message.channel.send("You mentioned me, but didn't ask anything. How can I help you?")
-            return
-
-        # Verify API settings before processing
-        if not await self.verify_api_settings():
-            await message.channel.send("I'm having trouble connecting to my knowledge base. Please try again later or contact the bot owner.")
             return
 
         async with message.channel.typing():
@@ -413,8 +405,12 @@ class AIResponder(commands.Cog):
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
                 # Fallback to direct LLM usage
                 self.logger.info("Falling back to direct LLM usage")
-                direct_response = await self.llm.agenerate([content])
-                full_response = direct_response.generations[0][0].text if direct_response.generations else "I couldn't generate a response. Please try again."
+                try:
+                    direct_response = await self.llm.agenerate([content])
+                    full_response = direct_response.generations[0][0].text if direct_response.generations else "I couldn't generate a response. Please try again."
+                except Exception as llm_error:
+                    self.logger.error(f"Error in direct LLM call: {str(llm_error)}", exc_info=True)
+                    return "I'm having trouble processing your request. Please try again later or contact the bot owner."
 
             cleaned_response = self.clean_agent_output(full_response)
             self.logger.info(f"Final response: {cleaned_response}")
@@ -487,4 +483,3 @@ async def setup(bot: Red):
     cog = AIResponder(bot)
     await bot.add_cog(cog)
     await cog.initialize()
-
