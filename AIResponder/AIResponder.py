@@ -22,6 +22,7 @@ from langchain_openai import ChatOpenAI
 from sympy import sympify
 import os
 import json
+import aiohttp
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
@@ -104,9 +105,10 @@ class AIResponder(commands.Cog):
                            "Respond naturally and conversationally, as if you're chatting with a friend. "
                            "Always maintain your assigned personality throughout the conversation. "
                            "You have access to tools that can help you answer questions. "
-                           "When asked about the current date or time, ALWAYS use the 'Current Date' tool before responding. "
-                           "For other questions, use appropriate tools when necessary to provide accurate and up-to-date information. "
-                           "After using a tool, incorporate the information into your response without mentioning the tool explicitly."),
+                           "ALWAYS use the 'Current Date and Time (CST)' tool when asked about the current date or time. "
+                           "Use other tools when necessary to provide accurate and up-to-date information. "
+                           "After using a tool, incorporate the information into your response without mentioning the tool explicitly. "
+                           "Be concise and direct in your responses."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
@@ -119,8 +121,8 @@ class AIResponder(commands.Cog):
                     tools=tools,
                     memory=memory,
                     verbose=True,
-                    max_iterations=3,  # Limit the number of tool uses to prevent over-explanation
-                    early_stopping_method="generate"  # Stop if the agent wants to respond directly
+                    max_iterations=3,
+                    early_stopping_method="generate"
                 )
                 self.logger.info("Agent executor created successfully")
             except Exception as e:
@@ -176,14 +178,21 @@ class AIResponder(commands.Cog):
                     description="Useful for performing basic and advanced mathematical calculations. Provide a valid mathematical expression."
                 )
             )
-            # Current Date
-            def get_current_date():
-                return datetime.now().strftime("%Y-%m-%d")
+            # Current Date and Time (CST)
+            async def get_current_date_time_cst():
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get('http://worldtimeapi.org/api/timezone/America/Chicago') as response:
+                            data = await response.json()
+                            datetime_cst = datetime.fromisoformat(data['datetime'].replace('Z', '+00:00'))
+                            return f"Current date and time in CST: {datetime_cst.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+                except Exception as e:
+                    return f"Error: Unable to fetch current date and time. ({str(e)})"
             tools.append(
                 Tool(
-                    name="Current Date",
-                    func=get_current_date,
-                    description="Use this to get the current date in YYYY-MM-DD format."
+                    name="Current Date and Time (CST)",
+                    func=get_current_date_time_cst,
+                    description="Use this to get the current date and time in Central Standard Time (CST)."
                 )
             )
             self.logger.info(f"Tools set up: {[tool.name for tool in tools]}")
@@ -296,9 +305,10 @@ class AIResponder(commands.Cog):
                            "Respond naturally and conversationally, as if you're chatting with a friend. "
                            "Always maintain your assigned personality throughout the conversation. "
                            "You have access to tools that can help you answer questions. "
-                           "When asked about the current date or time, ALWAYS use the 'Current Date' tool before responding. "
-                           "For other questions, use appropriate tools when necessary to provide accurate and up-to-date information. "
-                           "After using a tool, incorporate the information into your response without mentioning the tool explicitly."),
+                           "ALWAYS use the 'Current Date and Time (CST)' tool when asked about the current date or time. "
+                           "Use other tools when necessary to provide accurate and up-to-date information. "
+                           "After using a tool, incorporate the information into your response without mentioning the tool explicitly. "
+                           "Be concise and direct in your responses."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
@@ -314,8 +324,8 @@ class AIResponder(commands.Cog):
                 tools=tools,
                 memory=memory,
                 verbose=True,
-                max_iterations=3,  # Limit the number of tool uses to prevent over-explanation
-                early_stopping_method="generate"  # Stop if the agent wants to respond directly
+                max_iterations=3,
+                early_stopping_method="generate"
             )
             
             self.logger.info("LangChain components updated successfully")
@@ -375,11 +385,12 @@ class AIResponder(commands.Cog):
                 raise ValueError("Invalid result from agent executor")
             full_response = result['output']
 
-            # Check if any tools were used
-            if 'intermediate_steps' in result and result['intermediate_steps']:
-                tool_outputs = [step[1] for step in result['intermediate_steps'] if isinstance(step, tuple) and len(step) == 2]
-                if tool_outputs:
-                    full_response = f"{full_response}\n\nTool outputs: {', '.join(tool_outputs)}"
+            # Log tool usage
+            if 'intermediate_steps' in result:
+                for step in result['intermediate_steps']:
+                    if isinstance(step, tuple) and len(step) == 2:
+                        action, observation = step
+                        self.logger.info(f"Tool used: {action.tool}, Input: {action.tool_input}, Output: {observation}")
 
             cleaned_response = self.clean_agent_output(full_response)
             self.logger.info(f"Cleaned response: {cleaned_response}")
