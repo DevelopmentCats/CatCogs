@@ -49,11 +49,11 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         self.logger.info(f"Tool ended. Output: {output}")
         await self.discord_message.edit(content=f"{self.full_response}\n\n✅ Tool used. Processing results...")
 
-    async def on_chain_start(self, serialized, inputs, **kwargs):
-        chain_name = serialized.get('name', 'Unknown Chain')
+    async def on_chain_start(self, serialized: Dict[str, Any] | None, inputs: Dict[str, Any], **kwargs: Any) -> None:
+        chain_name = serialized.get('name', 'Unknown Chain') if serialized else 'Unknown Chain'
         self.logger.info(f"Chain started: {chain_name}, Inputs: {inputs}")
 
-    async def on_chain_end(self, outputs, **kwargs):
+    async def on_chain_end(self, outputs: Dict[str, Any], **kwargs: Any) -> None:
         self.logger.info(f"Chain ended. Outputs: {outputs}")
         if isinstance(outputs, dict) and 'output' in outputs:
             self.full_response = outputs['output']
@@ -104,11 +104,10 @@ class AIResponder(commands.Cog):
                            "Respond naturally and conversationally, as if you're chatting with a friend. "
                            "Always maintain your assigned personality throughout the conversation. "
                            "You have access to tools that can help you answer questions. "
-                           "ALWAYS use the 'Current Date' tool when asked about the current date or time. "
-                           "Use other tools when necessary to provide accurate and up-to-date information."),
+                           "When asked about the current date or time, ALWAYS use the 'Current Date' tool before responding. "
+                           "For other questions, use appropriate tools when necessary to provide accurate and up-to-date information. "
+                           "After using a tool, incorporate the information into your response without mentioning the tool explicitly."),
                 ("human", "{input}"),
-                ("ai", "To approach this, let's think step-by-step:"),
-                ("human", "Okay, let's proceed with your step-by-step approach."),
                 ("ai", "{agent_scratchpad}")
             ])
 
@@ -119,7 +118,9 @@ class AIResponder(commands.Cog):
                     agent=agent,
                     tools=tools,
                     memory=memory,
-                    verbose=True
+                    verbose=True,
+                    max_iterations=3,  # Limit the number of tool uses to prevent over-explanation
+                    early_stopping_method="generate"  # Stop if the agent wants to respond directly
                 )
                 self.logger.info("Agent executor created successfully")
             except Exception as e:
@@ -295,11 +296,10 @@ class AIResponder(commands.Cog):
                            "Respond naturally and conversationally, as if you're chatting with a friend. "
                            "Always maintain your assigned personality throughout the conversation. "
                            "You have access to tools that can help you answer questions. "
-                           "ALWAYS use the 'Current Date' tool when asked about the current date or time. "
-                           "Use other tools when necessary to provide accurate and up-to-date information."),
+                           "When asked about the current date or time, ALWAYS use the 'Current Date' tool before responding. "
+                           "For other questions, use appropriate tools when necessary to provide accurate and up-to-date information. "
+                           "After using a tool, incorporate the information into your response without mentioning the tool explicitly."),
                 ("human", "{input}"),
-                ("ai", "To approach this, let's think step-by-step:"),
-                ("human", "Okay, let's proceed with your step-by-step approach."),
                 ("ai", "{agent_scratchpad}")
             ])
 
@@ -313,7 +313,9 @@ class AIResponder(commands.Cog):
                 agent=agent,
                 tools=tools,
                 memory=memory,
-                verbose=True
+                verbose=True,
+                max_iterations=3,  # Limit the number of tool uses to prevent over-explanation
+                early_stopping_method="generate"  # Stop if the agent wants to respond directly
             )
             
             self.logger.info("LangChain components updated successfully")
@@ -372,6 +374,12 @@ class AIResponder(commands.Cog):
             if not result or 'output' not in result:
                 raise ValueError("Invalid result from agent executor")
             full_response = result['output']
+
+            # Check if any tools were used
+            if 'intermediate_steps' in result and result['intermediate_steps']:
+                tool_outputs = [step[1] for step in result['intermediate_steps'] if isinstance(step, tuple) and len(step) == 2]
+                if tool_outputs:
+                    full_response = f"{full_response}\n\nTool outputs: {', '.join(tool_outputs)}"
 
             cleaned_response = self.clean_agent_output(full_response)
             self.logger.info(f"Cleaned response: {cleaned_response}")
