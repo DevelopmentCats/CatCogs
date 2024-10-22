@@ -98,6 +98,7 @@ class AIResponder(commands.Cog):
                 ("human", "{input}"),
                 ("ai", "To approach this, let's think step-by-step:"),
                 ("human", "Okay, let's proceed with your step-by-step approach."),
+                ("ai", "{agent_scratchpad}")
             ])
 
             self.logger.info("Creating agent executor")
@@ -281,6 +282,7 @@ class AIResponder(commands.Cog):
                 ("human", "{input}"),
                 ("ai", "To approach this, let's think step-by-step:"),
                 ("human", "Okay, let's proceed with your step-by-step approach."),
+                ("ai", "{agent_scratchpad}")
             ])
 
             self.logger.info("Setting up tools")
