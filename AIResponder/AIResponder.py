@@ -49,7 +49,7 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         self.logger.info(f"Tool ended. Output: {output}")
         await self.discord_message.edit(content=f"{self.full_response}\n\n✅ Tool used. Processing results...")
 
-    async def on_chain_start(self, serialized: Dict[str, Any] | None, inputs: Dict[str, Any], **kwargs: Any) -> None:
+    async def on_chain_start(self, serialized: Optional[Dict[str, Any]], inputs: Dict[str, Any], **kwargs: Any) -> None:
         chain_name = serialized.get('name', 'Unknown Chain') if serialized else 'Unknown Chain'
         self.logger.info(f"Chain started: {chain_name}, Inputs: {inputs}")
 
