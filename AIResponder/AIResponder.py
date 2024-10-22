@@ -40,12 +40,18 @@ class DiscordCallbackHandler(BaseCallbackHandler):
             self.last_update = current_time
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
+        self.logger.info(f"Tool started: {serialized['name']}, Input: {input_str}")
         await self.discord_message.edit(content=f"{self.full_response}\n\n🔧 Using tool: {serialized['name']}")
 
     async def on_tool_end(self, output, **kwargs):
+        self.logger.info(f"Tool ended. Output: {output}")
         await self.discord_message.edit(content=f"{self.full_response}\n\n✅ Tool used. Processing results...")
 
+    async def on_chain_start(self, serialized, inputs, **kwargs):
+        self.logger.info(f"Chain started: {serialized['name']}, Inputs: {inputs}")
+
     async def on_chain_end(self, outputs, **kwargs):
+        self.logger.info(f"Chain ended. Outputs: {outputs}")
         if isinstance(outputs, dict) and 'output' in outputs:
             self.full_response = outputs['output']
             await self.discord_message.edit(content=self.full_response[:2000])
@@ -94,7 +100,10 @@ class AIResponder(commands.Cog):
                 ("system", f"You are an AI assistant with the following personality: {custom_personality}. "
                            "You are in a Discord server, responding to user messages. "
                            "Respond naturally and conversationally, as if you're chatting with a friend. "
-                           "Always maintain your assigned personality throughout the conversation."),
+                           "Always maintain your assigned personality throughout the conversation. "
+                           "You have access to tools that can help you answer questions. "
+                           "ALWAYS use the 'Current Date' tool when asked about the current date or time. "
+                           "Use other tools when necessary to provide accurate and up-to-date information."),
                 ("human", "{input}"),
                 ("ai", "To approach this, let's think step-by-step:"),
                 ("human", "Okay, let's proceed with your step-by-step approach."),
@@ -289,7 +298,10 @@ class AIResponder(commands.Cog):
                 ("system", f"You are an AI assistant with the following personality: {custom_personality}. "
                            "You are in a Discord server, responding to user messages. "
                            "Respond naturally and conversationally, as if you're chatting with a friend. "
-                           "Always maintain your assigned personality throughout the conversation."),
+                           "Always maintain your assigned personality throughout the conversation. "
+                           "You have access to tools that can help you answer questions. "
+                           "ALWAYS use the 'Current Date' tool when asked about the current date or time. "
+                           "Use other tools when necessary to provide accurate and up-to-date information."),
                 ("human", "{input}"),
                 ("ai", "To approach this, let's think step-by-step:"),
                 ("human", "Okay, let's proceed with your step-by-step approach."),
@@ -357,31 +369,14 @@ class AIResponder(commands.Cog):
 
             self.logger.info(f"Invoking agent with input: {content}")
             
-            try:
-                result = await self.agent_executor.ainvoke(
-                    {"input": content},
-                    {"callbacks": [callback_handler]}
-                )
-                self.logger.info(f"Agent executor result: {result}")
-                if not result or 'output' not in result:
-                    raise ValueError("Invalid result from agent executor")
-                full_response = result['output']
-            except Exception as e:
-                self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
-                full_response = f"I apologize, but I encountered an error while processing your request. Here's what happened: {str(e)}\n\nLet me try to answer your question directly."
-                
-                # Fallback to direct LLM usage
-                self.logger.info("Falling back to direct LLM usage")
-                try:
-                    messages = [
-                        SystemMessage(content="You are a helpful AI assistant."),
-                        HumanMessage(content=content)
-                    ]
-                    response = await self.llm.agenerate(messages=[messages])
-                    full_response += "\n\n" + (response.generations[0][0].text if response.generations else "I couldn't generate a response. Please try again.")
-                except Exception as llm_error:
-                    self.logger.error(f"Error in direct LLM call: {str(llm_error)}", exc_info=True)
-                    full_response += "\n\nI'm having trouble processing your request. Please try again later or contact the bot owner."
+            result = await self.agent_executor.ainvoke(
+                {"input": content},
+                {"callbacks": [callback_handler]}
+            )
+            self.logger.info(f"Agent executor result: {result}")
+            if not result or 'output' not in result:
+                raise ValueError("Invalid result from agent executor")
+            full_response = result['output']
 
             cleaned_response = self.clean_agent_output(full_response)
             self.logger.info(f"Final response: {cleaned_response}")
@@ -392,9 +387,22 @@ class AIResponder(commands.Cog):
             return cleaned_response[:2000]  # Truncate to 2000 characters
 
         except Exception as e:
-            self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
-            await response_message.edit(content=f"😵 Oops! An unexpected error occurred: {str(e)}\n\nPlease try again or contact the bot owner if the issue persists.")
-            return "I encountered an unexpected error while processing your request. Please try again or contact the bot owner if the issue persists."
+            self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
+            error_message = f"I encountered an error while processing your request: {str(e)}\n\nFalling back to direct LLM usage."
+            await response_message.edit(content=error_message)
+            
+            # Fallback to direct LLM usage
+            try:
+                messages = [
+                    SystemMessage(content="You are a helpful AI assistant."),
+                    HumanMessage(content=content)
+                ]
+                response = await self.llm.agenerate(messages=[messages])
+                fallback_response = response.generations[0][0].text if response.generations else "I couldn't generate a response. Please try again."
+                return fallback_response[:2000]  # Truncate to 2000 characters
+            except Exception as llm_error:
+                self.logger.error(f"Error in direct LLM call: {str(llm_error)}", exc_info=True)
+                return "I'm having trouble processing your request. Please try again later or contact the bot owner."
 
     async def process_intermediate_step(self, step, response_message):
         if isinstance(step, tuple) and len(step) == 2:
