@@ -41,23 +41,24 @@ class DiscordCallbackHandler(BaseCallbackHandler):
             self.last_update = current_time
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
-        self.logger.info(f"Tool started: {serialized['name']}, Input: {input_str}")
-        await self.discord_message.edit(content=f"{self.full_response}\n\n🔧 Using tool: {serialized['name']}")
+        tool_name = serialized.get('name', 'Unknown Tool')
+        self.logger.info(f"Tool started: {tool_name}, Input: {input_str}")
+        await self.discord_message.edit(content=f"{self.full_response}\n\n🔧 Using tool: {tool_name}")
 
     async def on_tool_end(self, output, **kwargs):
         self.logger.info(f"Tool ended. Output: {output}")
         await self.discord_message.edit(content=f"{self.full_response}\n\n✅ Tool used. Processing results...")
 
     async def on_chain_start(self, serialized, inputs, **kwargs):
-        self.logger.info(f"Chain started: {serialized['name']}, Inputs: {inputs}")
+        chain_name = serialized.get('name', 'Unknown Chain')
+        self.logger.info(f"Chain started: {chain_name}, Inputs: {inputs}")
 
     async def on_chain_end(self, outputs, **kwargs):
         self.logger.info(f"Chain ended. Outputs: {outputs}")
         if isinstance(outputs, dict) and 'output' in outputs:
             self.full_response = outputs['output']
-            # Don't update Discord message here, we'll do it in process_query
         else:
-            self.logger.warning("Unexpected output format from chain")
+            self.logger.warning(f"Unexpected output format from chain: {outputs}")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -131,7 +132,6 @@ class AIResponder(commands.Cog):
 
     async def setup_tools(self):
         tools = []
-
         try:
             # DuckDuckGo Search
             ddg_search = DuckDuckGoSearchAPIWrapper()
@@ -142,7 +142,6 @@ class AIResponder(commands.Cog):
                     description="Useful for searching the internet for current information on various topics."
                 )
             )
-
             # Wikipedia
             wikipedia = WikipediaAPIWrapper()
             tools.append(
@@ -152,7 +151,6 @@ class AIResponder(commands.Cog):
                     description="Useful for getting detailed information on a wide range of topics."
                 )
             )
-
             # Python REPL
             python_repl = PythonAstREPLTool()
             tools.append(
@@ -162,7 +160,6 @@ class AIResponder(commands.Cog):
                     description="Useful for running Python code and performing calculations."
                 )
             )
-
             # Calculator
             def calculator(expression: str) -> str:
                 try:
@@ -171,7 +168,6 @@ class AIResponder(commands.Cog):
                     return str(result.evalf())
                 except Exception as e:
                     return f"Error: Unable to calculate. Please provide a valid mathematical expression. ({str(e)})"
-
             tools.append(
                 Tool(
                     name="Calculator",
@@ -179,10 +175,9 @@ class AIResponder(commands.Cog):
                     description="Useful for performing basic and advanced mathematical calculations. Provide a valid mathematical expression."
                 )
             )
-
+            # Current Date
             def get_current_date():
                 return datetime.now().strftime("%Y-%m-%d")
-
             tools.append(
                 Tool(
                     name="Current Date",
@@ -190,10 +185,9 @@ class AIResponder(commands.Cog):
                     description="Use this to get the current date in YYYY-MM-DD format."
                 )
             )
-
+            self.logger.info(f"Tools set up: {[tool.name for tool in tools]}")
         except Exception as e:
             self.logger.error(f"Error setting up tools: {str(e)}", exc_info=True)
-
         return tools
 
     @commands.group(name="air")
