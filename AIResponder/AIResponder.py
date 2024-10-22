@@ -50,7 +50,7 @@ class DiscordCallbackHandler(BaseCallbackHandler):
             self.full_response = outputs['output']
             await self.discord_message.edit(content=self.full_response[:2000])
         else:
-            await self.discord_message.edit(content="Processing complete, but I couldn't generate a proper response.")
+            await self.discord_message.edit(content="I apologize, but I couldn't generate a proper response. Please try asking your question again.")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -167,6 +167,17 @@ class AIResponder(commands.Cog):
                     name="Calculator",
                     func=calculator,
                     description="Useful for performing basic and advanced mathematical calculations. Provide a valid mathematical expression."
+                )
+            )
+
+            def get_current_date():
+                return datetime.now().strftime("%Y-%m-%d")
+
+            tools.append(
+                Tool(
+                    name="Current Date",
+                    func=get_current_date,
+                    description="Use this to get the current date in YYYY-MM-DD format."
                 )
             )
 
@@ -357,7 +368,8 @@ class AIResponder(commands.Cog):
                 full_response = result['output']
             except Exception as e:
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
-                await response_message.edit(content=f"😵 Oops! I encountered an error: {str(e)}\n\nFalling back to direct LLM usage...")
+                full_response = f"I apologize, but I encountered an error while processing your request. Here's what happened: {str(e)}\n\nLet me try to answer your question directly."
+                
                 # Fallback to direct LLM usage
                 self.logger.info("Falling back to direct LLM usage")
                 try:
@@ -366,10 +378,10 @@ class AIResponder(commands.Cog):
                         HumanMessage(content=content)
                     ]
                     response = await self.llm.agenerate(messages=[messages])
-                    full_response = response.generations[0][0].text if response.generations else "I couldn't generate a response. Please try again."
+                    full_response += "\n\n" + (response.generations[0][0].text if response.generations else "I couldn't generate a response. Please try again.")
                 except Exception as llm_error:
                     self.logger.error(f"Error in direct LLM call: {str(llm_error)}", exc_info=True)
-                    return "I'm having trouble processing your request. Please try again later or contact the bot owner."
+                    full_response += "\n\nI'm having trouble processing your request. Please try again later or contact the bot owner."
 
             cleaned_response = self.clean_agent_output(full_response)
             self.logger.info(f"Final response: {cleaned_response}")
