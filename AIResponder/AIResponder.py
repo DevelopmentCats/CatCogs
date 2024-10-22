@@ -27,14 +27,17 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message):
         self.discord_message = discord_message
         self.full_response = ""
+        self.last_update = 0
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
         await self.discord_message.edit(content="🤔 Thinking...")
 
     async def on_llm_new_token(self, token, **kwargs):
         self.full_response += token
-        if len(self.full_response) % 50 == 0:  # Update every 50 characters
-            await self.discord_message.edit(content=f"🤔 Thinking...\n\n{self.full_response[-1000:]}")
+        current_time = datetime.now().timestamp()
+        if current_time - self.last_update > 1:  # Update every second
+            await self.discord_message.edit(content=f"🤔 Thinking...\n\n{self.full_response[-1500:]}")
+            self.last_update = current_time
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
         await self.discord_message.edit(content=f"{self.full_response}\n\n🔧 Using tool: {serialized['name']}")
@@ -370,6 +373,9 @@ class AIResponder(commands.Cog):
 
             cleaned_response = self.clean_agent_output(full_response)
             self.logger.info(f"Final response: {cleaned_response}")
+
+            if not cleaned_response.strip():
+                cleaned_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
 
             return cleaned_response[:2000]  # Truncate to 2000 characters
 
