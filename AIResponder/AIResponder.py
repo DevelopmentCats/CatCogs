@@ -80,8 +80,8 @@ class AIResponder(commands.Cog):
             self.logger.info(f"Initializing DeepInfra LLM with model: {model}")
             self.llm = ChatOpenAI(
                 model=model,
-                openai_api_key=api_key,
-                openai_api_base="https://api.deepinfra.com/v1/openai",
+                api_key=api_key,
+                base_url="https://api.deepinfra.com/v1/openai",
             )
 
             # Set up tools and agent executor
@@ -266,8 +266,8 @@ class AIResponder(commands.Cog):
             self.logger.info(f"Using Model: {model}")
             self.llm = ChatOpenAI(
                 model=model,
-                openai_api_key=api_key,
-                openai_api_base="https://api.deepinfra.com/v1/openai",
+                api_key=api_key,
+                base_url="https://api.deepinfra.com/v1/openai",
             )
             
             custom_personality = await self.config.custom_personality()
@@ -414,7 +414,11 @@ class AIResponder(commands.Cog):
         try:
             test_prompt = "Hello, world!"
             self.logger.info(f"Testing API with prompt: {test_prompt}")
-            response = await self.llm.agenerate([test_prompt])
+            messages = [
+                SystemMessage(content="You are a helpful AI assistant."),
+                HumanMessage(content=test_prompt)
+            ]
+            response = await self.llm.agenerate(messages=[messages])
             if response and response.generations:
                 self.logger.info("API settings verified successfully")
                 return True
