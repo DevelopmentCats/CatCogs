@@ -26,31 +26,28 @@ import json
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message):
         self.discord_message = discord_message
+        self.full_response = ""
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
         await self.discord_message.edit(content="🤔 Thinking...")
 
     async def on_llm_new_token(self, token, **kwargs):
-        current_content = self.discord_message.content
-        new_content = current_content + token
-        if len(new_content) > 2000:
-            new_content = new_content[-2000:]
-        await self.discord_message.edit(content=new_content)
+        self.full_response += token
+        if len(self.full_response) % 50 == 0:  # Update every 50 characters
+            await self.discord_message.edit(content=f"🤔 Thinking...\n\n{self.full_response[-1000:]}")
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
-        await self.discord_message.edit(content=f"🔧 Using tool: {serialized['name']}")
+        await self.discord_message.edit(content=f"{self.full_response}\n\n🔧 Using tool: {serialized['name']}")
 
     async def on_tool_end(self, output, **kwargs):
-        await self.discord_message.edit(content="✅ Tool used. Processing results...")
+        await self.discord_message.edit(content=f"{self.full_response}\n\n✅ Tool used. Processing results...")
 
     async def on_chain_end(self, outputs, **kwargs):
-        try:
-            if isinstance(outputs, dict) and 'output' in outputs:
-                await self.discord_message.edit(content=outputs['output'][:2000])
-            else:
-                await self.discord_message.edit(content="Processing complete, but I couldn't generate a proper response.")
-        except Exception as e:
-            logging.error(f"Error in DiscordCallbackHandler.on_chain_end: {str(e)}")
+        if isinstance(outputs, dict) and 'output' in outputs:
+            self.full_response = outputs['output']
+            await self.discord_message.edit(content=self.full_response[:2000])
+        else:
+            await self.discord_message.edit(content="Processing complete, but I couldn't generate a proper response.")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -335,6 +332,7 @@ class AIResponder(commands.Cog):
 
     async def process_query(self, content: str, response_message: discord.Message) -> str:
         try:
+            callback_handler = DiscordCallbackHandler(response_message)
             await response_message.edit(content="🤔 Thinking...")
 
             if self.agent_executor is None:
@@ -348,7 +346,7 @@ class AIResponder(commands.Cog):
             try:
                 result = await self.agent_executor.ainvoke(
                     {"input": content},
-                    {"callbacks": [DiscordCallbackHandler(response_message)]}
+                    {"callbacks": [callback_handler]}
                 )
                 self.logger.info(f"Agent executor result: {result}")
                 if not result or 'output' not in result:
@@ -356,6 +354,7 @@ class AIResponder(commands.Cog):
                 full_response = result['output']
             except Exception as e:
                 self.logger.error(f"Error in agent_executor.ainvoke: {str(e)}", exc_info=True)
+                await response_message.edit(content=f"😵 Oops! I encountered an error: {str(e)}\n\nFalling back to direct LLM usage...")
                 # Fallback to direct LLM usage
                 self.logger.info("Falling back to direct LLM usage")
                 try:
@@ -376,6 +375,7 @@ class AIResponder(commands.Cog):
 
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
+            await response_message.edit(content=f"😵 Oops! An unexpected error occurred: {str(e)}\n\nPlease try again or contact the bot owner if the issue persists.")
             return "I encountered an unexpected error while processing your request. Please try again or contact the bot owner if the issue persists."
 
     async def process_intermediate_step(self, step, response_message):
