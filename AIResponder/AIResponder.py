@@ -89,22 +89,19 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         if intermediate_steps:
             last_tool_output = intermediate_steps[-1][1]  # Get the last tool's output
             # Extract the actual time from the tool output
-            time_info = last_tool_output.split(": ")[-1] if ": " in last_tool_output else last_tool_output
+            time_info = last_tool_output.split("CST: ")[-1].split(" UTC")[0] if "CST: " in last_tool_output else last_tool_output
             
             # Send both the tool output and original query back to LLM for final response
-            follow_up_messages = self.prompt.format_messages(
-                input=f"Original query: {kwargs.get('input', '')}\n"
-                      f"Tool output: {time_info}\n"
-                      f"Generate a fun, personality-driven response that naturally incorporates this information.",
-                chat_history=kwargs.get('chat_history', []),
-                agent_scratchpad=""
+            follow_up_prompt = (
+                f"System: You are an AI assistant named Meow with this personality: {self.prompt.messages[0].content}.\n"
+                f"User Query: {kwargs.get('input', '')}\n"
+                f"Tool Output: {time_info}\n"
+                f"Assistant: Generate a fun, personality-driven response using ONLY the accurate tool output."
             )
-            final_response = await self.llm.agenerate(messages=[follow_up_messages])
-            final_text = final_response.generations[0][0].text
             
-            # Clean up any remaining tool markup
-            final_text = final_text.replace("<tool>", "").replace("</tool>", "")
-            final_text = final_text.replace("<input>", "").replace("</input>", "")
+            follow_up_messages = [HumanMessage(content=follow_up_prompt)]
+            final_response = await self.llm.agenerate(messages=follow_up_messages)
+            final_text = final_response.generations[0][0].text
             
             return AgentFinish(
                 return_values={"output": final_text},
@@ -403,24 +400,29 @@ class AIResponder(commands.Cog):
                 ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
                           "You are in a Discord server, responding to user messages.\n\n"
                           "IMPORTANT TOOL USAGE RULES:\n"
-                          "1. FIRST use required tools to gather information\n"
-                          "2. THEN create an engaging, personality-driven response using the tool's output\n"
-                          "3. NEVER respond before getting tool output when needed\n"
-                          "4. ALWAYS maintain your personality in responses\n\n"
+                          "1. For time/date questions, ONLY use <tool>Current Date and Time (CST)</tool>\n"
+                          "2. DO NOT make up or guess any information - wait for tool output\n"
+                          "3. DO NOT generate a final response until you have tool output\n"
+                          "4. Keep responses fun and engaging\n\n"
                           "Available tools (use EXACT format):\n"
                           "- 'Current Date and Time (CST)': REQUIRED for ANY time/date questions\n"
                           "- 'Calculator': REQUIRED for ANY math/calculations\n"
-                          "- 'DuckDuckGo Search': REQUIRED for current/factual information\n"
-                          "- 'Wikipedia': REQUIRED for detailed topic information\n\n"
+                          "  * Basic operations: +, -, *, /, ^ (power)\n"
+                          "  * Functions: sqrt, squared, cubed\n"
+                          "  * Scientific notation\n"
+                          "  * Natural language: 'divided by', 'times', 'plus', 'minus'\n"
+                          "  Examples: '2 + 2', 'sqrt(16)', '2 squared', '10 divided by 2'\n"
+                          "- 'DuckDuckGo Search': REQUIRED for current information (requires specific, focused search queries)\n"
+                          "- 'Wikipedia': REQUIRED for detailed topic information (requires specific topic)\n\n"
                           "Tool Usage Process:\n"
                           "1. Request tool data using XML format\n"
-                          "2. Wait for tool response\n"
-                          "3. Create engaging, personality-driven response incorporating tool data\n\n"
+                          "2. Wait for ACTUAL tool response\n"
+                          "3. Create engaging, personality-driven response using ONLY the real tool data\n\n"
                           "Example Flow:\n"
                           "User: 'What time is it?'\n"
                           "AI: <tool>Current Date and Time (CST)</tool>\n"
-                          "[Wait for tool response: 3:30 PM CST]\n"
-                          "AI: '*checks my cat-shaped clock* Purr-fect timing! It's 3:30 PM in CST, which means it's time for my afternoon nap... I mean, your afternoon update! 😺'"),
+                          "[Waiting for real tool data...]\n"
+                          "AI: '*checks my cat-shaped clock* Purr-fect timing! It's exactly [ACTUAL TOOL TIME] in CST!'"),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
@@ -469,7 +471,7 @@ class AIResponder(commands.Cog):
                 await response_message.edit(content=full_response)
             except Exception as e:
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
-                await response_message.edit(content=f"{message.author.mention} 😵 Oops! My circuits got a bit tangled there. Can you try again?")
+                await response_message.edit(content=f"{message.author.mention} �� Oops! My circuits got a bit tangled there. Can you try again?")
 
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message) -> str:
         try:
