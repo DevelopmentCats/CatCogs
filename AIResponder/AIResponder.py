@@ -91,41 +91,29 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Extract the actual time from the tool output
             time_info = last_tool_output.split("CST: ")[-1].split(" UTC")[0] if "CST: " in last_tool_output else last_tool_output
             
-            # Send both the tool output and original query back to LLM for final response
-            follow_up_prompt = (
-                f"System: You are an AI assistant named Meow with this personality: {self.prompt.messages[0].content}.\n"
-                f"User Query: {kwargs.get('input', '')}\n"
-                f"Tool Output: {time_info}\n"
-                f"Assistant: Generate a fun, personality-driven response using ONLY the accurate tool output."
-            )
+            # Create a conversation-style prompt that maintains context
+            conversation_prompt = [
+                SystemMessage(content=self.prompt.messages[0].content),  # Original system message with personality
+                HumanMessage(content=kwargs.get('input', '')),  # Original user query
+                AIMessage(content=response_text),  # AI's initial response with tool request
+                SystemMessage(content=f"Tool provided this information: {time_info}"),  # Tool output
+                HumanMessage(content="Now complete your response using the accurate information while maintaining the conversation flow.")
+            ]
             
-            follow_up_messages = [HumanMessage(content=follow_up_prompt)]
-            final_response = await self.llm.agenerate(messages=follow_up_messages)
+            final_response = await self.llm.agenerate(messages=conversation_prompt)
             final_text = final_response.generations[0][0].text
+            
+            # Clean up any remaining tool markup
+            final_text = final_text.replace("<tool>", "").replace("</tool>", "")
+            final_text = final_text.replace("<input>", "").replace("</input>", "")
+            final_text = final_text.replace("[Waiting for real tool data...]", "")
             
             return AgentFinish(
                 return_values={"output": final_text},
                 log=response_text
             )
         
-        # Check for malformed tool calls and fix them
-        tool_patterns = {
-            "Current Date and Time": "Current Date and Time (CST)",
-            "DuckDuckGo": "DuckDuckGo Search",
-            "Duck Duck Go": "DuckDuckGo Search",
-            "Search": "DuckDuckGo Search",
-            "Wiki": "Wikipedia",
-            "Calculate": "Calculator"
-        }
-        
-        # Handle both XML-style and angle bracket style tool calls
-        for pattern, correct_name in tool_patterns.items():
-            response_text = response_text.replace(f"<{pattern}>", f"<tool>{correct_name}</tool>")
-            response_text = response_text.replace(f"</{pattern}>", "")
-            if f"<tool>{pattern}</tool>" in response_text:
-                response_text = response_text.replace(f"<tool>{pattern}</tool>", f"<tool>{correct_name}</tool>")
-        
-        # Check if we should use a tool
+        # Check for tool usage in initial response
         if "<tool>" in response_text and "</tool>" in response_text:
             tool_start = response_text.find("<tool>") + 6
             tool_end = response_text.find("</tool>")
@@ -141,8 +129,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 else ""
             )
             
-            # Return the tool action without generating a response yet
-            return AgentAction(tool=tool_name, tool_input=tool_input, log=response_text)
+            # Store the initial response for context
+            initial_response = response_text.split("<tool>")[0].strip()
+            
+            # Return the tool action with the initial response preserved
+            return AgentAction(
+                tool=tool_name,
+                tool_input=tool_input,
+                log=f"{initial_response}\n<tool>{tool_name}</tool>"
+            )
         
         # If no tool is needed, return direct response
         return AgentFinish(return_values={"output": response_text}, log=response_text)
@@ -471,7 +466,7 @@ class AIResponder(commands.Cog):
                 await response_message.edit(content=full_response)
             except Exception as e:
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
-                await response_message.edit(content=f"{message.author.mention} �� Oops! My circuits got a bit tangled there. Can you try again?")
+                await response_message.edit(content=f"{message.author.mention}  Oops! My circuits got a bit tangled there. Can you try again?")
 
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message) -> str:
         try:
