@@ -61,6 +61,34 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     async def on_tool_error(self, error, **kwargs):
         self.logger.error(f"❌ Tool Error: {str(error)}")
 
+class LlamaFunctionsAgent:
+    def __init__(self, llm, tools, prompt):
+        self.llm = llm
+        self.tools = {tool.name: tool for tool in tools}
+        self.prompt = prompt
+    
+    async def aplan(self, intermediate_steps, **kwargs):
+        # Format the prompt with tool descriptions
+        messages = self.prompt.format_messages(**kwargs)
+        
+        # Get the response from the LLM
+        response = await self.llm.agenerate(messages=[messages])
+        response_text = response.generations[0][0].text
+        
+        # Parse the response for tool calls
+        if "<tool>" in response_text and "</tool>" in response_text:
+            tool_start = response_text.find("<tool>") + 6
+            tool_end = response_text.find("</tool>")
+            tool_name = response_text[tool_start:tool_end].strip()
+            
+            input_start = response_text.find("<input>") + 7 if "<input>" in response_text else -1
+            input_end = response_text.find("</input>") if "</input>" in response_text else -1
+            tool_input = response_text[input_start:input_end].strip() if input_start > 0 and input_end > 0 else ""
+            
+            return {"tool": tool_name, "tool_input": tool_input}
+        
+        return {"output": response_text}
+
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
@@ -78,87 +106,78 @@ class AIResponder(commands.Cog):
         self.bot.loop.create_task(self.initialize())
 
     async def initialize(self):
+        """Initialize the cog."""
+        self.config = Config.get_conf(self, identifier=1234567890)
+        default_global = {
+            "api_key": None,
+            "model": "meta-llama/Llama-3.2-11B-Vision-Instruct",
+            "custom_personality": "friendly and helpful"
+        }
+        default_guild = {
+            "disabled_channels": []
+        }
+        
+        self.config.register_global(**default_global)
+        self.config.register_guild(**default_guild)
+        
+        self.logger = logging.getLogger("red.airesponder")
+        
+        if not await self.is_configured():
+            self.logger.warning("AIResponder is not configured yet")
+            return
+            
         try:
             api_key = await self.config.api_key()
             model = await self.config.model()
-
-            if not api_key:
-                self.logger.error("API key not set. Please use the 'air apikey' command to set it.")
-                return
-
+            
             self.logger.info(f"Initializing DeepInfra LLM with model: {model}")
             self.llm = ChatOpenAI(
                 model=model,
                 api_key=api_key,
                 base_url="https://api.deepinfra.com/v1/openai",
                 temperature=0.7,
-                max_tokens=16384,
                 streaming=True,
                 model_kwargs={
-                    "function_call": "auto",
-                    "functions": [
+                    "tools": [
                         {
-                            "name": "Current Date and Time (CST)",
-                            "description": "Get the current date and time in Central Standard Time (CST)",
-                            "parameters": {"type": "object", "properties": {}}
+                            "type": "function",
+                            "function": {
+                                "name": "Current_Date_and_Time_CST",
+                                "description": "Get the current date and time in CST timezone",
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {}
+                                }
+                            }
                         },
                         {
-                            "name": "Calculator",
-                            "description": "Perform mathematical calculations",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "expression": {
-                                        "type": "string",
-                                        "description": "The mathematical expression to calculate"
-                                    }
-                                },
-                                "required": ["expression"]
+                            "type": "function",
+                            "function": {
+                                "name": "Calculator",
+                                "description": "Perform mathematical calculations",
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "expression": {
+                                            "type": "string",
+                                            "description": "The mathematical expression to calculate"
+                                        }
+                                    },
+                                    "required": ["expression"]
+                                }
                             }
                         }
                     ]
                 }
             )
-
-            # Set up tools and agent executor
-            self.logger.info("Setting up tools")
-            tools = await self.setup_tools()
-            memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
-
-            custom_personality = await self.config.custom_personality()
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
-                           "You are in a Discord server, responding to user messages. "
-                           "Respond naturally and conversationally, as if you're chatting with a friend. "
-                           "Always maintain your assigned personality throughout the conversation. "
-                           "You have access to tools that can help you answer questions. "
-                           "ALWAYS use the 'Current Date and Time (CST)' tool when asked about the current date or time. "
-                           "Use other tools when necessary to provide accurate and up-to-date information. "
-                           "After using a tool, incorporate the information into your response naturally. "
-                           "Be concise and direct in your responses."),
-                ("human", "{input}"),
-                ("ai", "{agent_scratchpad}")
-            ])
-
-            self.logger.info("Creating agent executor")
-            try:
-                agent = create_openai_functions_agent(llm=self.llm, tools=tools, prompt=prompt)
-                self.agent_executor = AgentExecutor(
-                    agent=agent,
-                    tools=tools,
-                    memory=memory,
-                    verbose=True,
-                    max_iterations=3,
-                    early_stopping_method="generate"
-                )
-                self.logger.info("Agent executor created successfully")
-            except Exception as e:
-                self.logger.error(f"Error creating agent executor: {str(e)}", exc_info=True)
-                self.agent_executor = None
-
-            await self.verify_api_settings()
+            
+            await self.update_langchain_components()
+            if await self.verify_api_settings():
+                self.logger.info("AIResponder initialized successfully")
+            else:
+                self.logger.error("Failed to verify API settings")
         except Exception as e:
-            self.logger.error(f"Unexpected error in initialize: {str(e)}", exc_info=True)
+            self.logger.error(f"Error in initialization: {str(e)}", exc_info=True)
 
     async def setup_tools(self):
         tools = [
@@ -295,29 +314,23 @@ class AIResponder(commands.Cog):
             
             prompt = ChatPromptTemplate.from_messages([
                 ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
-                          "You are in a Discord server, responding to user messages. "
-                          "Respond naturally and conversationally, as if you're chatting with a friend. "
-                          "Always maintain your assigned personality throughout the conversation.\n\n"
-                          "IMPORTANT: You MUST follow these tool usage rules:\n"
-                          "1. For ANY questions about current time or date: Use 'Current Date and Time (CST)'\n"
-                          "2. For calculations: Use 'Calculator'\n"
-                          "3. For searches: Use 'DuckDuckGo Search'\n"
-                          "4. For topic info: Use 'Wikipedia'\n\n"
-                          "Never make up or guess information - always use the appropriate tool.\n"
-                          "After using a tool, incorporate its exact response in your reply."),
+                          "You are in a Discord server, responding to user messages.\n\n"
+                          "IMPORTANT: You have access to these tools:\n"
+                          "- Current_Date_and_Time_CST: Use for ANY questions about current time or date\n"
+                          "- Calculator: Use for ANY mathematical calculations\n"
+                          "- DuckDuckGo Search: Use for current information\n"
+                          "- Wikipedia: Use for detailed topic information\n\n"
+                          "When a tool is needed, call it using this format:\n"
+                          "<tool>tool_name</tool>\n"
+                          "<input>tool input if needed</input>\n\n"
+                          "Never make up information - always use tools when needed."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
 
-            # Create the agent with explicit function calling
-            agent = create_openai_functions_agent(
-                llm=self.llm,
-                tools=tools,
-                prompt=prompt
-            )
-            
+            # Create a custom agent that understands Llama's function calling format
             self.agent_executor = AgentExecutor(
-                agent=agent,
+                agent=LlamaFunctionsAgent(llm=self.llm, tools=tools, prompt=prompt),
                 tools=tools,
                 memory=memory,
                 verbose=True,
@@ -326,15 +339,9 @@ class AIResponder(commands.Cog):
                 return_intermediate_steps=True
             )
 
-            # Test the tool usage
-            test_result = await self.agent_executor.ainvoke(
-                {"input": "What time is it?"},
-                {"callbacks": [DiscordCallbackHandler(None, self.logger)]}
-            )
-            self.logger.info(f"Tool test result: {test_result}")
-
+            self.logger.info("LangChain components updated successfully")
         except Exception as e:
-            self.logger.error(f"Error in update_langchain_components: {str(e)}", exc_info=True)
+            self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
             self.agent_executor = None
 
     @commands.Cog.listener()
