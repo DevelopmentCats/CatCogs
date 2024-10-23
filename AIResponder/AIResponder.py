@@ -12,7 +12,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import Tool
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain.agents import AgentExecutor, create_openai_functions_agent
+from langchain.agents import AgentExecutor, create_openai_functions_agent, BaseSingleActionAgent
+from langchain_core.agents import AgentAction, AgentFinish
 from langchain.memory import ConversationBufferWindowMemory
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
@@ -61,13 +62,18 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     async def on_tool_error(self, error, **kwargs):
         self.logger.error(f"❌ Tool Error: {str(error)}")
 
-class LlamaFunctionsAgent:
+class LlamaFunctionsAgent(BaseSingleActionAgent):
     def __init__(self, llm, tools, prompt):
+        super().__init__()
         self.llm = llm
         self.tools = {tool.name: tool for tool in tools}
         self.prompt = prompt
+
+    @property
+    def input_keys(self):
+        return ["input", "chat_history", "agent_scratchpad"]
     
-    async def aplan(self, intermediate_steps, **kwargs):
+    async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
         # Format the prompt with tool descriptions
         messages = self.prompt.format_messages(**kwargs)
         
@@ -85,9 +91,9 @@ class LlamaFunctionsAgent:
             input_end = response_text.find("</input>") if "</input>" in response_text else -1
             tool_input = response_text[input_start:input_end].strip() if input_start > 0 and input_end > 0 else ""
             
-            return {"tool": tool_name, "tool_input": tool_input}
+            return AgentAction(tool=tool_name, tool_input=tool_input, log=response_text)
         
-        return {"output": response_text}
+        return AgentFinish(return_values={"output": response_text}, log=response_text)
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -136,39 +142,7 @@ class AIResponder(commands.Cog):
                 api_key=api_key,
                 base_url="https://api.deepinfra.com/v1/openai",
                 temperature=0.7,
-                streaming=True,
-                model_kwargs={
-                    "tools": [
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": "Current_Date_and_Time_CST",
-                                "description": "Get the current date and time in CST timezone",
-                                "parameters": {
-                                    "type": "object",
-                                    "properties": {}
-                                }
-                            }
-                        },
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": "Calculator",
-                                "description": "Perform mathematical calculations",
-                                "parameters": {
-                                    "type": "object",
-                                    "properties": {
-                                        "expression": {
-                                            "type": "string",
-                                            "description": "The mathematical expression to calculate"
-                                        }
-                                    },
-                                    "required": ["expression"]
-                                }
-                            }
-                        }
-                    ]
-                }
+                streaming=True
             )
             
             await self.update_langchain_components()
@@ -316,14 +290,15 @@ class AIResponder(commands.Cog):
                 ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
                           "You are in a Discord server, responding to user messages.\n\n"
                           "IMPORTANT: You have access to these tools:\n"
-                          "- Current_Date_and_Time_CST: Use for ANY questions about current time or date\n"
-                          "- Calculator: Use for ANY mathematical calculations\n"
-                          "- DuckDuckGo Search: Use for current information\n"
-                          "- Wikipedia: Use for detailed topic information\n\n"
-                          "When a tool is needed, call it using this format:\n"
-                          "<tool>tool_name</tool>\n"
+                          "1. Current Date and Time (CST): Use for ANY questions about current time or date\n"
+                          "2. Calculator: Use for ANY mathematical calculations\n"
+                          "3. DuckDuckGo Search: Use for current information\n"
+                          "4. Wikipedia: Use for detailed topic information\n\n"
+                          "When you need to use a tool, respond with:\n"
+                          "<tool>exact tool name</tool>\n"
                           "<input>tool input if needed</input>\n\n"
-                          "Never make up information - always use tools when needed."),
+                          "After getting the tool's response, incorporate it naturally in your reply.\n"
+                          "NEVER make up dates, times, or information - ALWAYS use the appropriate tool."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
