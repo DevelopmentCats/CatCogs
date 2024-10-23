@@ -93,7 +93,31 @@ class AIResponder(commands.Cog):
                 base_url="https://api.deepinfra.com/v1/openai",
                 temperature=0.7,
                 max_tokens=16384,
-                streaming=True
+                streaming=True,
+                model_kwargs={
+                    "function_call": "auto",
+                    "functions": [
+                        {
+                            "name": "Current_Date_and_Time_CST",
+                            "description": "Get the current date and time in CST timezone",
+                            "parameters": {"type": "object", "properties": {}}
+                        },
+                        {
+                            "name": "Calculator",
+                            "description": "Perform mathematical calculations",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "expression": {
+                                        "type": "string",
+                                        "description": "The mathematical expression to calculate"
+                                    }
+                                },
+                                "required": ["expression"]
+                            }
+                        }
+                    ]
+                }
             )
 
             # Set up tools and agent executor
@@ -267,7 +291,6 @@ class AIResponder(commands.Cog):
             custom_personality = await self.config.custom_personality()
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
             
-            # Set up tools first
             tools = await self.setup_tools()
             
             prompt = ChatPromptTemplate.from_messages([
@@ -275,24 +298,16 @@ class AIResponder(commands.Cog):
                           "You are in a Discord server, responding to user messages. "
                           "Respond naturally and conversationally, as if you're chatting with a friend. "
                           "Always maintain your assigned personality throughout the conversation.\n\n"
-                          "IMPORTANT INSTRUCTIONS FOR TOOL USAGE:\n"
-                          "1. When asked about the current time or date, you MUST use the 'Current Date and Time (CST)' tool\n"
-                          "2. For calculations, use the 'Calculator' tool\n"
-                          "3. For current information, use 'DuckDuckGo Search'\n"
-                          "4. For detailed topic information, use 'Wikipedia'\n\n"
-                          "Never make up dates, times, or information - always use the appropriate tool.\n"
-                          "After using a tool, wait for its response and incorporate the information naturally."),
+                          "IMPORTANT: You MUST use tools when appropriate:\n"
+                          "1. For current time/date: ALWAYS use 'Current Date and Time (CST)'\n"
+                          "2. For calculations: ALWAYS use 'Calculator'\n"
+                          "3. For searches: Use 'DuckDuckGo Search'\n"
+                          "4. For topic info: Use 'Wikipedia'\n\n"
+                          "Never guess or make up information - use the appropriate tool."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
 
-            # Configure the LLM for function calling
-            self.llm.model_kwargs = {
-                **self.llm.model_kwargs,
-                "function_call": {"mode": "auto"},
-            }
-
-            # Create the agent with explicit function definitions
             agent = create_openai_functions_agent(
                 llm=self.llm,
                 tools=tools,
@@ -306,21 +321,18 @@ class AIResponder(commands.Cog):
                 verbose=True,
                 max_iterations=3,
                 handle_parsing_errors=True,
-                early_stopping_method="generate",
-                return_intermediate_steps=True  # Make sure we get tool usage info
+                return_intermediate_steps=True
             )
 
-            self.logger.info("LangChain components updated successfully")
-            
-            # Test the date/time tool to verify it's working
+            # Test the agent with a simple date query
             test_result = await self.agent_executor.ainvoke(
-                {"input": "What is the current time?"},
-                {"return_only_outputs": True}
+                {"input": "test the current time"},
+                {"callbacks": [DiscordCallbackHandler(None, self.logger)]}
             )
-            self.logger.info(f"Test invocation result: {test_result}")
-            
+            self.logger.info(f"Agent test result: {test_result}")
+
         except Exception as e:
-            self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
+            self.logger.error(f"Error in update_langchain_components: {str(e)}", exc_info=True)
             self.agent_executor = None
 
     @commands.Cog.listener()
