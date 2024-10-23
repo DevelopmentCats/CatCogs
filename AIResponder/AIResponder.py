@@ -139,29 +139,28 @@ class AIResponder(commands.Cog):
     async def setup_tools(self):
         tools = [
             Tool(
-                name="DuckDuckGo Search",
-                func=DuckDuckGoSearchRun().run,
-                description="Useful for searching the internet for current information on various topics."
-            ),
-            Tool(
-                name="Wikipedia",
-                func=WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper()).run,
-                description="Useful for getting detailed information on a wide range of topics."
-            ),
-            Tool(
-                name="Python REPL",
-                func=PythonAstREPLTool().run,
-                description="Useful for running Python code and performing calculations."
+                name="Current Date and Time (CST)",
+                func=self.get_current_date_time_cst,
+                description="REQUIRED for getting the current date and time in Central Standard Time (CST). Input: no input needed",
+                return_direct=True
             ),
             Tool(
                 name="Calculator",
                 func=self.calculator,
-                description="Useful for performing basic and advanced mathematical calculations."
+                description="Use for any mathematical calculations. Input: a mathematical expression (e.g., '2 + 2' or '5 * 3')",
+                return_direct=True
             ),
             Tool(
-                name="Current Date and Time (CST)",
-                func=self.get_current_date_time_cst,
-                description="Use this to get the current date and time in Central Standard Time (CST)."
+                name="DuckDuckGo Search",
+                func=DuckDuckGoSearchRun().run,
+                description="Search the internet for current information. Input: a search query",
+                return_direct=True
+            ),
+            Tool(
+                name="Wikipedia",
+                func=WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper()).run,
+                description="Get detailed information from Wikipedia. Input: a topic or query",
+                return_direct=True
             )
         ]
         return tools
@@ -275,19 +274,25 @@ class AIResponder(commands.Cog):
                 ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
                           "You are in a Discord server, responding to user messages. "
                           "Respond naturally and conversationally, as if you're chatting with a friend. "
-                          "Always maintain your assigned personality throughout the conversation. "
-                          "You have access to several tools that can help you provide accurate information:\n"
-                          "- Use 'Current Date and Time (CST)' for current time\n"
-                          "- Use 'DuckDuckGo Search' for recent information\n"
-                          "- Use 'Wikipedia' for detailed topic information\n"
-                          "- Use 'Calculator' for mathematical calculations\n"
-                          "When asked about the current time or date, you MUST use the 'Current Date and Time (CST)' tool. "
-                          "Do not make up or guess the current time - always use the tool.\n"
-                          "When using tools, wait for their response and incorporate the information naturally."),
+                          "Always maintain your assigned personality throughout the conversation.\n\n"
+                          "IMPORTANT INSTRUCTIONS FOR TOOL USAGE:\n"
+                          "1. When asked about the current time or date, you MUST use the 'Current Date and Time (CST)' tool\n"
+                          "2. For calculations, use the 'Calculator' tool\n"
+                          "3. For current information, use 'DuckDuckGo Search'\n"
+                          "4. For detailed topic information, use 'Wikipedia'\n\n"
+                          "Never make up dates, times, or information - always use the appropriate tool.\n"
+                          "After using a tool, wait for its response and incorporate the information naturally."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
 
+            # Configure the LLM for function calling
+            self.llm.model_kwargs = {
+                **self.llm.model_kwargs,
+                "function_call": {"mode": "auto"},
+            }
+
+            # Create the agent with explicit function definitions
             agent = create_openai_functions_agent(
                 llm=self.llm,
                 tools=tools,
@@ -301,10 +306,19 @@ class AIResponder(commands.Cog):
                 verbose=True,
                 max_iterations=3,
                 handle_parsing_errors=True,
-                early_stopping_method="generate"
+                early_stopping_method="generate",
+                return_intermediate_steps=True  # Make sure we get tool usage info
             )
 
             self.logger.info("LangChain components updated successfully")
+            
+            # Test the date/time tool to verify it's working
+            test_result = await self.agent_executor.ainvoke(
+                {"input": "What is the current time?"},
+                {"return_only_outputs": True}
+            )
+            self.logger.info(f"Test invocation result: {test_result}")
+            
         except Exception as e:
             self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
             self.agent_executor = None
