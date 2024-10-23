@@ -39,28 +39,20 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         self.full_response += token
         current_time = datetime.now().timestamp()
         if current_time - self.last_update > 1:  # Update every second
-            await self.discord_message.edit(content=f"🤔 Thinking...\n\n{self.full_response[-1500:]}")
+            truncated_response = self.full_response[-1500:]  # Keep last 1500 chars
+            # Format the streaming response
+            formatted_response = f"🤔 Thinking...\n\n{truncated_response}"
+            await self.discord_message.edit(content=formatted_response)
             self.last_update = current_time
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
         tool_name = serialized.get('name', 'Unknown Tool')
         self.logger.info(f"Tool started: {tool_name}, Input: {input_str}")
-        await self.discord_message.edit(content=f"{self.full_response}\n\n🔧 Using tool: {tool_name}")
+        await self.discord_message.edit(content=f"🔧 Using {tool_name}...")
 
     async def on_tool_end(self, output, **kwargs):
         self.logger.info(f"Tool ended. Output: {output}")
-        await self.discord_message.edit(content=f"{self.full_response}\n\n✅ Tool used. Processing results...")
-
-    async def on_chain_start(self, serialized: Optional[Dict[str, Any]], inputs: Dict[str, Any], **kwargs: Any) -> None:
-        chain_name = serialized.get('name', 'Unknown Chain') if serialized else 'Unknown Chain'
-        self.logger.info(f"Chain started: {chain_name}, Inputs: {inputs}")
-
-    async def on_chain_end(self, outputs: Dict[str, Any], **kwargs: Any) -> None:
-        self.logger.info(f"Chain ended. Outputs: {outputs}")
-        if isinstance(outputs, dict) and 'output' in outputs:
-            self.full_response = outputs['output']
-        else:
-            self.logger.warning(f"Unexpected output format from chain: {outputs}")
+        await self.discord_message.edit(content=f"✅ Processing results...")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -334,52 +326,39 @@ class AIResponder(commands.Cog):
         try:
             user_mention = message.author.mention
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
-            # Remove this line: await message.channel.send("🤔 Thinking...")
 
-            async with message.channel.typing():
+            if self.agent_executor is None:
+                self.logger.error("Agent executor is not initialized")
+                await self.update_langchain_components()
                 if self.agent_executor is None:
-                    self.logger.error("Agent executor is not initialized")
-                    await self.update_langchain_components()
-                    if self.agent_executor is None:
-                        return f"{user_mention} I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
+                    return f"{user_mention} I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
 
-                self.logger.info(f"Invoking agent with input: {content}")
+            self.logger.info(f"Invoking agent with input: {content}")
+            
+            result = await self.agent_executor.ainvoke(
+                {"input": content},
+                {"callbacks": [callback_handler]}
+            )
+            
+            if not result or 'output' not in result:
+                raise ValueError("Invalid result from agent executor")
                 
-                result = await self.agent_executor.ainvoke(
-                    {"input": content},
-                    {"callbacks": [callback_handler]}
-                )
-                self.logger.info(f"Agent executor result: {result}")
+            # Clean and format the response
+            cleaned_response = self.clean_agent_output(result['output'])
+            self.logger.info(f"Cleaned response: {cleaned_response}")
 
-                if not result or 'output' not in result:
-                    raise ValueError("Invalid result from agent executor")
-                full_response = result['output']
+            if not cleaned_response.strip():
+                cleaned_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
 
-                # Log tool usage if any
-                if 'intermediate_steps' in result and result['intermediate_steps']:
-                    for step in result['intermediate_steps']:
-                        if isinstance(step, tuple) and len(step) == 2:
-                            action, observation = step
-                            self.logger.info(f"Tool used: {action.tool}, Input: {action.tool_input}, Output: {observation}")
-                            await self.process_intermediate_step(step, response_message)
-                else:
-                    self.logger.info("No tools were used in generating the response.")
+            # Format the final response with user mention
+            formatted_response = f"{user_mention}\n\n{cleaned_response}"
+            
+            # Ensure we don't exceed Discord's character limit
+            if len(formatted_response) > 2000:
+                formatted_response = formatted_response[:1997] + "..."
 
-                cleaned_response = self.clean_agent_output(full_response)
-                self.logger.info(f"Cleaned response: {cleaned_response}")
+            return formatted_response
 
-                if not cleaned_response.strip():
-                    cleaned_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
-
-                formatted_response = f"{user_mention} {cleaned_response}"
-                return formatted_response[:2000]  # Truncate to 2000 characters
-
-        except aiohttp.ClientError as e:
-            self.logger.error(f"Network error: {str(e)}")
-            return f"{user_mention} I'm having trouble connecting to my knowledge sources. Please try again later."
-        except asyncio.TimeoutError:
-            self.logger.error("Request timed out")
-            return f"{user_mention} It's taking longer than expected to process your request. Please try again or simplify your query."
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
             return f"{user_mention} I encountered an unexpected error. Please try again or contact the bot owner if the issue persists."
@@ -395,12 +374,19 @@ class AIResponder(commands.Cog):
                 await response_message.edit(content=f"💡 Thinking: {observation[:100]}...")  # Truncate long observations
 
     def clean_agent_output(self, output: str) -> str:
+        # Remove the [] brackets that appear at start/end
+        output = output.strip('[]')
+        
+        # Split into lines and clean each line
         lines = output.split('\n')
         cleaned_lines = []
         for line in lines:
-            if not line.strip().lower().startswith(('thought:', 'action:', 'action input:', 'observation:')):
-                cleaned_lines.append(line.strip())
-        return ' '.join(cleaned_lines)
+            line = line.strip()
+            if line and not line.lower().startswith(('thought:', 'action:', 'action input:', 'observation:')):
+                cleaned_lines.append(line)
+        
+        # Rejoin with proper formatting
+        return '\n\n'.join(cleaned_lines)
 
     def extract_final_response(self, cleaned_response: str) -> str:
         # Split the response into sentences
