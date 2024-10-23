@@ -289,7 +289,14 @@ class AIResponder(commands.Cog):
     async def update_langchain_components(self):
         try:
             custom_personality = await self.config.custom_personality()
-            memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
+            # Configure memory with specific input/output keys
+            memory = ConversationBufferWindowMemory(
+                k=5,
+                memory_key="chat_history",
+                input_key="input",  # Specify which key to use for input
+                output_key="output",  # Specify which key to use for output
+                return_messages=True
+            )
             
             tools = await self.setup_tools()
             
