@@ -281,8 +281,9 @@ class AIResponder(commands.Cog):
                           "- Use 'DuckDuckGo Search' for recent information\n"
                           "- Use 'Wikipedia' for detailed topic information\n"
                           "- Use 'Calculator' for mathematical calculations\n"
-                          "When using tools, incorporate the information naturally into your response. "
-                          "Be concise and direct in your responses."),
+                          "When asked about the current time or date, you MUST use the 'Current Date and Time (CST)' tool. "
+                          "Do not make up or guess the current time - always use the tool.\n"
+                          "When using tools, wait for their response and incorporate the information naturally."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
@@ -299,8 +300,8 @@ class AIResponder(commands.Cog):
                 memory=memory,
                 verbose=True,
                 max_iterations=3,
-                early_stopping_method="generate",
-                handle_parsing_errors=True
+                handle_parsing_errors=True,
+                early_stopping_method="generate"
             )
 
             self.logger.info("LangChain components updated successfully")
