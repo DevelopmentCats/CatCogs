@@ -85,55 +85,59 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         response = await self.llm.agenerate(messages=[messages])
         response_text = response.generations[0][0].text
         
+        # Process previous tool outputs if any
+        if intermediate_steps:
+            last_tool_output = intermediate_steps[-1][1]  # Get the last tool's output
+        else:
+            last_tool_output = None
+        
         # Check for malformed tool calls and fix them
         tool_patterns = {
             "Current Date and Time": "Current Date and Time (CST)",
             "DuckDuckGo": "DuckDuckGo Search",
             "Duck Duck Go": "DuckDuckGo Search",
             "Search": "DuckDuckGo Search",
-            "Wiki": "Wikipedia"
+            "Wiki": "Wikipedia",
+            "Calculate": "Calculator"
         }
         
         # Handle both XML-style and angle bracket style tool calls
         for pattern, correct_name in tool_patterns.items():
-            # Fix angle bracket style
             response_text = response_text.replace(f"<{pattern}>", f"<tool>{correct_name}</tool>")
             response_text = response_text.replace(f"</{pattern}>", "")
-            # Fix malformed XML
             if f"<tool>{pattern}</tool>" in response_text:
                 response_text = response_text.replace(f"<tool>{pattern}</tool>", f"<tool>{correct_name}</tool>")
         
+        # Check if we should use a tool
         if "<tool>" in response_text and "</tool>" in response_text:
             tool_start = response_text.find("<tool>") + 6
             tool_end = response_text.find("</tool>")
             tool_name = response_text[tool_start:tool_end].strip()
             
-            # Get tool input
+            # Get tool input if needed
             input_start = response_text.find("<input>") + 7 if "<input>" in response_text else -1
             input_end = response_text.find("</input>") if "</input>" in response_text else -1
             
             # Set default tool inputs based on tool type
             default_inputs = {
-                "Current Date and Time (CST)": "",  # Changed to empty string since this tool doesn't need input
+                "Current Date and Time (CST)": "",  # No input needed
                 "Calculator": "0",
                 "DuckDuckGo Search": "current events",
                 "Wikipedia": "brief summary"
             }
             
-            tool_input = (
-                response_text[input_start:input_end].strip() 
-                if input_start > 0 and input_end > 0 and tool_name != "Current Date and Time (CST)"
-                else default_inputs.get(tool_name, "")
-            )
-            
-            if tool_name in self.tools:
-                return AgentAction(tool=tool_name, tool_input=tool_input, log=response_text)
+            # Get tool input, handling special cases
+            if tool_name == "Current Date and Time (CST)":
+                tool_input = ""
             else:
-                # Try to find the closest matching tool
-                for available_tool in self.tools.keys():
-                    if tool_name.lower() in available_tool.lower():
-                        return AgentAction(tool=available_tool, tool_input=tool_input, log=response_text)
-                
+                tool_input = (
+                    response_text[input_start:input_end].strip() 
+                    if input_start > 0 and input_end > 0 
+                    else default_inputs.get(tool_name, "")
+                )
+            
+            # Validate tool exists
+            if tool_name not in self.tools:
                 return AgentFinish(
                     return_values={
                         "output": f"I apologize, but I encountered an error with the tool name '{tool_name}'. "
@@ -141,8 +145,26 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     },
                     log=response_text
                 )
+            
+            # Return the tool action
+            return AgentAction(tool=tool_name, tool_input=tool_input, log=response_text)
         
-        return AgentFinish(return_values={"output": response_text}, log=response_text)
+        # If we have tool output, incorporate it into the final response
+        if last_tool_output:
+            # Process the tool output and generate a proper response
+            final_response = response_text
+            if isinstance(last_tool_output, str):
+                # Remove any XML tags from the response
+                final_response = final_response.replace("<tool>", "").replace("</tool>", "")
+                final_response = final_response.replace("<input>", "").replace("</input>", "")
+                # Ensure the tool output is incorporated into the response
+                if last_tool_output not in final_response:
+                    final_response = f"{final_response}\n\nBased on the information I found: {last_tool_output}"
+        else:
+            final_response = response_text
+        
+        # Return the final response
+        return AgentFinish(return_values={"output": final_response}, log=final_response)
 
     @property
     def return_values(self) -> List[str]:
@@ -396,32 +418,27 @@ class AIResponder(commands.Cog):
             prompt = ChatPromptTemplate.from_messages([
                 ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
                           "You are in a Discord server, responding to user messages.\n\n"
-                          "IMPORTANT: You have access to these tools (use EXACT format):\n"
-                          "- 'Current Date and Time (CST)': Use for ANY questions about current time or date (no input needed)\n"
-                          "- 'Calculator': Use for mathematical calculations. Supports:\n"
-                          "  * Basic operations: +, -, *, /, ^ (power)\n"
-                          "  * Functions: sqrt, squared, cubed\n"
-                          "  * Scientific notation\n"
-                          "  * Natural language: 'divided by', 'times', 'plus', 'minus'\n"
-                          "  Examples: '2 + 2', 'sqrt(16)', '2 squared', '10 divided by 2'\n"
-                          "- 'DuckDuckGo Search': Use for current information (requires specific, focused search queries)\n"
-                          "- 'Wikipedia': Use for detailed topic information (requires specific topic)\n\n"
-                          "Search Tool Guidelines:\n"
-                          "1. Make search queries specific and focused\n"
-                          "2. Break complex questions into multiple focused searches\n"
-                          "3. Process and summarize search results before responding\n"
-                          "4. For technical/scientific questions, include units or specific terms\n"
-                          "5. Cross-reference information when needed\n\n"
-                          "To use a tool, you MUST use this EXACT format:\n"
-                          "<tool>tool name</tool>\n"
-                          "<input>specific, focused query</input>\n\n"
-                          "After getting search results:\n"
-                          "1. Extract relevant information\n"
-                          "2. Organize it logically\n"
-                          "3. Present it clearly with proper context\n"
-                          "4. Include units and sources when relevant\n"
-                          "5. If information is incomplete, perform additional focused searches\n\n"
-                          "IMPORTANT: Never return raw search results. Always process and summarize the information."),
+                          "IMPORTANT TOOL USAGE RULES:\n"
+                          "1. ALWAYS use tools when factual information is needed\n"
+                          "2. NEVER make up information - use search tools instead\n"
+                          "3. ALWAYS process tool outputs into natural responses\n"
+                          "4. Use multiple tools if needed to get complete information\n"
+                          "5. Cross-reference information when accuracy is crucial\n\n"
+                          "Available tools (use EXACT format):\n"
+                          "- 'Current Date and Time (CST)': REQUIRED for ANY time/date questions\n"
+                          "- 'Calculator': REQUIRED for ANY math/calculations\n"
+                          "- 'DuckDuckGo Search': REQUIRED for current/factual information\n"
+                          "- 'Wikipedia': REQUIRED for detailed topic information\n\n"
+                          "Tool Format Examples:\n"
+                          "1. Time check:\n"
+                          "<tool>Current Date and Time (CST)</tool>\n\n"
+                          "2. Calculation:\n"
+                          "<tool>Calculator</tool>\n"
+                          "<input>2 + 2</input>\n\n"
+                          "3. Search:\n"
+                          "<tool>DuckDuckGo Search</tool>\n"
+                          "<input>specific search query</input>\n\n"
+                          "IMPORTANT: Process tool outputs into natural, conversational responses."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
