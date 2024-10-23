@@ -104,14 +104,14 @@ class AIResponder(commands.Cog):
 
             custom_personality = await self.config.custom_personality()
             prompt = ChatPromptTemplate.from_messages([
-                ("system", f"You are an AI assistant with the following personality: {custom_personality}. "
+                ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
                            "You are in a Discord server, responding to user messages. "
                            "Respond naturally and conversationally, as if you're chatting with a friend. "
                            "Always maintain your assigned personality throughout the conversation. "
                            "You have access to tools that can help you answer questions. "
                            "ALWAYS use the 'Current Date and Time (CST)' tool when asked about the current date or time. "
                            "Use other tools when necessary to provide accurate and up-to-date information. "
-                           "After using a tool, incorporate the information into your response without mentioning the tool explicitly. "
+                           "After using a tool, incorporate the information into your response naturally. "
                            "Be concise and direct in your responses."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
@@ -266,23 +266,24 @@ class AIResponder(commands.Cog):
 
     async def update_langchain_components(self):
         try:
-            tools = await self.setup_tools()
-            memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
-
             custom_personality = await self.config.custom_personality()
+            memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
+            
             prompt = ChatPromptTemplate.from_messages([
-                ("system", f"You are an AI assistant with the following personality: {custom_personality}. "
+                ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
                            "You are in a Discord server, responding to user messages. "
                            "Respond naturally and conversationally, as if you're chatting with a friend. "
                            "Always maintain your assigned personality throughout the conversation. "
                            "You have access to tools that can help you answer questions. "
-                           "Use the appropriate tool when necessary to provide accurate and up-to-date information. "
+                           "ALWAYS use the 'Current Date and Time (CST)' tool when asked about the current date or time. "
+                           "Use other tools when necessary to provide accurate and up-to-date information. "
                            "After using a tool, incorporate the information into your response naturally. "
                            "Be concise and direct in your responses."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
 
+            tools = await self.setup_tools()
             agent = create_openai_functions_agent(llm=self.llm, tools=tools, prompt=prompt)
             
             self.agent_executor = AgentExecutor(
@@ -316,26 +317,26 @@ class AIResponder(commands.Cog):
 
         content = message.content.replace(f"<@{self.bot.user.id}>", "").strip()
         if not content:
-            await message.channel.send("You mentioned me, but didn't ask anything. How can I help you?")
+            await message.channel.send(f"{message.author.mention} You mentioned me, but didn't ask anything. How can I help you?")
             return
 
         async with message.channel.typing():
             response_message = await message.channel.send("🤔 Thinking...")
             
             try:
-                full_response = await self.process_query(content, response_message)
+                full_response = await self.process_query(content, message)  # Pass the original message here
                 await response_message.edit(content=full_response)
             except Exception as e:
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
-                await response_message.edit(content="😵 Oops! My circuits got a bit tangled there. Can you try again?")
+                await response_message.edit(content=f"{message.author.mention} 😵 Oops! My circuits got a bit tangled there. Can you try again?")
 
-    async def process_query(self, content: str, response_message: discord.Message) -> str:
+    async def process_query(self, content: str, message: discord.Message) -> str:
         try:
-            user_mention = response_message.author.mention
-            callback_handler = DiscordCallbackHandler(response_message, self.logger)
-            await response_message.edit(content="🤔 Thinking...")
+            user_mention = message.author.mention
+            callback_handler = DiscordCallbackHandler(message, self.logger)
+            await message.channel.send("🤔 Thinking...")
 
-            async with response_message.channel.typing():
+            async with message.channel.typing():
                 if self.agent_executor is None:
                     self.logger.error("Agent executor is not initialized")
                     await self.update_langchain_components()
@@ -360,7 +361,7 @@ class AIResponder(commands.Cog):
                         if isinstance(step, tuple) and len(step) == 2:
                             action, observation = step
                             self.logger.info(f"Tool used: {action.tool}, Input: {action.tool_input}, Output: {observation}")
-                            await self.process_intermediate_step(step, response_message)
+                            await self.process_intermediate_step(step, message)
                 else:
                     self.logger.info("No tools were used in generating the response.")
 
@@ -371,7 +372,6 @@ class AIResponder(commands.Cog):
                     cleaned_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
 
                 formatted_response = f"{user_mention} {cleaned_response}"
-                await response_message.edit(content=formatted_response[:2000])
                 return formatted_response[:2000]  # Truncate to 2000 characters
 
         except aiohttp.ClientError as e:
@@ -454,3 +454,4 @@ async def setup(bot: Red):
     cog = AIResponder(bot)
     await bot.add_cog(cog)
     await cog.initialize()
+
