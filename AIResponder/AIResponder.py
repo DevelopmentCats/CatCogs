@@ -88,12 +88,17 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         # Process previous tool outputs if any
         if intermediate_steps:
             last_tool_output = intermediate_steps[-1][1]  # Get the last tool's output
-            # Return final response incorporating tool output
+            # Send both the tool output and original query back to LLM for final response
+            follow_up_messages = self.prompt.format_messages(
+                input=f"Using this information: {last_tool_output}\n\n"
+                      f"Please respond to the original query: {kwargs.get('input', '')}\n\n"
+                      f"Remember to maintain your personality and be engaging!",
+                chat_history=kwargs.get('chat_history', []),
+                agent_scratchpad=""
+            )
+            final_response = await self.llm.agenerate(messages=[follow_up_messages])
             return AgentFinish(
-                return_values={
-                    "output": f"Based on the information I gathered: {last_tool_output}\n\n"
-                             f"Here's my response: {response_text}"
-                },
+                return_values={"output": final_response.generations[0][0].text},
                 log=response_text
             )
         
@@ -390,9 +395,9 @@ class AIResponder(commands.Cog):
                           "You are in a Discord server, responding to user messages.\n\n"
                           "IMPORTANT TOOL USAGE RULES:\n"
                           "1. FIRST use required tools to gather information\n"
-                          "2. THEN create a response using the tool's output\n"
+                          "2. THEN create an engaging, personality-driven response using the tool's output\n"
                           "3. NEVER respond before getting tool output when needed\n"
-                          "4. ALWAYS incorporate tool output naturally into responses\n\n"
+                          "4. ALWAYS maintain your personality in responses\n\n"
                           "Available tools (use EXACT format):\n"
                           "- 'Current Date and Time (CST)': REQUIRED for ANY time/date questions\n"
                           "- 'Calculator': REQUIRED for ANY math/calculations\n"
@@ -401,12 +406,12 @@ class AIResponder(commands.Cog):
                           "Tool Usage Process:\n"
                           "1. Request tool data using XML format\n"
                           "2. Wait for tool response\n"
-                          "3. Create natural response incorporating tool data\n\n"
+                          "3. Create engaging, personality-driven response incorporating tool data\n\n"
                           "Example Flow:\n"
                           "User: 'What time is it?'\n"
                           "AI: <tool>Current Date and Time (CST)</tool>\n"
-                          "[Wait for tool response]\n"
-                          "AI: 'It's currently [time from tool] in CST!'"),
+                          "[Wait for tool response: 3:30 PM CST]\n"
+                          "AI: '*checks my cat-shaped clock* Purr-fect timing! It's 3:30 PM in CST, which means it's time for my afternoon nap... I mean, your afternoon update! 😺'"),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
