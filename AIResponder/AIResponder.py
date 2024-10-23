@@ -114,7 +114,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             
             # Set default tool inputs based on tool type
             default_inputs = {
-                "Current Date and Time (CST)": "what is the current date and time",
+                "Current Date and Time (CST)": "",  # Changed to empty string since this tool doesn't need input
                 "Calculator": "0",
                 "DuckDuckGo Search": "current events",
                 "Wikipedia": "brief summary"
@@ -122,7 +122,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             
             tool_input = (
                 response_text[input_start:input_end].strip() 
-                if input_start > 0 and input_end > 0 
+                if input_start > 0 and input_end > 0 and tool_name != "Current Date and Time (CST)"
                 else default_inputs.get(tool_name, "")
             )
             
@@ -350,13 +350,16 @@ class AIResponder(commands.Cog):
                 ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
                           "You are in a Discord server, responding to user messages.\n\n"
                           "IMPORTANT: You have access to these tools (use EXACT format):\n"
-                          "- 'Current Date and Time (CST)': Use for ANY questions about current time or date\n"
-                          "- 'Calculator': Use for ANY mathematical calculations\n"
-                          "- 'DuckDuckGo Search': Use for current information\n"
-                          "- 'Wikipedia': Use for detailed topic information\n\n"
-                          "To use a tool, you MUST use this EXACT format (including the XML tags):\n"
-                          "<tool>Current Date and Time (CST)</tool>\n"
-                          "<input>what is the current date and time</input>\n\n"
+                          "- 'Current Date and Time (CST)': Use for ANY questions about current time or date (no input needed)\n"
+                          "- 'Calculator': Use for ANY mathematical calculations (requires input)\n"
+                          "- 'DuckDuckGo Search': Use for current information (requires input)\n"
+                          "- 'Wikipedia': Use for detailed topic information (requires input)\n\n"
+                          "To use a tool, you MUST use this EXACT format:\n"
+                          "For tools that need input:\n"
+                          "<tool>tool name</tool>\n"
+                          "<input>your input here</input>\n\n"
+                          "For tools that don't need input (like Current Date and Time):\n"
+                          "<tool>Current Date and Time (CST)</tool>\n\n"
                           "IMPORTANT: Do not modify the XML tags or tool names.\n"
                           "NEVER make up information - ALWAYS use tools when needed.\n"
                           "Wait for tool response before continuing your reply."),
