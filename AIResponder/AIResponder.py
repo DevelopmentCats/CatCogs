@@ -244,11 +244,51 @@ class AIResponder(commands.Cog):
 
     def calculator(self, expression: str) -> str:
         try:
-            cleaned_expression = ''.join(char for char in expression if char.isdigit() or char in '+-*/().^ ')
+            # Clean and normalize the expression
+            cleaned_expression = ''
+            for char in expression.lower().replace('x', '*').replace('×', '*').replace('÷', '/'):
+                if char.isdigit() or char in '+-*/().^ ':
+                    cleaned_expression += char
+            
+            # Handle common mathematical words/phrases
+            word_to_symbol = {
+                'squared': '**2',
+                'cubed': '**3',
+                'plus': '+',
+                'minus': '-',
+                'times': '*',
+                'divided by': '/',
+                'power': '**',
+                'sqrt': 'sqrt',
+                'root': 'sqrt'
+            }
+            
+            for word, symbol in word_to_symbol.items():
+                cleaned_expression = cleaned_expression.replace(word, symbol)
+            
+            # Handle square roots
+            if 'sqrt' in cleaned_expression:
+                cleaned_expression = cleaned_expression.replace('sqrt', '**0.5')
+            
+            # Evaluate the expression
             result = sympify(cleaned_expression)
-            return str(result.evalf())
+            
+            # Format the result
+            if result.is_integer:
+                return str(int(result))
+            else:
+                # Convert to float and round to reasonable precision
+                float_result = float(result)
+                if abs(float_result) < 1e-10:  # Handle very small numbers
+                    return "0"
+                elif abs(float_result) > 1e10:  # Handle very large numbers
+                    return f"{float_result:.2e}"
+                else:
+                    return f"{float_result:.6g}"  # General format with 6 significant digits
+                
         except Exception as e:
-            return f"Error: Unable to calculate. Please provide a valid mathematical expression. ({str(e)})"
+            return (f"Error: Unable to calculate. Please provide a valid mathematical expression. "
+                    f"Examples: '2 + 2', '5 * 3', '10 / 2', '2^3', 'sqrt(16)'")
 
     async def get_current_date_time_cst(self, _input: str = None):  # Add _input parameter with default None
         try:
@@ -358,18 +398,30 @@ class AIResponder(commands.Cog):
                           "You are in a Discord server, responding to user messages.\n\n"
                           "IMPORTANT: You have access to these tools (use EXACT format):\n"
                           "- 'Current Date and Time (CST)': Use for ANY questions about current time or date (no input needed)\n"
-                          "- 'Calculator': Use for ANY mathematical calculations (requires input)\n"
-                          "- 'DuckDuckGo Search': Use for current information (requires input)\n"
-                          "- 'Wikipedia': Use for detailed topic information (requires input)\n\n"
+                          "- 'Calculator': Use for mathematical calculations. Supports:\n"
+                          "  * Basic operations: +, -, *, /, ^ (power)\n"
+                          "  * Functions: sqrt, squared, cubed\n"
+                          "  * Scientific notation\n"
+                          "  * Natural language: 'divided by', 'times', 'plus', 'minus'\n"
+                          "  Examples: '2 + 2', 'sqrt(16)', '2 squared', '10 divided by 2'\n"
+                          "- 'DuckDuckGo Search': Use for current information (requires specific, focused search queries)\n"
+                          "- 'Wikipedia': Use for detailed topic information (requires specific topic)\n\n"
+                          "Search Tool Guidelines:\n"
+                          "1. Make search queries specific and focused\n"
+                          "2. Break complex questions into multiple focused searches\n"
+                          "3. Process and summarize search results before responding\n"
+                          "4. For technical/scientific questions, include units or specific terms\n"
+                          "5. Cross-reference information when needed\n\n"
                           "To use a tool, you MUST use this EXACT format:\n"
-                          "For tools that need input:\n"
                           "<tool>tool name</tool>\n"
-                          "<input>your input here</input>\n\n"
-                          "For tools that don't need input (like Current Date and Time):\n"
-                          "<tool>Current Date and Time (CST)</tool>\n\n"
-                          "IMPORTANT: Do not modify the XML tags or tool names.\n"
-                          "NEVER make up information - ALWAYS use tools when needed.\n"
-                          "Wait for tool response before continuing your reply."),
+                          "<input>specific, focused query</input>\n\n"
+                          "After getting search results:\n"
+                          "1. Extract relevant information\n"
+                          "2. Organize it logically\n"
+                          "3. Present it clearly with proper context\n"
+                          "4. Include units and sources when relevant\n"
+                          "5. If information is incomplete, perform additional focused searches\n\n"
+                          "IMPORTANT: Never return raw search results. Always process and summarize the information."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
