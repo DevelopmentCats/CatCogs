@@ -324,17 +324,17 @@ class AIResponder(commands.Cog):
             response_message = await message.channel.send("🤔 Thinking...")
             
             try:
-                full_response = await self.process_query(content, message)  # Pass the original message here
+                full_response = await self.process_query(content, message, response_message)
                 await response_message.edit(content=full_response)
             except Exception as e:
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
                 await response_message.edit(content=f"{message.author.mention} 😵 Oops! My circuits got a bit tangled there. Can you try again?")
 
-    async def process_query(self, content: str, message: discord.Message) -> str:
+    async def process_query(self, content: str, message: discord.Message, response_message: discord.Message) -> str:
         try:
             user_mention = message.author.mention
-            callback_handler = DiscordCallbackHandler(message, self.logger)
-            await message.channel.send("🤔 Thinking...")
+            callback_handler = DiscordCallbackHandler(response_message, self.logger)
+            # Remove this line: await message.channel.send("🤔 Thinking...")
 
             async with message.channel.typing():
                 if self.agent_executor is None:
@@ -361,7 +361,7 @@ class AIResponder(commands.Cog):
                         if isinstance(step, tuple) and len(step) == 2:
                             action, observation = step
                             self.logger.info(f"Tool used: {action.tool}, Input: {action.tool_input}, Output: {observation}")
-                            await self.process_intermediate_step(step, message)
+                            await self.process_intermediate_step(step, response_message)
                 else:
                     self.logger.info("No tools were used in generating the response.")
 
