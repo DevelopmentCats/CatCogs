@@ -88,8 +88,14 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         # Process previous tool outputs if any
         if intermediate_steps:
             last_tool_output = intermediate_steps[-1][1]  # Get the last tool's output
-        else:
-            last_tool_output = None
+            # Return final response incorporating tool output
+            return AgentFinish(
+                return_values={
+                    "output": f"Based on the information I gathered: {last_tool_output}\n\n"
+                             f"Here's my response: {response_text}"
+                },
+                log=response_text
+            )
         
         # Check for malformed tool calls and fix them
         tool_patterns = {
@@ -118,53 +124,17 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             input_start = response_text.find("<input>") + 7 if "<input>" in response_text else -1
             input_end = response_text.find("</input>") if "</input>" in response_text else -1
             
-            # Set default tool inputs based on tool type
-            default_inputs = {
-                "Current Date and Time (CST)": "",  # No input needed
-                "Calculator": "0",
-                "DuckDuckGo Search": "current events",
-                "Wikipedia": "brief summary"
-            }
+            tool_input = (
+                response_text[input_start:input_end].strip() 
+                if input_start > 0 and input_end > 0 
+                else ""
+            )
             
-            # Get tool input, handling special cases
-            if tool_name == "Current Date and Time (CST)":
-                tool_input = ""
-            else:
-                tool_input = (
-                    response_text[input_start:input_end].strip() 
-                    if input_start > 0 and input_end > 0 
-                    else default_inputs.get(tool_name, "")
-                )
-            
-            # Validate tool exists
-            if tool_name not in self.tools:
-                return AgentFinish(
-                    return_values={
-                        "output": f"I apologize, but I encountered an error with the tool name '{tool_name}'. "
-                                 f"Available tools are: {', '.join(self.tools.keys())}. Let me try again with the correct tool."
-                    },
-                    log=response_text
-                )
-            
-            # Return the tool action
+            # Return the tool action without generating a response yet
             return AgentAction(tool=tool_name, tool_input=tool_input, log=response_text)
         
-        # If we have tool output, incorporate it into the final response
-        if last_tool_output:
-            # Process the tool output and generate a proper response
-            final_response = response_text
-            if isinstance(last_tool_output, str):
-                # Remove any XML tags from the response
-                final_response = final_response.replace("<tool>", "").replace("</tool>", "")
-                final_response = final_response.replace("<input>", "").replace("</input>", "")
-                # Ensure the tool output is incorporated into the response
-                if last_tool_output not in final_response:
-                    final_response = f"{final_response}\n\nBased on the information I found: {last_tool_output}"
-        else:
-            final_response = response_text
-        
-        # Return the final response
-        return AgentFinish(return_values={"output": final_response}, log=final_response)
+        # If no tool is needed, return direct response
+        return AgentFinish(return_values={"output": response_text}, log=response_text)
 
     @property
     def return_values(self) -> List[str]:
@@ -419,26 +389,24 @@ class AIResponder(commands.Cog):
                 ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
                           "You are in a Discord server, responding to user messages.\n\n"
                           "IMPORTANT TOOL USAGE RULES:\n"
-                          "1. ALWAYS use tools when factual information is needed\n"
-                          "2. NEVER make up information - use search tools instead\n"
-                          "3. ALWAYS process tool outputs into natural responses\n"
-                          "4. Use multiple tools if needed to get complete information\n"
-                          "5. Cross-reference information when accuracy is crucial\n\n"
+                          "1. FIRST use required tools to gather information\n"
+                          "2. THEN create a response using the tool's output\n"
+                          "3. NEVER respond before getting tool output when needed\n"
+                          "4. ALWAYS incorporate tool output naturally into responses\n\n"
                           "Available tools (use EXACT format):\n"
                           "- 'Current Date and Time (CST)': REQUIRED for ANY time/date questions\n"
                           "- 'Calculator': REQUIRED for ANY math/calculations\n"
                           "- 'DuckDuckGo Search': REQUIRED for current/factual information\n"
                           "- 'Wikipedia': REQUIRED for detailed topic information\n\n"
-                          "Tool Format Examples:\n"
-                          "1. Time check:\n"
-                          "<tool>Current Date and Time (CST)</tool>\n\n"
-                          "2. Calculation:\n"
-                          "<tool>Calculator</tool>\n"
-                          "<input>2 + 2</input>\n\n"
-                          "3. Search:\n"
-                          "<tool>DuckDuckGo Search</tool>\n"
-                          "<input>specific search query</input>\n\n"
-                          "IMPORTANT: Process tool outputs into natural, conversational responses."),
+                          "Tool Usage Process:\n"
+                          "1. Request tool data using XML format\n"
+                          "2. Wait for tool response\n"
+                          "3. Create natural response incorporating tool data\n\n"
+                          "Example Flow:\n"
+                          "User: 'What time is it?'\n"
+                          "AI: <tool>Current Date and Time (CST)</tool>\n"
+                          "[Wait for tool response]\n"
+                          "AI: 'It's currently [time from tool] in CST!'"),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
