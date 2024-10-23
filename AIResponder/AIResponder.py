@@ -207,10 +207,17 @@ class AIResponder(commands.Cog):
             self.logger.error(f"Error in initialization: {str(e)}", exc_info=True)
 
     async def setup_tools(self):
+        # Create a sync wrapper for our async function
+        def sync_get_current_date_time_cst(_input: str = None):
+            return asyncio.run_coroutine_threadsafe(
+                self.get_current_date_time_cst(_input),
+                self.bot.loop
+            ).result()
+
         tools = [
             Tool(
                 name="Current Date and Time (CST)",
-                func=self.get_current_date_time_cst,
+                func=sync_get_current_date_time_cst,  # Use the sync wrapper
                 description="REQUIRED for getting the current date and time in Central Standard Time (CST). Input: no input needed",
                 return_direct=True
             ),
