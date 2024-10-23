@@ -243,7 +243,7 @@ class AIResponder(commands.Cog):
         except Exception as e:
             return f"Error: Unable to calculate. Please provide a valid mathematical expression. ({str(e)})"
 
-    async def get_current_date_time_cst(self):
+    async def get_current_date_time_cst(self, _input: str = None):  # Add _input parameter with default None
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get('http://worldtimeapi.org/api/timezone/America/Chicago') as response:
