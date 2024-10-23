@@ -88,17 +88,26 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         # Process previous tool outputs if any
         if intermediate_steps:
             last_tool_output = intermediate_steps[-1][1]  # Get the last tool's output
+            # Extract the actual time from the tool output
+            time_info = last_tool_output.split(": ")[-1] if ": " in last_tool_output else last_tool_output
+            
             # Send both the tool output and original query back to LLM for final response
             follow_up_messages = self.prompt.format_messages(
-                input=f"Using this information: {last_tool_output}\n\n"
-                      f"Please respond to the original query: {kwargs.get('input', '')}\n\n"
-                      f"Remember to maintain your personality and be engaging!",
+                input=f"Original query: {kwargs.get('input', '')}\n"
+                      f"Tool output: {time_info}\n"
+                      f"Generate a fun, personality-driven response that naturally incorporates this information.",
                 chat_history=kwargs.get('chat_history', []),
                 agent_scratchpad=""
             )
             final_response = await self.llm.agenerate(messages=[follow_up_messages])
+            final_text = final_response.generations[0][0].text
+            
+            # Clean up any remaining tool markup
+            final_text = final_text.replace("<tool>", "").replace("</tool>", "")
+            final_text = final_text.replace("<input>", "").replace("</input>", "")
+            
             return AgentFinish(
-                return_values={"output": final_response.generations[0][0].text},
+                return_values={"output": final_text},
                 log=response_text
             )
         
@@ -501,13 +510,13 @@ class AIResponder(commands.Cog):
             else:
                 self.logger.info("No tools were used in generating this response")
 
-            cleaned_response = self.clean_agent_output(result['output'])
-            self.logger.info(f"Final response: {cleaned_response[:200]}...")  # Log first 200 chars of response
+            final_response = result['output']
+            self.logger.info(f"Final response: {final_response[:200]}...")  # Log first 200 chars of response
 
-            if not cleaned_response.strip():
-                cleaned_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
+            if not final_response.strip():
+                final_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
 
-            formatted_response = f"{user_mention}\n\n{cleaned_response}"
+            formatted_response = f"{user_mention}\n\n{final_response}"
             return formatted_response[:2000]  # Truncate to Discord's limit
 
         except Exception as e:
