@@ -372,7 +372,8 @@ class AIResponder(commands.Cog):
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
-                    "chat_history": self.agent_executor.memory.chat_memory.messages if self.agent_executor.memory else []
+                    "chat_history": self.agent_executor.memory.chat_memory.messages if self.agent_executor.memory else [],
+                    "agent_scratchpad": ""  # Add empty scratchpad
                 },
                 {"callbacks": [callback_handler]}
             )
