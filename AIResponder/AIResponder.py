@@ -90,11 +90,24 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             tool_end = response_text.find("</tool>")
             tool_name = response_text[tool_start:tool_end].strip()
             
+            # Validate tool name against available tools
+            if tool_name not in self.tools:
+                # Try to find the closest matching tool
+                if "Current Date and Time" in tool_name:
+                    tool_name = "Current Date and Time (CST)"
+            
             input_start = response_text.find("<input>") + 7 if "<input>" in response_text else -1
             input_end = response_text.find("</input>") if "</input>" in response_text else -1
             tool_input = response_text[input_start:input_end].strip() if input_start > 0 and input_end > 0 else ""
             
-            return AgentAction(tool=tool_name, tool_input=tool_input, log=response_text)
+            if tool_name in self.tools:
+                return AgentAction(tool=tool_name, tool_input=tool_input, log=response_text)
+            else:
+                # If tool not found, return a response indicating the error
+                return AgentFinish(
+                    return_values={"output": f"I apologize, but I encountered an error. Let me try again with the correct tool name.\n\n{response_text}"},
+                    log=response_text
+                )
         
         return AgentFinish(return_values={"output": response_text}, log=response_text)
 
@@ -303,16 +316,16 @@ class AIResponder(commands.Cog):
             prompt = ChatPromptTemplate.from_messages([
                 ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
                           "You are in a Discord server, responding to user messages.\n\n"
-                          "IMPORTANT: You have access to these tools:\n"
-                          "1. Current Date and Time (CST): Use for ANY questions about current time or date\n"
-                          "2. Calculator: Use for ANY mathematical calculations\n"
-                          "3. DuckDuckGo Search: Use for current information\n"
-                          "4. Wikipedia: Use for detailed topic information\n\n"
-                          "When you need to use a tool, respond with:\n"
-                          "<tool>exact tool name</tool>\n"
+                          "IMPORTANT: You have access to these tools (use EXACT names):\n"
+                          "- 'Current Date and Time (CST)': Use for ANY questions about current time or date\n"
+                          "- 'Calculator': Use for ANY mathematical calculations\n"
+                          "- 'DuckDuckGo Search': Use for current information\n"
+                          "- 'Wikipedia': Use for detailed topic information\n\n"
+                          "When you need to use a tool, you MUST use the EXACT tool name in this format:\n"
+                          "<tool>Current Date and Time (CST)</tool>\n"
                           "<input>tool input if needed</input>\n\n"
                           "After getting the tool's response, incorporate it naturally in your reply.\n"
-                          "NEVER make up dates, times, or information - ALWAYS use the appropriate tool."),
+                          "NEVER make up dates, times, or information - ALWAYS use the appropriate tool with its EXACT name."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
