@@ -91,22 +91,14 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Extract the actual time from the tool output
             time_info = last_tool_output.split("CST: ")[-1].split(" UTC")[0] if "CST: " in last_tool_output else last_tool_output
             
-            # Create a conversation-style prompt that maintains context
-            conversation_prompt = [
-                SystemMessage(content=self.prompt.messages[0].content),  # Original system message with personality
-                HumanMessage(content=kwargs.get('input', '')),  # Original user query
-                AIMessage(content=response_text),  # AI's initial response with tool request
-                SystemMessage(content=f"Tool provided this information: {time_info}"),  # Tool output
-                HumanMessage(content="Now complete your response using the accurate information while maintaining the conversation flow.")
+            # Create a new prompt for the final response
+            final_prompt = [
+                SystemMessage(content=f"You are an AI assistant named Meow. Be quirky and fun in your responses. You have just used a tool to get this information: {time_info}"),
+                HumanMessage(content=f"Original question: {kwargs.get('input', '')}. Generate a complete, engaging response that naturally incorporates the tool's information.")
             ]
             
-            final_response = await self.llm.agenerate(messages=conversation_prompt)
+            final_response = await self.llm.agenerate(messages=final_prompt)
             final_text = final_response.generations[0][0].text
-            
-            # Clean up any remaining tool markup
-            final_text = final_text.replace("<tool>", "").replace("</tool>", "")
-            final_text = final_text.replace("<input>", "").replace("</input>", "")
-            final_text = final_text.replace("[Waiting for real tool data...]", "")
             
             return AgentFinish(
                 return_values={"output": final_text},
@@ -430,7 +422,8 @@ class AIResponder(commands.Cog):
                 verbose=True,
                 max_iterations=3,
                 handle_parsing_errors=True,
-                return_intermediate_steps=True
+                return_intermediate_steps=True,
+                early_stopping_method="generate"  # This is important
             )
 
             self.logger.info("LangChain components updated successfully")
