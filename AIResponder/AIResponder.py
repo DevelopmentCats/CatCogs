@@ -98,8 +98,8 @@ class AIResponder(commands.Cog):
                     "function_call": "auto",
                     "functions": [
                         {
-                            "name": "Current_Date_and_Time_CST",
-                            "description": "Get the current date and time in CST timezone",
+                            "name": "Current Date and Time (CST)",
+                            "description": "Get the current date and time in Central Standard Time (CST)",
                             "parameters": {"type": "object", "properties": {}}
                         },
                         {
@@ -298,16 +298,18 @@ class AIResponder(commands.Cog):
                           "You are in a Discord server, responding to user messages. "
                           "Respond naturally and conversationally, as if you're chatting with a friend. "
                           "Always maintain your assigned personality throughout the conversation.\n\n"
-                          "IMPORTANT: You MUST use tools when appropriate:\n"
-                          "1. For current time/date: ALWAYS use 'Current Date and Time (CST)'\n"
-                          "2. For calculations: ALWAYS use 'Calculator'\n"
+                          "IMPORTANT: You MUST follow these tool usage rules:\n"
+                          "1. For ANY questions about current time or date: Use 'Current Date and Time (CST)'\n"
+                          "2. For calculations: Use 'Calculator'\n"
                           "3. For searches: Use 'DuckDuckGo Search'\n"
                           "4. For topic info: Use 'Wikipedia'\n\n"
-                          "Never guess or make up information - use the appropriate tool."),
+                          "Never make up or guess information - always use the appropriate tool.\n"
+                          "After using a tool, incorporate its exact response in your reply."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
 
+            # Create the agent with explicit function calling
             agent = create_openai_functions_agent(
                 llm=self.llm,
                 tools=tools,
@@ -324,12 +326,12 @@ class AIResponder(commands.Cog):
                 return_intermediate_steps=True
             )
 
-            # Test the agent with a simple date query
+            # Test the tool usage
             test_result = await self.agent_executor.ainvoke(
-                {"input": "test the current time"},
+                {"input": "What time is it?"},
                 {"callbacks": [DiscordCallbackHandler(None, self.logger)]}
             )
-            self.logger.info(f"Agent test result: {test_result}")
+            self.logger.info(f"Tool test result: {test_result}")
 
         except Exception as e:
             self.logger.error(f"Error in update_langchain_components: {str(e)}", exc_info=True)
