@@ -25,6 +25,8 @@ from sympy import sympify
 import os
 import json
 import aiohttp
+from pydantic import Field, BaseModel
+from langchain_core.language_models.chat_models import BaseChatModel
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
@@ -62,30 +64,27 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     async def on_tool_error(self, error, **kwargs):
         self.logger.error(f"❌ Tool Error: {str(error)}")
 
-class LlamaFunctionsAgent(BaseSingleActionAgent):
-    def __init__(self, llm, tools, prompt):
-        super().__init__()
-        self.llm = llm
-        self.tools = {tool.name: tool for tool in tools}
-        self.prompt = prompt
+class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
+    llm: BaseChatModel = Field(...)  # Required field
+    tools: dict = Field(default_factory=dict)
+    prompt: ChatPromptTemplate = Field(...)
+
+    def __init__(self, llm, tools, prompt, **kwargs):
+        tools_dict = {tool.name: tool for tool in tools}
+        super().__init__(llm=llm, tools=tools_dict, prompt=prompt, **kwargs)
 
     @property
     def input_keys(self):
         return ["input", "chat_history", "agent_scratchpad"]
     
     def plan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
-        """Sync version - required by BaseSingleActionAgent but we'll raise an error if used"""
         raise NotImplementedError("This agent only supports async operations via aplan")
     
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
-        # Format the prompt with tool descriptions
         messages = self.prompt.format_messages(**kwargs)
-        
-        # Get the response from the LLM
         response = await self.llm.agenerate(messages=[messages])
         response_text = response.generations[0][0].text
         
-        # Parse the response for tool calls
         if "<tool>" in response_text and "</tool>" in response_text:
             tool_start = response_text.find("<tool>") + 6
             tool_end = response_text.find("</tool>")
@@ -101,7 +100,6 @@ class LlamaFunctionsAgent(BaseSingleActionAgent):
 
     @property
     def return_values(self) -> List[str]:
-        """Return values this agent can return"""
         return ["output"]
 
 class AIResponder(commands.Cog):
