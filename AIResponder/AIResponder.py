@@ -85,27 +85,60 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         response = await self.llm.agenerate(messages=[messages])
         response_text = response.generations[0][0].text
         
+        # Check for malformed tool calls and fix them
+        tool_patterns = {
+            "Current Date and Time": "Current Date and Time (CST)",
+            "DuckDuckGo": "DuckDuckGo Search",
+            "Duck Duck Go": "DuckDuckGo Search",
+            "Search": "DuckDuckGo Search",
+            "Wiki": "Wikipedia"
+        }
+        
+        # Handle both XML-style and angle bracket style tool calls
+        for pattern, correct_name in tool_patterns.items():
+            # Fix angle bracket style
+            response_text = response_text.replace(f"<{pattern}>", f"<tool>{correct_name}</tool>")
+            response_text = response_text.replace(f"</{pattern}>", "")
+            # Fix malformed XML
+            if f"<tool>{pattern}</tool>" in response_text:
+                response_text = response_text.replace(f"<tool>{pattern}</tool>", f"<tool>{correct_name}</tool>")
+        
         if "<tool>" in response_text and "</tool>" in response_text:
             tool_start = response_text.find("<tool>") + 6
             tool_end = response_text.find("</tool>")
             tool_name = response_text[tool_start:tool_end].strip()
             
-            # Validate tool name against available tools
-            if tool_name not in self.tools:
-                # Try to find the closest matching tool
-                if "Current Date and Time" in tool_name:
-                    tool_name = "Current Date and Time (CST)"
-            
+            # Get tool input
             input_start = response_text.find("<input>") + 7 if "<input>" in response_text else -1
             input_end = response_text.find("</input>") if "</input>" in response_text else -1
-            tool_input = response_text[input_start:input_end].strip() if input_start > 0 and input_end > 0 else ""
+            
+            # Set default tool inputs based on tool type
+            default_inputs = {
+                "Current Date and Time (CST)": "what is the current date and time",
+                "Calculator": "0",
+                "DuckDuckGo Search": "current events",
+                "Wikipedia": "brief summary"
+            }
+            
+            tool_input = (
+                response_text[input_start:input_end].strip() 
+                if input_start > 0 and input_end > 0 
+                else default_inputs.get(tool_name, "")
+            )
             
             if tool_name in self.tools:
                 return AgentAction(tool=tool_name, tool_input=tool_input, log=response_text)
             else:
-                # If tool not found, return a response indicating the error
+                # Try to find the closest matching tool
+                for available_tool in self.tools.keys():
+                    if tool_name.lower() in available_tool.lower():
+                        return AgentAction(tool=available_tool, tool_input=tool_input, log=response_text)
+                
                 return AgentFinish(
-                    return_values={"output": f"I apologize, but I encountered an error. Let me try again with the correct tool name.\n\n{response_text}"},
+                    return_values={
+                        "output": f"I apologize, but I encountered an error with the tool name '{tool_name}'. "
+                                 f"Available tools are: {', '.join(self.tools.keys())}. Let me try again with the correct tool."
+                    },
                     log=response_text
                 )
         
@@ -316,16 +349,17 @@ class AIResponder(commands.Cog):
             prompt = ChatPromptTemplate.from_messages([
                 ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
                           "You are in a Discord server, responding to user messages.\n\n"
-                          "IMPORTANT: You have access to these tools (use EXACT names):\n"
+                          "IMPORTANT: You have access to these tools (use EXACT format):\n"
                           "- 'Current Date and Time (CST)': Use for ANY questions about current time or date\n"
                           "- 'Calculator': Use for ANY mathematical calculations\n"
                           "- 'DuckDuckGo Search': Use for current information\n"
                           "- 'Wikipedia': Use for detailed topic information\n\n"
-                          "When you need to use a tool, you MUST use the EXACT tool name in this format:\n"
+                          "To use a tool, you MUST use this EXACT format (including the XML tags):\n"
                           "<tool>Current Date and Time (CST)</tool>\n"
-                          "<input>tool input if needed</input>\n\n"
-                          "After getting the tool's response, incorporate it naturally in your reply.\n"
-                          "NEVER make up dates, times, or information - ALWAYS use the appropriate tool with its EXACT name."),
+                          "<input>what is the current date and time</input>\n\n"
+                          "IMPORTANT: Do not modify the XML tags or tool names.\n"
+                          "NEVER make up information - ALWAYS use tools when needed.\n"
+                          "Wait for tool response before continuing your reply."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
