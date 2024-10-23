@@ -119,7 +119,7 @@ class AIResponder(commands.Cog):
 
             self.logger.info("Creating agent executor")
             try:
-                agent = create_openai_functions_agent(self.llm, tools, prompt)
+                agent = create_openai_functions_agent(llm=self.llm, tools=tools, prompt=prompt)
                 self.agent_executor = AgentExecutor(
                     agent=agent,
                     tools=tools,
@@ -283,7 +283,7 @@ class AIResponder(commands.Cog):
                 ("ai", "{agent_scratchpad}")
             ])
 
-            agent = create_openai_functions_agent(self.llm, tools, prompt)
+            agent = create_openai_functions_agent(llm=self.llm, tools=tools, prompt=prompt)
             
             self.agent_executor = AgentExecutor(
                 agent=agent,
@@ -354,13 +354,15 @@ class AIResponder(commands.Cog):
                     raise ValueError("Invalid result from agent executor")
                 full_response = result['output']
 
-                # Log tool usage
-                if 'intermediate_steps' in result:
+                # Log tool usage if any
+                if 'intermediate_steps' in result and result['intermediate_steps']:
                     for step in result['intermediate_steps']:
                         if isinstance(step, tuple) and len(step) == 2:
                             action, observation = step
                             self.logger.info(f"Tool used: {action.tool}, Input: {action.tool_input}, Output: {observation}")
                             await self.process_intermediate_step(step, response_message)
+                else:
+                    self.logger.info("No tools were used in generating the response.")
 
                 cleaned_response = self.clean_agent_output(full_response)
                 self.logger.info(f"Cleaned response: {cleaned_response}")
@@ -368,10 +370,7 @@ class AIResponder(commands.Cog):
                 if not cleaned_response.strip():
                     cleaned_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
 
-                final_response = self.extract_final_response(cleaned_response)
-                self.logger.info(f"Final response: {final_response}")
-
-                formatted_response = f"{user_mention} {final_response}"
+                formatted_response = f"{user_mention} {cleaned_response}"
                 await response_message.edit(content=formatted_response[:2000])
                 return formatted_response[:2000]  # Truncate to 2000 characters
 
