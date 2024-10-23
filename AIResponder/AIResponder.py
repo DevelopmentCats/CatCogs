@@ -91,6 +91,9 @@ class AIResponder(commands.Cog):
                 model=model,
                 api_key=api_key,
                 base_url="https://api.deepinfra.com/v1/openai",
+                temperature=0.7,
+                max_tokens=16384,
+                streaming=True
             )
 
             # Set up tools and agent executor
@@ -134,71 +137,52 @@ class AIResponder(commands.Cog):
             self.logger.error(f"Unexpected error in initialize: {str(e)}", exc_info=True)
 
     async def setup_tools(self):
-        tools = []
-        try:
-            # DuckDuckGo Search
-            ddg_search = DuckDuckGoSearchAPIWrapper()
-            tools.append(
-                Tool(
-                    name="DuckDuckGo Search",
-                    func=DuckDuckGoSearchResults(api_wrapper=ddg_search).run,
-                    description="Useful for searching the internet for current information on various topics."
-                )
+        tools = [
+            Tool(
+                name="DuckDuckGo Search",
+                func=DuckDuckGoSearchRun().run,
+                description="Useful for searching the internet for current information on various topics."
+            ),
+            Tool(
+                name="Wikipedia",
+                func=WikipediaQueryRun().run,
+                description="Useful for getting detailed information on a wide range of topics."
+            ),
+            Tool(
+                name="Python REPL",
+                func=PythonAstREPLTool().run,
+                description="Useful for running Python code and performing calculations."
+            ),
+            Tool(
+                name="Calculator",
+                func=self.calculator,
+                description="Useful for performing basic and advanced mathematical calculations."
+            ),
+            Tool(
+                name="Current Date and Time (CST)",
+                func=self.get_current_date_time_cst,
+                description="Use this to get the current date and time in Central Standard Time (CST)."
             )
-            # Wikipedia
-            wikipedia = WikipediaAPIWrapper()
-            tools.append(
-                Tool(
-                    name="Wikipedia",
-                    func=WikipediaQueryRun(api_wrapper=wikipedia).run,
-                    description="Useful for getting detailed information on a wide range of topics."
-                )
-            )
-            # Python REPL
-            python_repl = PythonAstREPLTool()
-            tools.append(
-                Tool(
-                    name="Python REPL",
-                    func=python_repl.run,
-                    description="Useful for running Python code and performing calculations."
-                )
-            )
-            # Calculator
-            def calculator(expression: str) -> str:
-                try:
-                    cleaned_expression = ''.join(char for char in expression if char.isdigit() or char in '+-*/().^ ')
-                    result = sympify(cleaned_expression)
-                    return str(result.evalf())
-                except Exception as e:
-                    return f"Error: Unable to calculate. Please provide a valid mathematical expression. ({str(e)})"
-            tools.append(
-                Tool(
-                    name="Calculator",
-                    func=calculator,
-                    description="Useful for performing basic and advanced mathematical calculations. Provide a valid mathematical expression."
-                )
-            )
-            # Current Date and Time (CST)
-            async def get_current_date_time_cst():
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get('http://worldtimeapi.org/api/timezone/America/Chicago') as response:
-                            data = await response.json()
-                            datetime_cst = datetime.fromisoformat(data['datetime'].replace('Z', '+00:00'))
-                            return f"Current date and time in CST: {datetime_cst.strftime('%Y-%m-%d %H:%M:%S %Z')}"
-                except Exception as e:
-                    return f"Error: Unable to fetch current date and time. ({str(e)})"
-            tools.append(
-                Tool(
-                    name="Current Date and Time (CST)",
-                    func=get_current_date_time_cst,
-                    description="Use this to get the current date and time in Central Standard Time (CST)."
-                )
-            )
-            self.logger.info(f"Tools set up: {[tool.name for tool in tools]}")
-        except Exception as e:
-            self.logger.error(f"Error setting up tools: {str(e)}", exc_info=True)
+        ]
         return tools
+
+    def calculator(self, expression: str) -> str:
+        try:
+            cleaned_expression = ''.join(char for char in expression if char.isdigit() or char in '+-*/().^ ')
+            result = sympify(cleaned_expression)
+            return str(result.evalf())
+        except Exception as e:
+            return f"Error: Unable to calculate. Please provide a valid mathematical expression. ({str(e)})"
+
+    async def get_current_date_time_cst(self):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get('http://worldtimeapi.org/api/timezone/America/Chicago') as response:
+                    data = await response.json()
+                    datetime_cst = datetime.fromisoformat(data['datetime'].replace('Z', '+00:00'))
+                    return f"Current date and time in CST: {datetime_cst.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+        except Exception as e:
+            return f"Error: Unable to fetch current date and time. ({str(e)})"
 
     @commands.group(name="air")
     @commands.guild_only()
@@ -281,42 +265,23 @@ class AIResponder(commands.Cog):
 
     async def update_langchain_components(self):
         try:
-            self.logger.info("Starting to update LangChain components")
-            api_key = await self.config.api_key()
-            model = await self.config.model()
-            
-            if not api_key:
-                self.logger.error("API key not set. Please use the 'air apikey' command to set it.")
-                return
-            
-            self.logger.info(f"Using Model: {model}")
-            self.llm = ChatOpenAI(
-                model=model,
-                api_key=api_key,
-                base_url="https://api.deepinfra.com/v1/openai",
-            )
-            
-            custom_personality = await self.config.custom_personality()
+            tools = await self.setup_tools()
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
-            
+
+            custom_personality = await self.config.custom_personality()
             prompt = ChatPromptTemplate.from_messages([
                 ("system", f"You are an AI assistant with the following personality: {custom_personality}. "
                            "You are in a Discord server, responding to user messages. "
                            "Respond naturally and conversationally, as if you're chatting with a friend. "
                            "Always maintain your assigned personality throughout the conversation. "
                            "You have access to tools that can help you answer questions. "
-                           "ALWAYS use the 'Current Date and Time (CST)' tool when asked about the current date or time. "
-                           "Use other tools when necessary to provide accurate and up-to-date information. "
-                           "After using a tool, incorporate the information into your response without mentioning the tool explicitly. "
+                           "Use the appropriate tool when necessary to provide accurate and up-to-date information. "
+                           "After using a tool, incorporate the information into your response naturally. "
                            "Be concise and direct in your responses."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
 
-            self.logger.info("Setting up tools")
-            tools = await self.setup_tools()
-            
-            self.logger.info("Creating agent executor")
             agent = create_openai_functions_agent(self.llm, tools, prompt)
             
             self.agent_executor = AgentExecutor(
@@ -327,7 +292,7 @@ class AIResponder(commands.Cog):
                 max_iterations=3,
                 early_stopping_method="generate"
             )
-            
+
             self.logger.info("LangChain components updated successfully")
         except Exception as e:
             self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
@@ -365,48 +330,53 @@ class AIResponder(commands.Cog):
 
     async def process_query(self, content: str, response_message: discord.Message) -> str:
         try:
+            user_mention = response_message.author.mention
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             await response_message.edit(content="🤔 Thinking...")
 
-            if self.agent_executor is None:
-                self.logger.error("Agent executor is not initialized")
-                await self.update_langchain_components()
+            async with response_message.channel.typing():
                 if self.agent_executor is None:
-                    return "I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
+                    self.logger.error("Agent executor is not initialized")
+                    await self.update_langchain_components()
+                    if self.agent_executor is None:
+                        return f"{user_mention} I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
 
-            self.logger.info(f"Invoking agent with input: {content}")
-            
-            result = await self.agent_executor.ainvoke(
-                {"input": content},
-                {"callbacks": [callback_handler]}
-            )
-            self.logger.info(f"Agent executor result: {result}")
-            if not result or 'output' not in result:
-                raise ValueError("Invalid result from agent executor")
-            full_response = result['output']
+                self.logger.info(f"Invoking agent with input: {content}")
+                
+                result = await self.agent_executor.ainvoke(
+                    {"input": content},
+                    {"callbacks": [callback_handler]}
+                )
+                self.logger.info(f"Agent executor result: {result}")
 
-            # Log tool usage
-            if 'intermediate_steps' in result:
-                for step in result['intermediate_steps']:
-                    if isinstance(step, tuple) and len(step) == 2:
-                        action, observation = step
-                        self.logger.info(f"Tool used: {action.tool}, Input: {action.tool_input}, Output: {observation}")
+                if not result or 'output' not in result:
+                    raise ValueError("Invalid result from agent executor")
+                full_response = result['output']
 
-            cleaned_response = self.clean_agent_output(full_response)
-            self.logger.info(f"Cleaned response: {cleaned_response}")
+                # Log tool usage
+                if 'intermediate_steps' in result:
+                    for step in result['intermediate_steps']:
+                        if isinstance(step, tuple) and len(step) == 2:
+                            action, observation = step
+                            self.logger.info(f"Tool used: {action.tool}, Input: {action.tool_input}, Output: {observation}")
+                            await self.process_intermediate_step(step, response_message)
 
-            if not cleaned_response.strip():
-                cleaned_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
+                cleaned_response = self.clean_agent_output(full_response)
+                self.logger.info(f"Cleaned response: {cleaned_response}")
 
-            final_response = self.extract_final_response(cleaned_response)
-            self.logger.info(f"Final response: {final_response}")
+                if not cleaned_response.strip():
+                    cleaned_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
 
-            await response_message.edit(content=final_response[:2000])
-            return final_response[:2000]  # Truncate to 2000 characters
+                final_response = self.extract_final_response(cleaned_response)
+                self.logger.info(f"Final response: {final_response}")
+
+                formatted_response = f"{user_mention} {final_response}"
+                await response_message.edit(content=formatted_response[:2000])
+                return formatted_response[:2000]  # Truncate to 2000 characters
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
-            error_message = f"I encountered an error while processing your request. Please try again or contact the bot owner if the issue persists."
+            error_message = f"{user_mention} I encountered an error while processing your request. Please try again or contact the bot owner if the issue persists."
             await response_message.edit(content=error_message)
             return error_message
 
