@@ -18,6 +18,7 @@ from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaA
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_experimental.tools import PythonAstREPLTool
 from langchain_openai import ChatOpenAI
+from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchRun
 
 from sympy import sympify
 import os
@@ -145,7 +146,7 @@ class AIResponder(commands.Cog):
             ),
             Tool(
                 name="Wikipedia",
-                func=WikipediaQueryRun().run,
+                func=WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper()).run,
                 description="Useful for getting detailed information on a wide range of topics."
             ),
             Tool(
@@ -374,11 +375,15 @@ class AIResponder(commands.Cog):
                 await response_message.edit(content=formatted_response[:2000])
                 return formatted_response[:2000]  # Truncate to 2000 characters
 
+        except aiohttp.ClientError as e:
+            self.logger.error(f"Network error: {str(e)}")
+            return f"{user_mention} I'm having trouble connecting to my knowledge sources. Please try again later."
+        except asyncio.TimeoutError:
+            self.logger.error("Request timed out")
+            return f"{user_mention} It's taking longer than expected to process your request. Please try again or simplify your query."
         except Exception as e:
-            self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
-            error_message = f"{user_mention} I encountered an error while processing your request. Please try again or contact the bot owner if the issue persists."
-            await response_message.edit(content=error_message)
-            return error_message
+            self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
+            return f"{user_mention} I encountered an unexpected error. Please try again or contact the bot owner if the issue persists."
 
     async def process_intermediate_step(self, step, response_message):
         if isinstance(step, tuple) and len(step) == 2:
