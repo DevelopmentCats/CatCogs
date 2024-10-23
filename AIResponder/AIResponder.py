@@ -261,22 +261,30 @@ class AIResponder(commands.Cog):
             custom_personality = await self.config.custom_personality()
             memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", return_messages=True)
             
+            # Set up tools first
+            tools = await self.setup_tools()
+            
             prompt = ChatPromptTemplate.from_messages([
                 ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
-                           "You are in a Discord server, responding to user messages. "
-                           "Respond naturally and conversationally, as if you're chatting with a friend. "
-                           "Always maintain your assigned personality throughout the conversation. "
-                           "You have access to tools that can help you answer questions. "
-                           "ALWAYS use the 'Current Date and Time (CST)' tool when asked about the current date or time. "
-                           "Use other tools when necessary to provide accurate and up-to-date information. "
-                           "After using a tool, incorporate the information into your response naturally. "
-                           "Be concise and direct in your responses."),
+                          "You are in a Discord server, responding to user messages. "
+                          "Respond naturally and conversationally, as if you're chatting with a friend. "
+                          "Always maintain your assigned personality throughout the conversation. "
+                          "You have access to several tools that can help you provide accurate information:\n"
+                          "- Use 'Current Date and Time (CST)' for current time\n"
+                          "- Use 'DuckDuckGo Search' for recent information\n"
+                          "- Use 'Wikipedia' for detailed topic information\n"
+                          "- Use 'Calculator' for mathematical calculations\n"
+                          "When using tools, incorporate the information naturally into your response. "
+                          "Be concise and direct in your responses."),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
 
-            tools = await self.setup_tools()
-            agent = create_openai_functions_agent(llm=self.llm, tools=tools, prompt=prompt)
+            agent = create_openai_functions_agent(
+                llm=self.llm,
+                tools=tools,
+                prompt=prompt
+            )
             
             self.agent_executor = AgentExecutor(
                 agent=agent,
@@ -284,7 +292,8 @@ class AIResponder(commands.Cog):
                 memory=memory,
                 verbose=True,
                 max_iterations=3,
-                early_stopping_method="generate"
+                early_stopping_method="generate",
+                handle_parsing_errors=True
             )
 
             self.logger.info("LangChain components updated successfully")
@@ -336,28 +345,31 @@ class AIResponder(commands.Cog):
             self.logger.info(f"Invoking agent with input: {content}")
             
             result = await self.agent_executor.ainvoke(
-                {"input": content},
+                {
+                    "input": content,
+                    "chat_history": self.agent_executor.memory.chat_memory.messages if self.agent_executor.memory else []
+                },
                 {"callbacks": [callback_handler]}
             )
-            
+
             if not result or 'output' not in result:
                 raise ValueError("Invalid result from agent executor")
-                
-            # Clean and format the response
+
+            # Log tool usage if any
+            if 'intermediate_steps' in result and result['intermediate_steps']:
+                for step in result['intermediate_steps']:
+                    if isinstance(step, tuple) and len(step) == 2:
+                        action, observation = step
+                        self.logger.info(f"Tool used: {action.tool}, Input: {action.tool_input}, Output: {observation}")
+
             cleaned_response = self.clean_agent_output(result['output'])
             self.logger.info(f"Cleaned response: {cleaned_response}")
 
             if not cleaned_response.strip():
                 cleaned_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
 
-            # Format the final response with user mention
             formatted_response = f"{user_mention}\n\n{cleaned_response}"
-            
-            # Ensure we don't exceed Discord's character limit
-            if len(formatted_response) > 2000:
-                formatted_response = formatted_response[:1997] + "..."
-
-            return formatted_response
+            return formatted_response[:2000]  # Truncate to Discord's limit
 
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
