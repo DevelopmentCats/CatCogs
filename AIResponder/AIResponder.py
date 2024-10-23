@@ -73,6 +73,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent):
     def input_keys(self):
         return ["input", "chat_history", "agent_scratchpad"]
     
+    def plan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
+        """Sync version - required by BaseSingleActionAgent but we'll raise an error if used"""
+        raise NotImplementedError("This agent only supports async operations via aplan")
+    
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
         # Format the prompt with tool descriptions
         messages = self.prompt.format_messages(**kwargs)
@@ -94,6 +98,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent):
             return AgentAction(tool=tool_name, tool_input=tool_input, log=response_text)
         
         return AgentFinish(return_values={"output": response_text}, log=response_text)
+
+    @property
+    def return_values(self) -> List[str]:
+        """Return values this agent can return"""
+        return ["output"]
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
