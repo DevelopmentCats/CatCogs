@@ -33,6 +33,7 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         self.logger = logger
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
+        self.logger.info("LLM started generating response")
         await self.discord_message.edit(content="🤔 Thinking...")
 
     async def on_llm_new_token(self, token, **kwargs):
@@ -47,12 +48,18 @@ class DiscordCallbackHandler(BaseCallbackHandler):
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
         tool_name = serialized.get('name', 'Unknown Tool')
-        self.logger.info(f"Tool started: {tool_name}, Input: {input_str}")
+        self.logger.info(f"🔧 Tool Execution Started:")
+        self.logger.info(f"  Tool: {tool_name}")
+        self.logger.info(f"  Input: {input_str}")
         await self.discord_message.edit(content=f"🔧 Using {tool_name}...")
 
     async def on_tool_end(self, output, **kwargs):
-        self.logger.info(f"Tool ended. Output: {output}")
+        self.logger.info(f"✅ Tool Execution Completed:")
+        self.logger.info(f"  Output: {output}")
         await self.discord_message.edit(content=f"✅ Processing results...")
+
+    async def on_tool_error(self, error, **kwargs):
+        self.logger.error(f"❌ Tool Error: {str(error)}")
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -342,7 +349,7 @@ class AIResponder(commands.Cog):
                 if self.agent_executor is None:
                     return f"{user_mention} I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
 
-            self.logger.info(f"Invoking agent with input: {content}")
+            self.logger.info(f"Processing query from {message.author.name}: {content}")
             
             result = await self.agent_executor.ainvoke(
                 {
@@ -357,13 +364,20 @@ class AIResponder(commands.Cog):
 
             # Log tool usage if any
             if 'intermediate_steps' in result and result['intermediate_steps']:
+                self.logger.info("📊 Tool Usage Summary:")
                 for step in result['intermediate_steps']:
                     if isinstance(step, tuple) and len(step) == 2:
                         action, observation = step
-                        self.logger.info(f"Tool used: {action.tool}, Input: {action.tool_input}, Output: {observation}")
+                        self.logger.info("------------------------")
+                        self.logger.info(f"Tool: {action.tool}")
+                        self.logger.info(f"Input: {action.tool_input}")
+                        self.logger.info(f"Output: {observation}")
+                        self.logger.info("------------------------")
+            else:
+                self.logger.info("No tools were used in generating this response")
 
             cleaned_response = self.clean_agent_output(result['output'])
-            self.logger.info(f"Cleaned response: {cleaned_response}")
+            self.logger.info(f"Final response: {cleaned_response[:200]}...")  # Log first 200 chars of response
 
             if not cleaned_response.strip():
                 cleaned_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
