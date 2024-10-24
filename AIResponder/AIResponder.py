@@ -205,6 +205,9 @@ class AIResponder(commands.Cog):
                 streaming=True
             )
             
+            # Initialize and store tools
+            self.tools = await self.setup_tools()
+            
             await self.update_langchain_components()
             if await self.verify_api_settings():
                 self.logger.info("AIResponder initialized successfully")
