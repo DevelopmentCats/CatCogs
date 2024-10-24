@@ -547,8 +547,20 @@ Tool Results:
 Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
 Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
 
-        # Pass the message as a list of HumanMessages
-        final_response = await self.llm.agenerate(messages=[context_message])
+        # Ensure the input is a list of BaseMessages
+        messages = [context_message]
+
+        # Bind tools to the model
+        llm_with_tools = self.llm.bind_tools(self.tools)
+
+        # Process tool calls and generate final response
+        ai_msg = await llm_with_tools.invoke(messages)
+        for tool_call in ai_msg.tool_calls:
+            selected_tool = self.tools[tool_call["name"].lower()]
+            tool_msg = selected_tool.invoke(tool_call)
+            messages.append(tool_msg)
+
+        final_response = await llm_with_tools.invoke(messages)
         final_text = final_response.generations[0][0].text
         return final_text
 
