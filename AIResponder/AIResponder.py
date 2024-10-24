@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from openai import AsyncOpenAI
 
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, PromptValue
 from langchain_core.tools import Tool
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.callbacks import BaseCallbackHandler
@@ -547,14 +547,11 @@ Tool Results:
 Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
 Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
 
-        # Ensure the input is a list of BaseMessages
-        messages = [context_message]
+        # Convert HumanMessage to PromptValue
+        prompt_value = PromptValue(messages=[context_message])
 
-        # Debugging: Print the type and content of messages
-        print(f"Messages type: {type(messages)}, content: {messages}")
-
-        # Pass the message as a list of BaseMessages
-        final_response = await self.llm.agenerate(messages=messages)
+        # Pass the PromptValue to agenerate
+        final_response = await self.llm.agenerate(prompts=[prompt_value])
         final_text = final_response.generations[0][0].text
         return final_text
 
