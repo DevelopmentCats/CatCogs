@@ -88,13 +88,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         # Process previous tool outputs if any
         if intermediate_steps:
             last_tool_output = intermediate_steps[-1][1]  # Get the last tool's output
-            # Extract the actual time from the tool output
-            time_info = last_tool_output.split("CST: ")[-1].split(" UTC")[0] if "CST: " in last_tool_output else last_tool_output
             
             # Create a new prompt for the final response
             final_prompt = [
-                SystemMessage(content=f"You are an AI assistant named Meow. Be quirky and fun in your responses. You have just used a tool to get this information: {time_info}"),
-                HumanMessage(content=f"Original question: {kwargs.get('input', '')}. Generate a complete, engaging response that naturally incorporates the tool's information.")
+                SystemMessage(content="You are an AI assistant named Meow. Be quirky and fun in your responses, using cat-themed language and expressions. Format your response as a complete, engaging message that naturally incorporates the information."),
+                HumanMessage(content=f"Original question: {kwargs.get('input', '')}. Tool output: {last_tool_output}. Generate a playful, cat-themed response that includes this information.")
             ]
             
             final_response = await self.llm.agenerate(messages=final_prompt)
@@ -124,15 +122,22 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Store the initial response for context
             initial_response = response_text.split("<tool>")[0].strip()
             
-            # Return the tool action with the initial response preserved
             return AgentAction(
                 tool=tool_name,
                 tool_input=tool_input,
                 log=f"{initial_response}\n<tool>{tool_name}</tool>"
             )
         
-        # If no tool is needed, return direct response
-        return AgentFinish(return_values={"output": response_text}, log=response_text)
+        # If no tool is needed, ensure the response is personality-driven
+        personality_prompt = [
+            SystemMessage(content="You are an AI assistant named Meow. Be quirky and fun in your responses, using cat-themed language and expressions."),
+            HumanMessage(content=f"Generate a playful, cat-themed response to: {kwargs.get('input', '')}")
+        ]
+        
+        final_response = await self.llm.agenerate(messages=personality_prompt)
+        final_text = final_response.generations[0][0].text
+        
+        return AgentFinish(return_values={"output": final_text}, log=response_text)
 
     @property
     def return_values(self) -> List[str]:
