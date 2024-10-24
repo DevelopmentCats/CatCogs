@@ -81,14 +81,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         raise NotImplementedError("This agent only supports async operations via aplan")
     
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
-        # Get original question and chat history
         original_question = kwargs.get('input', '')
-        chat_history = kwargs.get('chat_history', [])
-        
-        # Initial response handling
-        messages = self.prompt.format_messages(**kwargs)
-        response = await self.llm.agenerate(messages=[messages])
-        response_text = response.generations[0][0].text
         
         # Check for tool usage in initial response
         if "<tool>" in response_text and "</tool>" in response_text:
@@ -117,43 +110,33 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         
         # Process previous tool outputs if any
         elif intermediate_steps:
-            # Collect all tool interactions
             tool_interactions = []
             for action, observation in intermediate_steps:
                 tool_name = action.tool if isinstance(action, AgentAction) else action['tool']
                 tool_interactions.append(f"Tool: {tool_name}\nResult: {observation}")
             
-            # Combine all tool outputs into context
             tools_context = "\n\n".join(tool_interactions)
             
-            # Create a new prompt that includes all context from tools AND the system message
             context_prompt = [
-                SystemMessage(content=self.prompt.messages[0].content),  # Include original system message
                 HumanMessage(content=f"""Original question: {original_question}
 
-Previous tool results:
+Tool Results:
 {tools_context}
 
-Generate a final, engaging response that:
-1. Maintains the cat-themed personality
-2. Incorporates all tool information naturally
-3. Responds directly to the original question
-4. Uses playful, cat-themed language""")
+Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
+Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
             ]
             
-            # Force a new LLM call for final response
             final_response = await self.llm.agenerate(messages=context_prompt)
             final_text = final_response.generations[0][0].text
             
             return AgentFinish(
                 return_values={"output": final_text},
-                log=response_text,
-                return_direct=True  # Add this to ensure direct return
+                log=response_text
             )
         
-        # If no tool is needed, return direct response from initial generation
+        # If no tool is needed, return direct response
         else:
-            # Clean up any potential XML-like tags that might have slipped through
             clean_response = response_text
             for tag in ['<tool>', '</tool>', '<input>', '</input>']:
                 clean_response = clean_response.replace(tag, '')
@@ -450,12 +433,8 @@ class AIResponder(commands.Cog):
                 memory=memory,
                 verbose=True,
                 max_iterations=3,
-                handle_parsing_errors=True,
-                return_intermediate_steps=True,
-                early_stopping_method="force",  # Changed from "generate" to "force"
-                agent_kwargs={
-                    "force_llm_response": True  # Add this to force LLM response after tool use
-                }
+                return_intermediate_steps=True,  # Ensure this is True
+                early_stopping_method="force",  # Ensure this is set to force LLM response
             )
 
             self.logger.info("LangChain components updated successfully")
