@@ -137,7 +137,7 @@ Maintain your cat-themed personality throughout and ensure you use ALL relevant 
             
             return AgentFinish(
                 return_values={"output": final_text},
-                log=response_text
+                log=final_text  # Use final_text for logging
             )
         
         # If no tool is needed, return direct response
@@ -148,7 +148,7 @@ Maintain your cat-themed personality throughout and ensure you use ALL relevant 
                 
             return AgentFinish(
                 return_values={"output": clean_response.strip()},
-                log=response_text
+                log=clean_response.strip()  # Use clean_response for logging
             )
 
     @property
