@@ -85,7 +85,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         
         # Generate initial response from the LLM
         messages = self.prompt.format_messages(**kwargs)
-        response = await self.llm.agenerate(messages=[messages])
+        response = await self.llm.agenerate(messages=[messages], tool_choice="auto")
         response_text = response.generations[0][0].text
         
         # Check for tool usage in initial response
@@ -125,14 +125,14 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             context_prompt = [
                 HumanMessage(content=f"""Original question: {original_question}
 
-Tool Results:
-{tools_context}
+                Tool Results:
+                {tools_context}
 
-Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
-Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
+                Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
+                Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
             ]
             
-            final_response = await self.llm.agenerate(messages=context_prompt)
+            final_response = await self.llm.agenerate(messages=context_prompt, tool_choice="auto")
             final_text = final_response.generations[0][0].text
             
             return AgentFinish(
@@ -544,11 +544,11 @@ class AIResponder(commands.Cog):
         # Create a single HumanMessage with the entire context
         context_message = HumanMessage(content=f"""Original question: {original_question}
 
-Tool Results:
-{tools_context}
+        Tool Results:
+        {tools_context}
 
-Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
-Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
+        Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
+        Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
 
         # Ensure the input is a list of BaseMessages
         messages = [context_message]
@@ -557,13 +557,13 @@ Maintain your cat-themed personality throughout and ensure you use ALL relevant 
         llm_with_tools = self.llm.bind_tools(self.tools)
 
         # Process tool calls and generate final response
-        ai_msg = await llm_with_tools.invoke(messages)
+        ai_msg = await llm_with_tools.invoke(messages, tool_choice="auto")
         for tool_call in ai_msg.tool_calls:
             selected_tool = self.tools[tool_call["name"].lower()]
             tool_msg = selected_tool.invoke(tool_call)
             messages.append(tool_msg)
 
-        final_response = await llm_with_tools.invoke(messages)
+        final_response = await llm_with_tools.invoke(messages, tool_choice="auto")
         final_text = final_response.generations[0][0].text
         return final_text
 
