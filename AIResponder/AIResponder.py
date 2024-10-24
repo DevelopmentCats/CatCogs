@@ -126,24 +126,29 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Combine all tool outputs into context
             tools_context = "\n\n".join(tool_interactions)
             
-            # Create a new prompt that includes all context from tools
+            # Create a new prompt that includes all context from tools AND the system message
             context_prompt = [
-                HumanMessage(content=f"""Question: {original_question}
+                SystemMessage(content=self.prompt.messages[0].content),  # Include original system message
+                HumanMessage(content=f"""Original question: {original_question}
 
-Tool Results:
+Previous tool results:
 {tools_context}
 
-Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
-Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
+Generate a final, engaging response that:
+1. Maintains the cat-themed personality
+2. Incorporates all tool information naturally
+3. Responds directly to the original question
+4. Uses playful, cat-themed language""")
             ]
             
-            # Generate final response using the complete context
+            # Force a new LLM call for final response
             final_response = await self.llm.agenerate(messages=context_prompt)
             final_text = final_response.generations[0][0].text
             
             return AgentFinish(
                 return_values={"output": final_text},
-                log=response_text
+                log=response_text,
+                return_direct=True  # Add this to ensure direct return
             )
         
         # If no tool is needed, return direct response from initial generation
@@ -447,7 +452,10 @@ class AIResponder(commands.Cog):
                 max_iterations=3,
                 handle_parsing_errors=True,
                 return_intermediate_steps=True,
-                early_stopping_method="generate"  # This is important
+                early_stopping_method="force",  # Changed from "generate" to "force"
+                agent_kwargs={
+                    "force_llm_response": True  # Add this to force LLM response after tool use
+                }
             )
 
             self.logger.info("LangChain components updated successfully")
