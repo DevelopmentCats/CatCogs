@@ -547,8 +547,11 @@ Tool Results:
 Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
 Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
 
+        # Ensure the input is a list of BaseMessages
+        messages = [context_message]
+
         # Pass the message as a list of BaseMessages
-        final_response = await self.llm.agenerate(messages=[context_message])
+        final_response = await self.llm.agenerate(messages=messages)
         final_text = final_response.generations[0][0].text
         return final_text
 
