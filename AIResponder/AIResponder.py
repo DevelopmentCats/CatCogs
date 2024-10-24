@@ -83,6 +83,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
         original_question = kwargs.get('input', '')
         
+        # Generate initial response from the LLM
+        messages = self.prompt.format_messages(**kwargs)
+        response = await self.llm.agenerate(messages=[messages])
+        response_text = response.generations[0][0].text
+        
         # Check for tool usage in initial response
         if "<tool>" in response_text and "</tool>" in response_text:
             tool_start = response_text.find("<tool>") + 6
