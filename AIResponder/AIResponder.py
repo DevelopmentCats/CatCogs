@@ -81,6 +81,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         raise NotImplementedError("This agent only supports async operations via aplan")
     
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
+        # Initial response handling remains the same
         messages = self.prompt.format_messages(**kwargs)
         response = await self.llm.agenerate(messages=[messages])
         response_text = response.generations[0][0].text
@@ -88,13 +89,20 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         # Process previous tool outputs if any
         if intermediate_steps:
             last_tool_output = intermediate_steps[-1][1]  # Get the last tool's output
+            original_question = kwargs.get('input', '')
             
-            # Create a new prompt for the final response
+            # Create a new prompt specifically for formatting the final response
             final_prompt = [
-                SystemMessage(content="You are an AI assistant named Meow. Be quirky and fun in your responses, using cat-themed language and expressions. Format your response as a complete, engaging message that naturally incorporates the information."),
-                HumanMessage(content=f"Original question: {kwargs.get('input', '')}. Tool output: {last_tool_output}. Generate a playful, cat-themed response that includes this information.")
+                SystemMessage(content="""You are Meow, a playful cat-themed AI assistant. 
+                    Format the provided tool output into an engaging, cat-themed response.
+                    ALWAYS maintain your cat personality and use cat-themed language.
+                    Example: For time queries, say things like '*checks cat-shaped clock*' or 'according to my whiskers...'"""),
+                HumanMessage(content=f"""Original question: {original_question}
+                    Tool output: {last_tool_output}
+                    Generate a playful, cat-themed response that naturally incorporates this information.""")
             ]
             
+            # Generate the personality-driven final response
             final_response = await self.llm.agenerate(messages=final_prompt)
             final_text = final_response.generations[0][0].text
             
@@ -103,7 +111,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 log=response_text
             )
         
-        # Check for tool usage in initial response
+        # Rest of the method remains the same for tool identification
         if "<tool>" in response_text and "</tool>" in response_text:
             tool_start = response_text.find("<tool>") + 6
             tool_end = response_text.find("</tool>")
