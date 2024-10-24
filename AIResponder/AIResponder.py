@@ -85,70 +85,74 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         
         # Generate initial response from the LLM
         messages = self.prompt.format_messages(**kwargs)
-        response = await self.llm.agenerate(messages=[messages], tool_choice="auto")
-        response_text = response.generations[0][0].text
-        
-        # Check for tool usage in initial response
-        if "<tool>" in response_text and "</tool>" in response_text:
-            tool_start = response_text.find("<tool>") + 6
-            tool_end = response_text.find("</tool>")
-            tool_name = response_text[tool_start:tool_end].strip()
+        try:
+            response = await self.llm.agenerate(messages=[messages], tool_choice="auto")
+            response_text = response.generations[0][0].text
             
-            # Get tool input if needed
-            input_start = response_text.find("<input>") + 7 if "<input>" in response_text else -1
-            input_end = response_text.find("</input>") if "</input>" in response_text else -1
-            
-            tool_input = (
-                response_text[input_start:input_end].strip() 
-                if input_start > 0 and input_end > 0 
-                else ""
-            )
-            
-            # Store the initial response for context
-            initial_response = response_text.split("<tool>")[0].strip()
-            
-            return AgentAction(
-                tool=tool_name,
-                tool_input=tool_input,
-                log=f"{initial_response}\n<tool>{tool_name}</tool>"
-            )
-        
-        # Process previous tool outputs if any
-        elif intermediate_steps:
-            tool_interactions = []
-            for action, observation in intermediate_steps:
-                tool_name = action.tool if isinstance(action, AgentAction) else action['tool']
-                tool_interactions.append(f"Tool: {tool_name}\nResult: {observation}")
-            
-            tools_context = "\n\n".join(tool_interactions)
-            
-            context_prompt = [
-                HumanMessage(content=f"""Original question: {original_question}
-
-                Tool Results:
-                {tools_context}
-
-                Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
-                Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
-            ]
-            
-            final_response = await self.llm.agenerate(messages=context_prompt, tool_choice="auto")
-            final_text = final_response.generations[0][0].text
-            
-            return AgentFinish(
-                return_values={"output": final_text},
-                log=final_text  # Use final_text for logging
-            )
-        
-        # If no tool is needed, return direct response
-        else:
-            clean_response = response_text
-            for tag in ['<tool>', '</tool>', '<input>', '</input>']:
-                clean_response = clean_response.replace(tag, '')
+            # Check for tool usage in initial response
+            if "<tool>" in response_text and "</tool>" in response_text:
+                tool_start = response_text.find("<tool>") + 6
+                tool_end = response_text.find("</tool>")
+                tool_name = response_text[tool_start:tool_end].strip()
                 
+                # Get tool input if needed
+                input_start = response_text.find("<input>") + 7 if "<input>" in response_text else -1
+                input_end = response_text.find("</input>") if "</input>" in response_text else -1
+                
+                tool_input = (
+                    response_text[input_start:input_end].strip() 
+                    if input_start > 0 and input_end > 0 
+                    else ""
+                )
+                
+                # Store the initial response for context
+                initial_response = response_text.split("<tool>")[0].strip()
+                
+                return AgentAction(
+                    tool=tool_name,
+                    tool_input=tool_input,
+                    log=f"{initial_response}\n<tool>{tool_name}</tool>"
+                )
+            elif intermediate_steps:
+                # Process previous tool outputs if any
+                tool_interactions = []
+                for action, observation in intermediate_steps:
+                    tool_name = action.tool if isinstance(action, AgentAction) else action['tool']
+                    tool_interactions.append(f"Tool: {tool_name}\nResult: {observation}")
+                
+                tools_context = "\n\n".join(tool_interactions)
+                
+                context_prompt = [
+                    HumanMessage(content=f"""Original question: {original_question}
+
+                    Tool Results:
+                    {tools_context}
+
+                    Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
+                    Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
+                ]
+                
+                final_response = await self.llm.agenerate(messages=context_prompt, tool_choice="auto")
+                final_text = final_response.generations[0][0].text
+                
+                return AgentFinish(
+                    return_values={"output": final_text},
+                    log=final_text  # Use final_text for logging
+                )
+            else:
+                clean_response = response_text
+                for tag in ['<tool>', '</tool>', '<input>', '</input>']:
+                    clean_response = clean_response.replace(tag, '')
+                    
+                return AgentFinish(
+                    return_values={"output": clean_response.strip()},
+                    log=clean_response.strip()  # Use clean_response for logging
+                )
+        except Exception as e:
+            self.logger.error(f"Error in aplan method: {str(e)}", exc_info=True)
             return AgentFinish(
-                return_values={"output": clean_response.strip()},
-                log=clean_response.strip()  # Use clean_response for logging
+                return_values={"output": "I'm sorry, I encountered an error while processing your request."},
+                log="Error in aplan method"
             )
 
     @property
@@ -557,15 +561,19 @@ class AIResponder(commands.Cog):
         llm_with_tools = self.llm.bind_tools(self.tools)
 
         # Process tool calls and generate final response
-        ai_msg = await llm_with_tools.invoke(messages, tool_choice="auto")
-        for tool_call in ai_msg.tool_calls:
-            selected_tool = self.tools[tool_call["name"].lower()]
-            tool_msg = selected_tool.invoke(tool_call)
-            messages.append(tool_msg)
+        try:
+            ai_msg = await llm_with_tools.invoke(messages, tool_choice="auto")
+            for tool_call in ai_msg.tool_calls:
+                selected_tool = self.tools[tool_call["name"].lower()]
+                tool_msg = selected_tool.invoke(tool_call)
+                messages.append(tool_msg)
 
-        final_response = await llm_with_tools.invoke(messages, tool_choice="auto")
-        final_text = final_response.generations[0][0].text
-        return final_text
+            final_response = await llm_with_tools.invoke(messages, tool_choice="auto")
+            final_text = final_response.generations[0][0].text
+            return final_text
+        except Exception as e:
+            self.logger.error(f"Error generating final response: {str(e)}", exc_info=True)
+            return "I'm sorry, I encountered an error while processing your request."
 
     async def process_intermediate_step(self, step, response_message):
         if isinstance(step, tuple) and len(step) == 2:
