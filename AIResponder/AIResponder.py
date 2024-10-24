@@ -90,36 +90,6 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         response = await self.llm.agenerate(messages=[messages])
         response_text = response.generations[0][0].text
         
-        # Process previous tool outputs if any
-        if intermediate_steps:
-            # Collect all tool interactions
-            tool_interactions = []
-            for action, observation in intermediate_steps:
-                tool_name = action.tool if isinstance(action, AgentAction) else action['tool']
-                tool_interactions.append(f"Tool: {tool_name}\nResult: {observation}")
-            
-            # Combine all tool outputs into context
-            tools_context = "\n\n".join(tool_interactions)
-            
-            # Create a new prompt that includes all context from tools
-            context_prompt = [
-                HumanMessage(content=f"""Question: {original_question}
-                    Tool Results:
-                    {tools_context}
-
-                    Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
-                    Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
-            ]
-            
-            # Generate final response using the complete context
-            final_response = await self.llm.agenerate(messages=context_prompt)
-            final_text = final_response.generations[0][0].text
-            
-            return AgentFinish(
-                return_values={"output": final_text},
-                log=response_text
-            )
-        
         # Check for tool usage in initial response
         if "<tool>" in response_text and "</tool>" in response_text:
             tool_start = response_text.find("<tool>") + 6
@@ -145,8 +115,48 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 log=f"{initial_response}\n<tool>{tool_name}</tool>"
             )
         
-        # If no tool is needed, return direct response
-        return AgentFinish(return_values={"output": response_text}, log=response_text)
+        # Process previous tool outputs if any
+        elif intermediate_steps:
+            # Collect all tool interactions
+            tool_interactions = []
+            for action, observation in intermediate_steps:
+                tool_name = action.tool if isinstance(action, AgentAction) else action['tool']
+                tool_interactions.append(f"Tool: {tool_name}\nResult: {observation}")
+            
+            # Combine all tool outputs into context
+            tools_context = "\n\n".join(tool_interactions)
+            
+            # Create a new prompt that includes all context from tools
+            context_prompt = [
+                HumanMessage(content=f"""Question: {original_question}
+
+Tool Results:
+{tools_context}
+
+Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
+Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
+            ]
+            
+            # Generate final response using the complete context
+            final_response = await self.llm.agenerate(messages=context_prompt)
+            final_text = final_response.generations[0][0].text
+            
+            return AgentFinish(
+                return_values={"output": final_text},
+                log=response_text
+            )
+        
+        # If no tool is needed, return direct response from initial generation
+        else:
+            # Clean up any potential XML-like tags that might have slipped through
+            clean_response = response_text
+            for tag in ['<tool>', '</tool>', '<input>', '</input>']:
+                clean_response = clean_response.replace(tag, '')
+                
+            return AgentFinish(
+                return_values={"output": clean_response.strip()},
+                log=response_text
+            )
 
     @property
     def return_values(self) -> List[str]:
