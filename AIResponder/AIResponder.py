@@ -502,7 +502,8 @@ class AIResponder(commands.Cog):
             if not result or 'output' not in result:
                 raise ValueError("Invalid result from agent executor")
 
-            # Log tool usage if any
+            # Ensure the final response is generated after all tool interactions
+            final_response = result['output']
             if 'intermediate_steps' in result and result['intermediate_steps']:
                 self.logger.info("📊 Tool Usage Summary:")
                 for step in result['intermediate_steps']:
@@ -513,10 +514,9 @@ class AIResponder(commands.Cog):
                         self.logger.info(f"Input: {action.tool_input}")
                         self.logger.info(f"Output: {observation}")
                         self.logger.info("------------------------")
-            else:
-                self.logger.info("No tools were used in generating this response")
+                # Generate the final response using the LLM after processing tool outputs
+                final_response = await self.generate_final_response(content, result['intermediate_steps'])
 
-            final_response = result['output']
             self.logger.info(f"Final response: {final_response[:200]}...")  # Log first 200 chars of response
 
             if not final_response.strip():
@@ -528,6 +528,29 @@ class AIResponder(commands.Cog):
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
             return f"{user_mention} I encountered an unexpected error. Please try again or contact the bot owner if the issue persists."
+
+    async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]]) -> str:
+        # Process previous tool outputs if any
+        tool_interactions = []
+        for action, observation in intermediate_steps:
+            tool_name = action.tool if isinstance(action, AgentAction) else action['tool']
+            tool_interactions.append(f"Tool: {tool_name}\nResult: {observation}")
+        
+        tools_context = "\n\n".join(tool_interactions)
+        
+        context_prompt = [
+            HumanMessage(content=f"""Original question: {original_question}
+
+Tool Results:
+{tools_context}
+
+Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
+Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
+        ]
+        
+        final_response = await self.llm.agenerate(messages=context_prompt)
+        final_text = final_response.generations[0][0].text
+        return final_text
 
     async def process_intermediate_step(self, step, response_message):
         if isinstance(step, tuple) and len(step) == 2:
