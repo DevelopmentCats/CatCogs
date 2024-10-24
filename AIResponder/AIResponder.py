@@ -547,11 +547,8 @@ Tool Results:
 Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
 Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
 
-        # Convert HumanMessage to PromptValue
-        prompt_value = PromptValue(messages=[context_message])
-
-        # Pass the PromptValue to agenerate
-        final_response = await self.llm.agenerate(prompts=[prompt_value])
+        # Pass the message as a list of HumanMessages
+        final_response = await self.llm.agenerate(messages=[context_message])
         final_text = final_response.generations[0][0].text
         return final_text
 
