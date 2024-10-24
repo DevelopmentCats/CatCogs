@@ -550,6 +550,9 @@ Maintain your cat-themed personality throughout and ensure you use ALL relevant 
         # Ensure the input is a list of BaseMessages
         messages = [context_message]
 
+        # Debugging: Print the type and content of messages
+        print(f"Messages type: {type(messages)}, content: {messages}")
+
         # Pass the message as a list of BaseMessages
         final_response = await self.llm.agenerate(messages=messages)
         final_text = final_response.generations[0][0].text
