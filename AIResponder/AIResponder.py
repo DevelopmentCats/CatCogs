@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from openai import AsyncOpenAI
 
-from langchain_core.prompts import ChatPromptTemplate, PromptValue
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import Tool
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.callbacks import BaseCallbackHandler
