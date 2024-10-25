@@ -595,8 +595,8 @@ class AIResponder(commands.Cog):
 
             formatted_response = f"{message.author.mention}\n\n{final_response}"
             
-            # Split the response into chunks of 2000 characters or less
-            chunks = [formatted_response[i:i+2000] for i in range(0, len(formatted_response), 2000)]
+            # Split the response into chunks of 1900 characters or less (leaving room for Discord's limit)
+            chunks = [formatted_response[i:i+1900] for i in range(0, len(formatted_response), 1900)]
             
             # Send the first chunk as an edit to the original message
             await response_message.edit(content=chunks[0])
@@ -605,6 +605,7 @@ class AIResponder(commands.Cog):
             for chunk in chunks[1:]:
                 await message.channel.send(chunk)
 
+            self.logger.info("Response sent successfully")
             return "Response sent successfully"
 
         except Exception as e:
@@ -724,3 +725,4 @@ async def setup(bot: Red):
     cog = AIResponder(bot)
     await bot.add_cog(cog)
     await cog.initialize()
+
