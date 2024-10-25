@@ -95,8 +95,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         2. Determine if additional information is needed
         3. If needed, select the most appropriate tool(s) and formulate specific queries or inputs
         4. You can use multiple tools if necessary
-        5. For DuckDuckGo Search, provide specific search queries
-        6. If not needed, provide a direct answer
+        5. For tool usage, use the following format:
+           <tool>Tool Name</tool>
+           <input>Specific query or input for the tool</input>
+        6. If no tools are needed, provide a direct answer
 
         Remember to maintain your cat-themed personality throughout!
         """
@@ -116,20 +118,12 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             if tool_calls:
                 actions = []
                 for tool_name, tool_input in tool_calls:
-                    if tool_name == "DuckDuckGo Search" and not tool_input:
-                        tool_input = original_question
                     actions.append(AgentAction(
                         tool=tool_name,
                         tool_input=tool_input,
                         log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}"
                     ))
                 return actions if len(actions) > 1 else actions[0]
-            elif intermediate_steps:
-                final_text = await self.generate_final_response(original_question, intermediate_steps)
-                return AgentFinish(
-                    return_values={"output": final_text},
-                    log=f"Thought: I have gathered enough information to answer the question.\nFinal Answer: {final_text}"
-                )
             else:
                 clean_response = self.clean_response(response_text)
                 return AgentFinish(
@@ -187,8 +181,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         tool_pattern = r'<tool>(.*?)</tool>'
         input_pattern = r'<input>(.*?)</input>'
         
-        tool_matches = re.findall(tool_pattern, response_text)
-        input_matches = re.findall(input_pattern, response_text)
+        tool_matches = re.findall(tool_pattern, response_text, re.DOTALL)
+        input_matches = re.findall(input_pattern, response_text, re.DOTALL)
         
         for tool, input_text in zip(tool_matches, input_matches):
             tool_calls.append((tool.strip(), input_text.strip()))
