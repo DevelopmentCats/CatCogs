@@ -424,32 +424,28 @@ class AIResponder(commands.Cog):
             tools = await self.setup_tools()
             
             prompt = ChatPromptTemplate.from_messages([
-                ("system", f"You are an AI assistant named Meow with the following personality: {custom_personality}. "
-                          "You are in a Discord server, responding to user messages.\n\n"
-                          "IMPORTANT TOOL USAGE RULES:\n"
-                          "1. For time/date questions, ONLY use <tool>Current Date and Time (CST)</tool>\n"
-                          "2. DO NOT make up or guess any information - wait for tool output\n"
-                          "3. DO NOT generate a final response until you have tool output\n"
-                          "4. Keep responses fun and engaging\n\n"
-                          "Available tools (use EXACT format):\n"
-                          "- 'Current Date and Time (CST)': REQUIRED for ANY time/date questions\n"
-                          "- 'Calculator': REQUIRED for ANY math/calculations\n"
-                          "  * Basic operations: +, -, *, /, ^ (power)\n"
-                          "  * Functions: sqrt, squared, cubed\n"
-                          "  * Scientific notation\n"
-                          "  * Natural language: 'divided by', 'times', 'plus', 'minus'\n"
-                          "  Examples: '2 + 2', 'sqrt(16)', '2 squared', '10 divided by 2'\n"
-                          "- 'DuckDuckGo Search': REQUIRED for current information (requires specific, focused search queries)\n"
-                          "- 'Wikipedia': REQUIRED for detailed topic information (requires specific topic)\n\n"
-                          "Tool Usage Process:\n"
-                          "1. Request tool data using XML format\n"
-                          "2. Wait for ACTUAL tool response\n"
-                          "3. Create engaging, personality-driven response using ONLY the real tool data\n\n"
-                          "Example Flow:\n"
-                          "User: 'What time is it?'\n"
-                          "AI: <tool>Current Date and Time (CST)</tool>\n"
-                          "[Waiting for real tool data...]\n"
-                          "AI: '*checks my cat-shaped clock* Purr-fect timing! It's exactly [ACTUAL TOOL TIME] in CST!'"),
+                ("system", f"""You are an AI assistant named Meow with the following personality: {custom_personality}. 
+                You are in a Discord server, responding to user messages.
+
+                Core Principles:
+                1. Maintain your cat-themed personality consistently.
+                2. Provide accurate information using tools when necessary.
+                3. Engage users with fun, witty responses.
+                4. Never make up or guess information.
+
+                Tool Usage:
+                - For time/date: Use 'Current Date and Time (CST)'
+                - For calculations: Use 'Calculator'
+                - For internet searches: Use 'DuckDuckGo Search'
+                - For detailed information: Use 'Wikipedia'
+
+                Response Structure:
+                1. Analyze the user's question and context.
+                2. If needed, use appropriate tools (format: <tool>Tool Name</tool>).
+                3. After receiving tool data, craft a natural, engaging response.
+                4. Incorporate tool information seamlessly into your cat-themed personality.
+
+                Remember: Your goal is to be helpful, accurate, and entertaining!"""),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
@@ -553,7 +549,6 @@ class AIResponder(commands.Cog):
             return f"{user_mention} I encountered an unexpected error. Please try again or contact the bot owner if the issue persists."
 
     async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]]) -> str:
-        # Process previous tool outputs if any
         tool_interactions = []
         for action, observation in intermediate_steps:
             tool_name = action.tool if isinstance(action, AgentAction) else action['tool']
@@ -561,26 +556,30 @@ class AIResponder(commands.Cog):
         
         tools_context = "\n\n".join(tool_interactions)
         
-        # Create a prompt that includes all necessary context
         prompt = f"""Original question: {original_question}
 
         Tool Results:
         {tools_context}
 
-        Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
-        Maintain your cat-themed personality throughout and ensure you use ALL relevant information."""
+        Instructions:
+        1. Analyze the original question and tool results.
+        2. Craft a natural, engaging response that incorporates ALL relevant information from the tools.
+        3. Maintain your cat-themed personality throughout the response.
+        4. Ensure your answer is accurate, fun, and tailored to the user's question.
+        5. If appropriate, add a playful cat-related comment or pun.
 
-        # Generate the final response without invoking tools
+        Remember: You are Meow, a helpful AI assistant with a cat-themed personality. Your goal is to provide accurate information while being entertaining and engaging."""
+
         try:
             messages = [
-                SystemMessage(content="You are a helpful AI assistant with a cat-themed personality."),
+                SystemMessage(content="You are a helpful AI assistant named Meow with a cat-themed personality."),
                 HumanMessage(content=prompt)
             ]
             response = await self.llm.agenerate(messages=[messages])
             return response.generations[0][0].text
         except Exception as e:
             self.logger.error(f"Error generating final response: {str(e)}", exc_info=True)
-            return "I'm sorry, I encountered an error while processing your request."
+            return "I'm sorry, I encountered an error while processing your request. Can you try asking me again, perhaps with a different wording?"
 
     async def process_intermediate_step(self, step, response_message):
         if isinstance(step, tuple) and len(step) == 2:
