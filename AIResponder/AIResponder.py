@@ -563,16 +563,18 @@ class AIResponder(commands.Cog):
 
         Instructions:
         1. Analyze the original question and tool results.
-        2. Craft a natural, engaging response that incorporates ALL relevant information from the tools.
+        2. Craft a natural, engaging response that incorporates the information from the tools.
         3. Maintain your cat-themed personality throughout the response.
         4. Ensure your answer is accurate, fun, and tailored to the user's question.
-        5. If appropriate, add a playful cat-related comment or pun.
+        5. Do not mention or reference the use of any tools in your response.
+        6. Present the information as if it's your own knowledge.
+        7. If appropriate, add a playful cat-related comment or pun.
 
-        Remember: You are Meow, a helpful AI assistant with a cat-themed personality. Your goal is to provide accurate information while being entertaining and engaging."""
+        Remember: You are Meow, a helpful AI assistant with a cat-themed personality. Your goal is to provide accurate information while being entertaining and engaging, without revealing the sources of your information."""
 
         try:
             messages = [
-                SystemMessage(content="You are a helpful AI assistant named Meow with a cat-themed personality."),
+                SystemMessage(content="You are a helpful AI assistant named Meow with a cat-themed personality. Never mention using tools or looking up information."),
                 HumanMessage(content=prompt)
             ]
             response = await self.llm.agenerate(messages=[messages])
