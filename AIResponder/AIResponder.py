@@ -576,8 +576,8 @@ class AIResponder(commands.Cog):
                 SystemMessage(content="You are a helpful AI assistant with a cat-themed personality."),
                 HumanMessage(content=prompt)
             ]
-            response = await self.llm.achat(messages)
-            return response.content
+            response = await self.llm.agenerate(messages=[messages])
+            return response.generations[0][0].text
         except Exception as e:
             self.logger.error(f"Error generating final response: {str(e)}", exc_info=True)
             return "I'm sorry, I encountered an error while processing your request."
