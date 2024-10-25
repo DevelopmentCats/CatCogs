@@ -551,7 +551,7 @@ class AIResponder(commands.Cog):
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
                 await response_message.edit(content=f"{message.author.mention}  Oops! My circuits got a bit tangled there. Can you try again?")
 
-    async def process_query(self, content: str, user_mention: str, response_message: discord.Message) -> str:
+    async def process_query(self, content: str, message: discord.Message, response_message: discord.Message) -> str:
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
 
@@ -559,15 +559,15 @@ class AIResponder(commands.Cog):
                 self.logger.error("Agent executor is not initialized")
                 await self.update_langchain_components()
                 if self.agent_executor is None:
-                    return f"{user_mention} I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
+                    return f"{message.author.mention} I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
 
-            self.logger.info(f"Processing query from {user_mention}: {content}")
+            self.logger.info(f"Processing query from {message.author}: {content}")
             
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
                     "chat_history": self.agent_executor.memory.chat_memory.messages if self.agent_executor.memory else [],
-                    "agent_scratchpad": ""  # Add empty scratchpad
+                    "agent_scratchpad": ""
                 },
                 {"callbacks": [callback_handler]}
             )
@@ -575,7 +575,6 @@ class AIResponder(commands.Cog):
             if not result or 'output' not in result:
                 raise ValueError("Invalid result from agent executor")
 
-            # Ensure the final response is generated after all tool interactions
             final_response = result['output']
             if 'intermediate_steps' in result and result['intermediate_steps']:
                 self.logger.info("📊 Tool Usage Summary:")
@@ -587,7 +586,6 @@ class AIResponder(commands.Cog):
                         self.logger.info(f"Input: {action.tool_input}")
                         self.logger.info(f"Output: {observation}")
                         self.logger.info("------------------------")
-                # Generate the final response using the LLM after processing tool outputs
                 final_response = await self.generate_final_response(content, result['intermediate_steps'])
 
             self.logger.info(f"Final response: {final_response[:200]}...")  # Log first 200 chars of response
@@ -595,7 +593,7 @@ class AIResponder(commands.Cog):
             if not final_response.strip():
                 final_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
 
-            formatted_response = f"{user_mention}\n\n{final_response}"
+            formatted_response = f"{message.author.mention}\n\n{final_response}"
             
             # Split the response into chunks of 2000 characters or less
             chunks = [formatted_response[i:i+2000] for i in range(0, len(formatted_response), 2000)]
@@ -605,13 +603,13 @@ class AIResponder(commands.Cog):
             
             # Send any additional chunks as new messages
             for chunk in chunks[1:]:
-                await response_message.channel.send(chunk)
+                await message.channel.send(chunk)
 
             return "Response sent successfully"
 
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
-            return f"{user_mention} I encountered an unexpected error. Please try again or contact the bot owner if the issue persists."
+            return f"{message.author.mention} I encountered an unexpected error. Please try again or contact the bot owner if the issue persists."
 
     async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]]) -> str:
         tool_interactions = []
