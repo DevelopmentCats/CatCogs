@@ -545,11 +545,10 @@ class AIResponder(commands.Cog):
             response_message = await message.channel.send("🤔 Thinking...")
             
             try:
-                full_response = await self.process_query(content, message, response_message)
-                await response_message.edit(content=full_response)
+                await self.process_query(content, message, response_message)
             except Exception as e:
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
-                await response_message.edit(content=f"{message.author.mention}  Oops! My circuits got a bit tangled there. Can you try again?")
+                await response_message.edit(content=f"{message.author.mention} Oops! My circuits got a bit tangled there. Can you try again?")
 
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message) -> str:
         try:
@@ -606,11 +605,13 @@ class AIResponder(commands.Cog):
                 await message.channel.send(chunk)
 
             self.logger.info("Response sent successfully")
-            return "Response sent successfully"
+            return final_response  # Return the actual final response instead of a status message
 
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
-            return f"{message.author.mention} I encountered an unexpected error. Please try again or contact the bot owner if the issue persists."
+            error_message = f"{message.author.mention} I encountered an unexpected error. Please try again or contact the bot owner if the issue persists."
+            await response_message.edit(content=error_message)
+            return error_message
 
     async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]]) -> str:
         tool_interactions = []
@@ -725,4 +726,3 @@ async def setup(bot: Red):
     cog = AIResponder(bot)
     await bot.add_cog(cog)
     await cog.initialize()
-
