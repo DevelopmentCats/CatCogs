@@ -461,6 +461,7 @@ class AIResponder(commands.Cog):
                 2. Always use tools for specific types of information - you do not have this knowledge inherently.
                 3. Engage users with fun, witty responses.
                 4. Never make up or guess information.
+                5. Be concise and to the point. Prefer shorter responses when possible.
 
                 Tool Usage:
                 - For ANY time/date information: ALWAYS use 'Current Date and Time (CST)'
@@ -543,9 +544,8 @@ class AIResponder(commands.Cog):
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
                 await response_message.edit(content=f"{message.author.mention}  Oops! My circuits got a bit tangled there. Can you try again?")
 
-    async def process_query(self, content: str, message: discord.Message, response_message: discord.Message) -> str:
+    async def process_query(self, content: str, user_mention: str, response_message: discord.Message) -> str:
         try:
-            user_mention = message.author.mention
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
 
             if self.agent_executor is None:
@@ -554,7 +554,7 @@ class AIResponder(commands.Cog):
                 if self.agent_executor is None:
                     return f"{user_mention} I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
 
-            self.logger.info(f"Processing query from {message.author.name}: {content}")
+            self.logger.info(f"Processing query from {user_mention}: {content}")
             
             result = await self.agent_executor.ainvoke(
                 {
@@ -589,7 +589,18 @@ class AIResponder(commands.Cog):
                 final_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
 
             formatted_response = f"{user_mention}\n\n{final_response}"
-            return formatted_response[:2000]  # Truncate to Discord's limit
+            
+            # Split the response into chunks of 2000 characters or less
+            chunks = [formatted_response[i:i+2000] for i in range(0, len(formatted_response), 2000)]
+            
+            # Send the first chunk as an edit to the original message
+            await response_message.edit(content=chunks[0])
+            
+            # Send any additional chunks as new messages
+            for chunk in chunks[1:]:
+                await response_message.channel.send(chunk)
+
+            return "Response sent successfully"
 
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
@@ -616,8 +627,9 @@ class AIResponder(commands.Cog):
         5. Do not mention or reference the use of any tools in your response.
         6. Present the information as if it's your own knowledge.
         7. If appropriate, add a playful cat-related comment or pun.
+        8. Be concise and to the point. Aim for shorter responses when possible.
 
-        Remember: You are Meow, a helpful AI assistant with a cat-themed personality. Your goal is to provide accurate information while being entertaining and engaging, without revealing the sources of your information. Always use tools for current date, time, or any real-time data."""
+        Remember: You are Meow, a helpful AI assistant with a cat-themed personality. Your goal is to provide accurate information while being entertaining and engaging, without revealing the sources of your information. Always use tools for current date, time, or any real-time data. Strive for brevity without sacrificing important information."""
 
         try:
             messages = [
