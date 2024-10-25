@@ -92,21 +92,24 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         {self.format_chat_history(chat_history)}
 
         Current thought process:
-        1. Analyze the question
-        2. Determine if additional information is needed
-        3. If needed, select the most appropriate tool(s) and formulate specific queries or inputs
-        4. You can use multiple tools if necessary
-        5. IMPORTANT: ALWAYS use the following format for ALL tool calls:
+        1. Analyze the question and chat history
+        2. Determine if the question is a follow-up or a new topic
+        3. If it's a follow-up, consider relevant information from chat history
+        4. Determine if additional information is needed
+        5. If needed, select the most appropriate tool(s) and formulate specific queries or inputs
+        6. You can use multiple tools if necessary
+        7. IMPORTANT: ALWAYS use the following format for ALL tool calls:
            <tool>Tool Name</tool>
            <input>Specific query or input for the tool</input>
-        6. If no tools are needed, provide a direct answer
-        7. Only reference chat history if it's directly relevant to answering the current question
+        8. If no tools are needed, provide a direct answer
+        9. Ensure your response is consistent with previous interactions in the chat history
 
         Remember:
         - Maintain your cat-themed personality throughout!
         - You MUST use the exact tool call format for every tool use.
         - Never attempt to use tools in any other format.
-        - Only use chat history when absolutely necessary for context.
+        - Only reference chat history when it's directly relevant to answering the current question.
+        - Be consistent with information provided in previous responses.
         """
 
         messages = self.prompt.format_messages(
@@ -214,6 +217,7 @@ class AIResponder(commands.Cog):
         self.agent_executor = None
         self.logger = logging.getLogger("red.airesponder")
         self.bot.loop.create_task(self.initialize())
+        self.user_chat_histories = {}
 
     async def initialize(self):
         """Initialize the cog."""
@@ -550,12 +554,21 @@ class AIResponder(commands.Cog):
             response_message = await message.channel.send("🤔 Thinking...")
             
             try:
-                await self.process_query(content, message, response_message)
+                # Get or create user-specific chat history
+                user_id = str(message.author.id)
+                if user_id not in self.user_chat_histories:
+                    self.user_chat_histories[user_id] = []
+
+                # Add the current message to the user's chat history
+                self.user_chat_histories[user_id].append(HumanMessage(content=content))
+
+                # Process the query with user-specific chat history
+                await self.process_query(content, message, response_message, self.user_chat_histories[user_id])
             except Exception as e:
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
                 await response_message.edit(content=f"{message.author.mention} Oops! My circuits got a bit tangled there. Can you try again?")
 
-    async def process_query(self, content: str, message: discord.Message, response_message: discord.Message) -> str:
+    async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage]) -> str:
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
 
@@ -570,7 +583,7 @@ class AIResponder(commands.Cog):
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
-                    "chat_history": self.agent_executor.memory.chat_memory.messages if self.agent_executor.memory else [],
+                    "chat_history": chat_history[-5:],  # Use only the last 5 messages from the user's chat history
                     "agent_scratchpad": ""
                 },
                 {"callbacks": [callback_handler]}
@@ -590,7 +603,7 @@ class AIResponder(commands.Cog):
                         self.logger.info(f"Input: {action.tool_input}")
                         self.logger.info(f"Output: {observation}")
                         self.logger.info("------------------------")
-                final_response = await self.generate_final_response(content, result['intermediate_steps'])
+                final_response = await self.generate_final_response(content, result['intermediate_steps'], chat_history)
 
             self.logger.info(f"Final response: {final_response[:200]}...")  # Log first 200 chars of response
 
@@ -609,8 +622,11 @@ class AIResponder(commands.Cog):
             for chunk in chunks[1:]:
                 await message.channel.send(chunk)
 
+            # Add the AI's response to the user's chat history
+            chat_history.append(AIMessage(content=final_response))
+
             self.logger.info("Response sent successfully")
-            return final_response  # Return the actual final response instead of a status message
+            return final_response
 
         except Exception as e:
             self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
@@ -618,7 +634,7 @@ class AIResponder(commands.Cog):
             await response_message.edit(content=error_message)
             return error_message
 
-    async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]]) -> str:
+    async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]], chat_history: List[Union[HumanMessage, AIMessage]]) -> str:
         tool_interactions = []
         for action, observation in intermediate_steps:
             tool_name = action.tool if isinstance(action, AgentAction) else action['tool']
@@ -626,26 +642,35 @@ class AIResponder(commands.Cog):
         
         tools_context = "\n\n".join(tool_interactions)
         
+        # Format chat history
+        formatted_history = "\n".join([f"{'Human' if isinstance(msg, HumanMessage) else 'AI'}: {msg.content}" for msg in chat_history[-5:]])
+        
         prompt = f"""Original question: {original_question}
+
+        Recent Chat History:
+        {formatted_history}
 
         Tool Results:
         {tools_context}
 
         Instructions:
-        1. Ensure you've used the appropriate tools for any time, date, or real-time information.
-        2. Craft a natural, engaging response that incorporates the information from the tools.
-        3. Maintain your cat-themed personality throughout the response.
-        4. Ensure your answer is accurate, fun, and tailored to the user's question.
-        5. Do not mention or reference the use of any tools in your response.
-        6. Present the information as if it's your own knowledge.
-        7. If appropriate, add a playful cat-related comment or pun.
-        8. Be concise and to the point. Aim for shorter responses when possible.
+        1. Analyze the original question and recent chat history to understand the context.
+        2. Ensure you've used the appropriate tools for any time, date, or real-time information.
+        3. Craft a natural, engaging response that incorporates the information from the tools and is consistent with the chat history.
+        4. Maintain your cat-themed personality throughout the response.
+        5. Ensure your answer is accurate, fun, and tailored to the user's question and the ongoing conversation.
+        6. Do not mention or reference the use of any tools in your response.
+        7. Present the information as if it's your own knowledge.
+        8. If appropriate, add a playful cat-related comment or pun.
+        9. Be concise and to the point. Aim for shorter responses when possible.
+        10. If the question is a follow-up, make sure to reference relevant information from the chat history.
+        11. Maintain consistency with your previous responses in the chat history.
 
-        Remember: You are Meow, a helpful AI assistant with a cat-themed personality. Your goal is to provide accurate information while being entertaining and engaging, without revealing the sources of your information. Always use tools for current date, time, or any real-time data. Strive for brevity without sacrificing important information."""
+        Remember: You are Meow, a helpful AI assistant with a cat-themed personality. Your goal is to provide accurate information while being entertaining and engaging, without revealing the sources of your information. Always use tools for current date, time, or any real-time data. Strive for brevity without sacrificing important information. Ensure your response fits seamlessly into the ongoing conversation."""
 
         try:
             messages = [
-                SystemMessage(content="You are a helpful AI assistant named Meow with a cat-themed personality. Never mention using tools or looking up information. Present all knowledge as if it's your own, but always ensure you've used tools for current date, time, or real-time information."),
+                SystemMessage(content="You are a helpful AI assistant named Meow with a cat-themed personality. Never mention using tools or looking up information. Present all knowledge as if it's your own, but always ensure you've used tools for current date, time, or real-time information. Maintain consistency with previous interactions."),
                 HumanMessage(content=prompt)
             ]
             response = await self.llm.agenerate(messages=[messages])
