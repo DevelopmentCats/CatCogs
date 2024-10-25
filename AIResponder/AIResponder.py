@@ -561,20 +561,21 @@ class AIResponder(commands.Cog):
         
         tools_context = "\n\n".join(tool_interactions)
         
-        # Create a single HumanMessage with the entire context
-        context_message = HumanMessage(content=f"""Original question: {original_question}
+        # Create a prompt that includes all necessary context
+        prompt = f"""Original question: {original_question}
 
         Tool Results:
         {tools_context}
 
         Please provide a natural, engaging response that incorporates ALL the information gathered from the tools.
-        Maintain your cat-themed personality throughout and ensure you use ALL relevant information.""")
-
-        # Ensure the input is a list of BaseMessages
-        messages = [context_message]
+        Maintain your cat-themed personality throughout and ensure you use ALL relevant information."""
 
         # Generate the final response without invoking tools
         try:
+            messages = [
+                SystemMessage(content="You are a helpful AI assistant with a cat-themed personality."),
+                HumanMessage(content=prompt)
+            ]
             final_response = await self.llm.agenerate(messages=messages)
             final_text = final_response.generations[0][0].text
             return final_text
