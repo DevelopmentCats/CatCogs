@@ -93,7 +93,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         Current thought process:
         1. Analyze the question and previous interactions
         2. Determine if additional information is needed
-        3. If needed, select the most appropriate tool
+        3. If needed, select the most appropriate tool and formulate a specific query or input
         4. If not needed, provide a direct answer
 
         Remember to maintain your cat-themed personality throughout!
@@ -112,10 +112,13 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Improved tool usage detection
             if "<tool>" in response_text and "</tool>" in response_text:
                 tool_name, tool_input = self.extract_tool_info(response_text)
+                if tool_name == "DuckDuckGo Search" and not tool_input:
+                    # If DuckDuckGo Search is selected but no query is provided, use the original question
+                    tool_input = original_question
                 return AgentAction(
                     tool=tool_name,
                     tool_input=tool_input,
-                    log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nReason: {self.extract_reason(response_text)}"
+                    log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}\nReason: {self.extract_reason(response_text)}"
                 )
             elif intermediate_steps:
                 final_text = await self.generate_final_response(original_question, intermediate_steps)
