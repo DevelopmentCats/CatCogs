@@ -21,13 +21,14 @@ from langchain_experimental.tools import PythonAstREPLTool
 from langchain_openai import ChatOpenAI
 from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchRun
 
-from sympy import sympify
+from sympy import sympify, SympifyError, E, pi, oo, zoo
 import os
 import json
 import aiohttp
 from pydantic import Field, BaseModel
 from langchain_core.language_models.chat_models import BaseChatModel
 import re
+import math
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
@@ -294,48 +295,59 @@ class AIResponder(commands.Cog):
             # Clean and normalize the expression
             cleaned_expression = ''
             for char in expression.lower().replace('x', '*').replace('×', '*').replace('÷', '/'):
-                if char.isdigit() or char in '+-*/().^ ':
+                if char.isalnum() or char in '+-*/().^ ':
                     cleaned_expression += char
             
             # Handle common mathematical words/phrases
             word_to_symbol = {
                 'squared': '**2',
                 'cubed': '**3',
-                'plus': '+',
-                'minus': '-',
-                'times': '*',
-                'divided by': '/',
                 'power': '**',
-                'sqrt': 'sqrt',
-                'root': 'sqrt'
+                'mod': '%',
+                'pi': 'pi',
+                'e': 'E',
+                'infinity': 'oo',
+                'inf': 'oo',
+                'sin': 'math.sin',
+                'cos': 'math.cos',
+                'tan': 'math.tan',
+                'log': 'math.log',
+                'ln': 'math.log',
+                'sqrt': 'math.sqrt',
+                'abs': 'abs',
+                'factorial': 'math.factorial'
             }
             
             for word, symbol in word_to_symbol.items():
                 cleaned_expression = cleaned_expression.replace(word, symbol)
             
-            # Handle square roots
-            if 'sqrt' in cleaned_expression:
-                cleaned_expression = cleaned_expression.replace('sqrt', '**0.5')
-            
             # Evaluate the expression
-            result = sympify(cleaned_expression)
+            result = sympify(cleaned_expression, locals={'math': math})
+            
+            # Handle special cases
+            if result == zoo:
+                return "Undefined (division by zero)"
+            if result == oo:
+                return "Infinity"
+            if result == -oo:
+                return "Negative Infinity"
             
             # Format the result
             if result.is_integer:
                 return str(int(result))
+            elif isinstance(result, (float, complex)):
+                return f"{result:.6g}"
             else:
-                # Convert to float and round to reasonable precision
-                float_result = float(result)
-                if abs(float_result) < 1e-10:  # Handle very small numbers
-                    return "0"
-                elif abs(float_result) > 1e10:  # Handle very large numbers
-                    return f"{float_result:.2e}"
-                else:
-                    return f"{float_result:.6g}"  # General format with 6 significant digits
+                return str(result)
                 
+        except SympifyError:
+            return "Error: Invalid mathematical expression"
+        except ValueError as e:
+            return f"Error: {str(e)}"
+        except OverflowError:
+            return "Error: Result too large to compute"
         except Exception as e:
-            return (f"Error: Unable to calculate. Please provide a valid mathematical expression. "
-                    f"Examples: '2 + 2', '5 * 3', '10 / 2', '2^3', 'sqrt(16)'")
+            return f"Error: Unable to calculate. {str(e)}"
 
     async def get_current_date_time_cst(self, _input: str = None):  # Add _input parameter with default None
         try:
@@ -695,4 +707,3 @@ async def setup(bot: Red):
     cog = AIResponder(bot)
     await bot.add_cog(cog)
     await cog.initialize()
-
