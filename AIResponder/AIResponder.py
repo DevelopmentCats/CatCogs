@@ -95,12 +95,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         2. Determine if additional information is needed
         3. If needed, select the most appropriate tool(s) and formulate specific queries or inputs
         4. You can use multiple tools if necessary
-        5. For tool usage, use the following format:
+        5. IMPORTANT: ALWAYS use the following format for ALL tool calls:
            <tool>Tool Name</tool>
            <input>Specific query or input for the tool</input>
         6. If no tools are needed, provide a direct answer
 
-        Remember to maintain your cat-themed personality throughout!
+        Remember:
+        - Maintain your cat-themed personality throughout!
+        - You MUST use the exact tool call format for every tool use.
+        - Never attempt to use tools in any other format.
         """
 
         messages = self.prompt.format_messages(
@@ -453,21 +456,30 @@ class AIResponder(commands.Cog):
                 - For current events or recent information: ALWAYS use 'DuckDuckGo Search'
                 - For detailed information on topics: ALWAYS use 'Wikipedia'
 
-                Tool Call Format:
-                - Use the following format for tool calls:
-                  <tool>Tool Name</tool>
-                  <input>Specific query or input for the tool</input>
-                - Example: 
-                  <tool>DuckDuckGo Search</tool>
-                  <input>Latest news in technology</input>
+                IMPORTANT: ALWAYS use the following format for ALL tool calls:
+                <tool>Tool Name</tool>
+                <input>Specific query or input for the tool</input>
+
+                Examples:
+                <tool>DuckDuckGo Search</tool>
+                <input>Latest news in technology</input>
+
+                <tool>Wikipedia</tool>
+                <input>History of cats in ancient Egypt</input>
+
+                <tool>Current Date and Time (CST)</tool>
+                <input>What is the current date and time?</input>
+
+                <tool>Calculator</tool>
+                <input>234 * 17 + 3</input>
 
                 Response Structure:
                 1. Analyze the user's question and determine if a tool is needed.
-                2. If a tool is needed, use it with the correct format.
+                2. If a tool is needed, use it with the EXACT format shown above.
                 3. After receiving tool data, craft a natural, engaging response.
                 4. Incorporate tool information seamlessly into your cat-themed personality without mentioning the tools.
 
-                Remember: You do not inherently know the current date, time, or any real-time information. Always use tools for such data!"""),
+                Remember: You do not inherently know the current date, time, or any real-time information. ALWAYS use tools for such data!"""),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
@@ -683,3 +695,4 @@ async def setup(bot: Red):
     cog = AIResponder(bot)
     await bot.add_cog(cog)
     await cog.initialize()
+
