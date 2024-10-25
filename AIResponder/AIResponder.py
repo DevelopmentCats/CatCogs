@@ -88,11 +88,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         
         context = f"""Original question: {original_question}
 
-        Previous interactions:
+        Chat History:
         {self.format_chat_history(chat_history)}
 
         Current thought process:
-        1. Analyze the question and previous interactions
+        1. Analyze the question
         2. Determine if additional information is needed
         3. If needed, select the most appropriate tool(s) and formulate specific queries or inputs
         4. You can use multiple tools if necessary
@@ -100,11 +100,13 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
            <tool>Tool Name</tool>
            <input>Specific query or input for the tool</input>
         6. If no tools are needed, provide a direct answer
+        7. Only reference chat history if it's directly relevant to answering the current question
 
         Remember:
         - Maintain your cat-themed personality throughout!
         - You MUST use the exact tool call format for every tool use.
         - Never attempt to use tools in any other format.
+        - Only use chat history when absolutely necessary for context.
         """
 
         messages = self.prompt.format_messages(
@@ -466,6 +468,7 @@ class AIResponder(commands.Cog):
                 3. Engage users with fun, witty responses.
                 4. Never make up or guess information.
                 5. Be concise and to the point. Prefer shorter responses when possible.
+                6. Only use chat history if it's directly relevant to the current question.
 
                 Tool Usage:
                 - For ANY time/date information: ALWAYS use 'Current Date and Time (CST)'
@@ -495,11 +498,13 @@ class AIResponder(commands.Cog):
                 2. If a tool is needed, use it with the EXACT format shown above.
                 3. After receiving tool data, craft a natural, engaging response.
                 4. Incorporate tool information seamlessly into your cat-themed personality without mentioning the tools.
+                5. Only reference chat history if it's directly relevant to the current question.
 
                 Remember: 
                 - You do not inherently know the current date, time, or any real-time information. ALWAYS use tools for such data!
                 - NEVER use 'Calculation' or any other variation for the Calculator tool. ALWAYS use 'Calculator'.
-                - Be concise in your responses while maintaining accuracy and engagement."""),
+                - Be concise in your responses while maintaining accuracy and engagement.
+                - Only use chat history when absolutely necessary for context."""),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
