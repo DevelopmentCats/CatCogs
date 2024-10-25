@@ -27,6 +27,7 @@ import json
 import aiohttp
 from pydantic import Field, BaseModel
 from langchain_core.language_models.chat_models import BaseChatModel
+import re
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
@@ -84,7 +85,6 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         original_question = kwargs.get('input', '')
         chat_history = kwargs.get('chat_history', [])
         
-        # Construct a more informative prompt
         context = f"""Original question: {original_question}
 
         Previous interactions:
@@ -93,8 +93,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         Current thought process:
         1. Analyze the question and previous interactions
         2. Determine if additional information is needed
-        3. If needed, select the most appropriate tool and formulate a specific query or input
-        4. If not needed, provide a direct answer
+        3. If needed, select the most appropriate tool(s) and formulate specific queries or inputs
+        4. You can use multiple tools if necessary
+        5. For DuckDuckGo Search, provide specific search queries
+        6. If not needed, provide a direct answer
 
         Remember to maintain your cat-themed personality throughout!
         """
@@ -109,17 +111,19 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             response = await self.llm.agenerate(messages=[messages], tool_choice="auto")
             response_text = response.generations[0][0].text
             
-            # Improved tool usage detection
-            if "<tool>" in response_text and "</tool>" in response_text:
-                tool_name, tool_input = self.extract_tool_info(response_text)
-                if tool_name == "DuckDuckGo Search" and not tool_input:
-                    # If DuckDuckGo Search is selected but no query is provided, use the original question
-                    tool_input = original_question
-                return AgentAction(
-                    tool=tool_name,
-                    tool_input=tool_input,
-                    log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}\nReason: {self.extract_reason(response_text)}"
-                )
+            tool_calls = self.extract_tool_calls(response_text)
+            
+            if tool_calls:
+                actions = []
+                for tool_name, tool_input in tool_calls:
+                    if tool_name == "DuckDuckGo Search" and not tool_input:
+                        tool_input = original_question
+                    actions.append(AgentAction(
+                        tool=tool_name,
+                        tool_input=tool_input,
+                        log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}"
+                    ))
+                return actions if len(actions) > 1 else actions[0]
             elif intermediate_steps:
                 final_text = await self.generate_final_response(original_question, intermediate_steps)
                 return AgentFinish(
@@ -177,6 +181,19 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     @property
     def return_values(self) -> List[str]:
         return ["output"]
+
+    def extract_tool_calls(self, response_text):
+        tool_calls = []
+        tool_pattern = r'<tool>(.*?)</tool>'
+        input_pattern = r'<input>(.*?)</input>'
+        
+        tool_matches = re.findall(tool_pattern, response_text)
+        input_matches = re.findall(input_pattern, response_text)
+        
+        for tool, input_text in zip(tool_matches, input_matches):
+            tool_calls.append((tool.strip(), input_text.strip()))
+        
+        return tool_calls
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -459,6 +476,7 @@ class AIResponder(commands.Cog):
                 tools=tools,
                 memory=memory,
                 verbose=True,
+                handle_parsing_errors=True,
                 max_iterations=3,
                 return_intermediate_steps=True,  # Ensure this is True
                 early_stopping_method="force",  # Ensure this is set to force LLM response
