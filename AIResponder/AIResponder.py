@@ -189,7 +189,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         input_matches = re.findall(input_pattern, response_text, re.DOTALL)
         
         for tool, input_text in zip(tool_matches, input_matches):
-            tool_calls.append((tool.strip(), input_text.strip()))
+            tool = tool.strip()
+            # Correct common misnaming errors
+            if tool.lower() in ['calculation', 'calculate']:
+                tool = 'Calculator'
+            tool_calls.append((tool, input_text.strip()))
         
         return tool_calls
 
@@ -492,7 +496,10 @@ class AIResponder(commands.Cog):
                 3. After receiving tool data, craft a natural, engaging response.
                 4. Incorporate tool information seamlessly into your cat-themed personality without mentioning the tools.
 
-                Remember: You do not inherently know the current date, time, or any real-time information. ALWAYS use tools for such data!"""),
+                Remember: 
+                - You do not inherently know the current date, time, or any real-time information. ALWAYS use tools for such data!
+                - NEVER use 'Calculation' or any other variation for the Calculator tool. ALWAYS use 'Calculator'.
+                - Be concise in your responses while maintaining accuracy and engagement."""),
                 ("human", "{input}"),
                 ("ai", "{agent_scratchpad}")
             ])
