@@ -129,7 +129,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     return AgentAction(
                         tool=tool_name,
                         tool_input=tool_input,
-                        log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}"
+                        log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}",
+                        context=context  # Pass the context here
                     )
             
             # If no tool is needed, return the final answer
@@ -196,15 +197,18 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         return []
 
     # Add a new method to handle tool execution with context
-    async def execute_tool(self, tool_name: str, tool_input: str, context: commands.Context):
-        tool = self.tools.get(tool_name)
-        if not tool:
+    async def execute_tool(self, tool: AgentAction) -> str:
+        tool_name = tool.tool
+        tool_input = tool.tool_input
+        context = tool.context if hasattr(tool, 'context') else None
+
+        if tool_name not in self.tools:
             return f"Error: Tool '{tool_name}' not found."
         
         if tool_name in ["Discord Server Info", "Channel Chat History"]:
-            return await tool.func(tool_input, context)
+            return await self.tools[tool_name].func(tool_input, context)
         else:
-            return await tool.func(tool_input)
+            return await self.tools[tool_name].func(tool_input)
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
