@@ -100,21 +100,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         5. Determine if additional information is needed
         6. If needed, select the most appropriate tool(s) and formulate specific queries or inputs
         7. You can use multiple tools if necessary
-        8. IMPORTANT: ALWAYS use the following format for ALL tool calls:
-           <tool>Tool Name</tool>
-           <input>Specific query or input for the tool</input>
-        9. If no tools are needed, provide a direct answer
-        10. Ensure your response is consistent with previous interactions only if directly relevant
+        8. If no tools are needed, provide a direct answer
+        9. Ensure your response is consistent with previous interactions only if directly relevant
 
         Remember:
         - Maintain your cat-themed personality throughout!
-        - You MUST use the exact tool call format for every tool use.
-        - Never attempt to use tools in any other format.
         - Only reference chat history when it's directly relevant to answering the current question.
         - For new topics, prefer generating fresh responses over relying on chat history.
         - Be consistent with information provided in previous responses only when necessary.
-        - You can use the 'Discord Server Info' tool to get information about the current server.
-        - You can use the 'Channel Chat History' tool to retrieve recent discord channel message history if needed.
+        - You can use tools like 'Discord Server Info' or 'Channel Chat History' if needed.
         """
 
         messages = self.prompt.format_messages(
@@ -124,26 +118,26 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         )
 
         try:
-            response = await self.llm.agenerate(messages=[messages], tool_choice="auto")
+            response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text
             
-            tool_calls = self.extract_tool_calls(response_text)
-            
-            if tool_calls:
-                actions = []
-                for tool_name, tool_input in tool_calls:
-                    actions.append(AgentAction(
+            # Check if the response indicates the need for a tool
+            if "Action:" in response_text:
+                action_parts = response_text.split("Action:", 1)[1].split("Action Input:", 1)
+                if len(action_parts) == 2:
+                    tool_name = action_parts[0].strip()
+                    tool_input = action_parts[1].strip()
+                    return AgentAction(
                         tool=tool_name,
                         tool_input=tool_input,
                         log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}"
-                    ))
-                return actions if len(actions) > 1 else actions[0]
-            else:
-                clean_response = self.clean_response(response_text)
-                return AgentFinish(
-                    return_values={"output": clean_response},
-                    log=f"Thought: I can answer this question directly without using any tools.\nFinal Answer: {clean_response}"
-                )
+                    )
+            
+            # If no tool is needed, return the final answer
+            return AgentFinish(
+                return_values={"output": response_text},
+                log=f"Thought: I can answer this question directly without using any tools.\nFinal Answer: {response_text}"
+            )
         except Exception as e:
             self.logger.error(f"Error in aplan method: {str(e)}", exc_info=True)
             return AgentFinish(
@@ -191,21 +185,16 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         return ["output"]
 
     def extract_tool_calls(self, response_text):
-        tool_calls = []
-        tool_pattern = r'<tool>(.*?)</tool>'
-        input_pattern = r'<input>(.*?)</input>'
+        if "Action:" not in response_text:
+            return []
         
-        tool_matches = re.findall(tool_pattern, response_text, re.DOTALL)
-        input_matches = re.findall(input_pattern, response_text, re.DOTALL)
+        action_parts = response_text.split("Action:", 1)[1].split("Action Input:", 1)
+        if len(action_parts) == 2:
+            tool_name = action_parts[0].strip()
+            tool_input = action_parts[1].strip()
+            return [(tool_name, tool_input)]
         
-        for tool, input_text in zip(tool_matches, input_matches):
-            tool = tool.strip()
-            # Correct common misnaming errors
-            if tool.lower() in ['calculation', 'calculate']:
-                tool = 'Calculator'
-            tool_calls.append((tool, input_text.strip()))
-        
-        return tool_calls
+        return []
 
     # Add a new method to handle tool execution with context
     async def execute_tool(self, tool_name: str, tool_input: str, context: commands.Context):
