@@ -85,6 +85,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
         original_question = kwargs.get('input', '')
         chat_history = kwargs.get('chat_history', [])
+        context = kwargs.get('context')  # Get the context from kwargs
         
         context = f"""Original question: {original_question}
 
@@ -92,24 +93,28 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         {self.format_chat_history(chat_history)}
 
         Current thought process:
-        1. Analyze the question and chat history
+        1. Analyze the question
         2. Determine if the question is a follow-up or a new topic
         3. If it's a follow-up, consider relevant information from chat history
-        4. Determine if additional information is needed
-        5. If needed, select the most appropriate tool(s) and formulate specific queries or inputs
-        6. You can use multiple tools if necessary
-        7. IMPORTANT: ALWAYS use the following format for ALL tool calls:
+        4. If it's a new topic, ignore previous chat history unless directly relevant
+        5. Determine if additional information is needed
+        6. If needed, select the most appropriate tool(s) and formulate specific queries or inputs
+        7. You can use multiple tools if necessary
+        8. IMPORTANT: ALWAYS use the following format for ALL tool calls:
            <tool>Tool Name</tool>
            <input>Specific query or input for the tool</input>
-        8. If no tools are needed, provide a direct answer
-        9. Ensure your response is consistent with previous interactions in the chat history
+        9. If no tools are needed, provide a direct answer
+        10. Ensure your response is consistent with previous interactions only if directly relevant
 
         Remember:
         - Maintain your cat-themed personality throughout!
         - You MUST use the exact tool call format for every tool use.
         - Never attempt to use tools in any other format.
         - Only reference chat history when it's directly relevant to answering the current question.
-        - Be consistent with information provided in previous responses.
+        - For new topics, prefer generating fresh responses over relying on chat history.
+        - Be consistent with information provided in previous responses only when necessary.
+        - You can use the 'Discord Server Info' tool to get information about the current server.
+        - You can use the 'Channel Chat History' tool to retrieve recent discord channel message history if needed.
         """
 
         messages = self.prompt.format_messages(
@@ -202,6 +207,17 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         
         return tool_calls
 
+    # Add a new method to handle tool execution with context
+    async def execute_tool(self, tool_name: str, tool_input: str, context: commands.Context):
+        tool = self.tools.get(tool_name)
+        if not tool:
+            return f"Error: Tool '{tool_name}' not found."
+        
+        if tool_name in ["Discord Server Info", "Channel Chat History"]:
+            return await tool.func(tool_input, context)
+        else:
+            return await tool.func(tool_input)
+
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
@@ -272,10 +288,22 @@ class AIResponder(commands.Cog):
                 self.bot.loop
             ).result()
 
+        def sync_get_discord_server_info(_input: str = None, ctx: commands.Context = None):
+            return asyncio.run_coroutine_threadsafe(
+                self.get_discord_server_info(_input, ctx),
+                self.bot.loop
+            ).result()
+
+        def sync_get_channel_chat_history(_input: str = None, ctx: commands.Context = None):
+            return asyncio.run_coroutine_threadsafe(
+                self.get_channel_chat_history(_input, ctx),
+                self.bot.loop
+            ).result()
+
         tools = [
             Tool(
                 name="Current Date and Time (CST)",
-                func=sync_get_current_date_time_cst,  # Use the sync wrapper
+                func=sync_get_current_date_time_cst,
                 description="REQUIRED for getting the current date and time in Central Standard Time (CST). Input: no input needed",
                 return_direct=True
             ),
@@ -295,6 +323,18 @@ class AIResponder(commands.Cog):
                 name="Wikipedia",
                 func=WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper()).run,
                 description="Get detailed information from Wikipedia. Input: a topic or query",
+                return_direct=True
+            ),
+            Tool(
+                name="Discord Server Info",
+                func=sync_get_discord_server_info,
+                description="Get information about the current Discord server. Input: no input needed",
+                return_direct=True
+            ),
+            Tool(
+                name="Channel Chat History",
+                func=sync_get_channel_chat_history,
+                description="Retrieve recent chat history from the current channel. Input: number of messages to retrieve (default: 10)",
                 return_direct=True
             )
         ]
@@ -563,12 +603,12 @@ class AIResponder(commands.Cog):
                 self.user_chat_histories[user_id].append(HumanMessage(content=content))
 
                 # Process the query with user-specific chat history
-                await self.process_query(content, message, response_message, self.user_chat_histories[user_id])
+                await self.process_query(content, message, response_message, self.user_chat_histories[user_id], ctx=message)
             except Exception as e:
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
                 await response_message.edit(content=f"{message.author.mention} Oops! My circuits got a bit tangled there. Can you try again?")
 
-    async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage]) -> str:
+    async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: commands.Context) -> str:
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
 
@@ -583,8 +623,9 @@ class AIResponder(commands.Cog):
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
-                    "chat_history": chat_history[-5:],  # Use only the last 5 messages from the user's chat history
-                    "agent_scratchpad": ""
+                    "chat_history": chat_history[-5:],
+                    "agent_scratchpad": "",
+                    "context": ctx
                 },
                 {"callbacks": [callback_handler]}
             )
@@ -654,23 +695,27 @@ class AIResponder(commands.Cog):
         {tools_context}
 
         Instructions:
-        1. Analyze the original question and recent chat history to understand the context.
-        2. Ensure you've used the appropriate tools for any time, date, or real-time information.
-        3. Craft a natural, engaging response that incorporates the information from the tools and is consistent with the chat history.
-        4. Maintain your cat-themed personality throughout the response.
-        5. Ensure your answer is accurate, fun, and tailored to the user's question and the ongoing conversation.
-        6. Do not mention or reference the use of any tools in your response.
-        7. Present the information as if it's your own knowledge.
-        8. If appropriate, add a playful cat-related comment or pun.
-        9. Be concise and to the point. Aim for shorter responses when possible.
-        10. If the question is a follow-up, make sure to reference relevant information from the chat history.
-        11. Maintain consistency with your previous responses in the chat history.
+        1. Analyze the original question to understand the context.
+        2. Determine if the question is a follow-up or a new topic.
+        3. If it's a follow-up, consider relevant information from the chat history.
+        4. If it's a new topic, prefer generating a fresh response without relying on chat history.
+        5. Ensure you've used the appropriate tools for any time, date, or real-time information.
+        6. Craft a natural, engaging response that incorporates the information from the tools.
+        7. Only reference the chat history if it's directly relevant to the current question.
+        8. Maintain your cat-themed personality throughout the response.
+        9. Ensure your answer is accurate, fun, and tailored to the user's question.
+        10. Do not mention or reference the use of any tools in your response.
+        11. Present the information as if it's your own knowledge.
+        12. If appropriate, add a playful cat-related comment or pun.
+        13. Be concise and to the point. Aim for shorter responses when possible.
+        14. If the question is a follow-up, make sure to reference relevant information from the chat history.
+        15. Maintain consistency with your previous responses only when directly relevant to the current question.
 
-        Remember: You are Meow, a helpful AI assistant with a cat-themed personality. Your goal is to provide accurate information while being entertaining and engaging, without revealing the sources of your information. Always use tools for current date, time, or any real-time data. Strive for brevity without sacrificing important information. Ensure your response fits seamlessly into the ongoing conversation."""
+        Remember: You are Meow, a helpful AI assistant with a cat-themed personality. Your goal is to provide accurate information while being entertaining and engaging, without revealing the sources of your information. Always use tools for current date, time, or any real-time data. Strive for brevity without sacrificing important information. Ensure your response fits seamlessly into the ongoing conversation, but don't force connections to previous topics if not relevant."""
 
         try:
             messages = [
-                SystemMessage(content="You are a helpful AI assistant named Meow with a cat-themed personality. Never mention using tools or looking up information. Present all knowledge as if it's your own, but always ensure you've used tools for current date, time, or real-time information. Maintain consistency with previous interactions."),
+                SystemMessage(content="You are a helpful AI assistant named Meow with a cat-themed personality. Never mention using tools or looking up information. Present all knowledge as if it's your own, but always ensure you've used tools for current date, time, or real-time information. Only reference chat history if it's directly relevant to the current question. For new topics, prefer generating fresh responses."),
                 HumanMessage(content=prompt)
             ]
             response = await self.llm.agenerate(messages=[messages])
@@ -752,7 +797,40 @@ class AIResponder(commands.Cog):
         model_kwargs = self.llm.model_kwargs
         return f"Current model: {model_id}\nModel parameters: {json.dumps(model_kwargs, indent=2)}"
 
+    async def get_discord_server_info(self, _input: str = None, ctx: commands.Context = None):
+        if not ctx or not ctx.guild:
+            return "Error: This command can only be used in a server."
+        
+        guild = ctx.guild
+        info = {
+            "name": guild.name,
+            "id": guild.id,
+            "owner": str(guild.owner),
+            "member_count": guild.member_count,
+            "created_at": guild.created_at.isoformat(),
+            "channels": len(guild.channels),
+            "roles": len(guild.roles)
+        }
+        return f"Server Information:\n{json.dumps(info, indent=2)}"
+
+    async def get_channel_chat_history(self, input_str: str = "10", ctx: commands.Context = None):
+        if not ctx or not ctx.channel:
+            return "Error: Unable to access channel history."
+        
+        channel = ctx.channel
+        try:
+            limit = int(input_str)
+        except ValueError:
+            limit = 10
+
+        messages = []
+        async for message in channel.history(limit=limit):
+            messages.append(f"{message.author.name}: {message.content}")
+        
+        return f"Recent chat history:\n" + "\n".join(reversed(messages))
+
 async def setup(bot: Red):
     cog = AIResponder(bot)
     await bot.add_cog(cog)
     await cog.initialize()
+
