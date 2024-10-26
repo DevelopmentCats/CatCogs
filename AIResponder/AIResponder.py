@@ -87,7 +87,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         chat_history = kwargs.get('chat_history', [])
         context = kwargs.get('context')  # Get the context from kwargs
         
-        context = f"""Original question: {original_question}
+        context_prompt = f"""Original question: {original_question}
 
         Chat History:
         {self.format_chat_history(chat_history)}
@@ -108,11 +108,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         - Only reference chat history when it's directly relevant to answering the current question.
         - For new topics, prefer generating fresh responses over relying on chat history.
         - Be consistent with information provided in previous responses only when necessary.
-        - You can use tools like 'Discord Server Info' or 'Channel Chat History' if needed.
         """
 
         messages = self.prompt.format_messages(
-            input=context,
+            input=context_prompt,
             chat_history=chat_history,
             agent_scratchpad=self.format_intermediate_steps(intermediate_steps)
         )
@@ -605,7 +604,7 @@ class AIResponder(commands.Cog):
                     "input": content,
                     "chat_history": chat_history[-5:],
                     "agent_scratchpad": "",
-                    "context": ctx
+                    "context": ctx  # Pass the context here
                 },
                 {"callbacks": [callback_handler]}
             )
