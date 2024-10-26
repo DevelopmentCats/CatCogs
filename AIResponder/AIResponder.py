@@ -495,8 +495,8 @@ class AIResponder(commands.Cog):
             memory = ConversationBufferWindowMemory(
                 k=5,
                 memory_key="chat_history",
-                input_key="input",  # Specify which key to use for input
-                output_key="output",  # Specify which key to use for output
+                input_key="input",
+                output_key="output",
                 return_messages=True
             )
             
@@ -519,6 +519,8 @@ class AIResponder(commands.Cog):
                 - For ANY calculations: ALWAYS use 'Calculator'
                 - For current events or recent information: ALWAYS use 'DuckDuckGo Search'
                 - For detailed information on topics: ALWAYS use 'Wikipedia'
+                - To get information about the current Discord server: use 'Discord Server Info'
+                - To retrieve recent chat history from the current channel: use 'Channel Chat History'
 
                 IMPORTANT: ALWAYS use the following format for ALL tool calls:
                 <tool>Tool Name</tool>
@@ -536,6 +538,12 @@ class AIResponder(commands.Cog):
 
                 <tool>Calculator</tool>
                 <input>234 * 17 + 3</input>
+
+                <tool>Discord Server Info</tool>
+                <input>Get server information</input>
+
+                <tool>Channel Chat History</tool>
+                <input>10</input>
 
                 Response Structure:
                 1. Analyze the user's question and determine if a tool is needed.
@@ -561,8 +569,8 @@ class AIResponder(commands.Cog):
                 verbose=True,
                 handle_parsing_errors=True,
                 max_iterations=3,
-                return_intermediate_steps=True,  # Ensure this is True
-                early_stopping_method="force",  # Ensure this is set to force LLM response
+                return_intermediate_steps=True,
+                early_stopping_method="force",
             )
 
             self.logger.info("LangChain components updated successfully")
