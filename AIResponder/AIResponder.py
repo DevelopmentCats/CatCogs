@@ -822,20 +822,37 @@ class AIResponder(commands.Cog):
         return f"Server Information:\n{json.dumps(info, indent=2)}"
 
     async def get_channel_chat_history(self, input_str: str = "10", ctx: commands.Context = None):
-        if not ctx or not ctx.channel:
-            return "Error: Unable to access channel history."
+        if not ctx:
+            self.logger.error("Context not provided to get_channel_chat_history")
+            return "Error: Unable to access channel history. Context not provided."
+        
+        if not ctx.channel:
+            self.logger.error(f"Channel not available in context. Guild: {ctx.guild}, Author: {ctx.author}")
+            return "Error: Unable to access channel history. Channel not available."
         
         channel = ctx.channel
         try:
             limit = int(input_str)
         except ValueError:
             limit = 10
-
-        messages = []
-        async for message in channel.history(limit=limit):
-            messages.append(f"{message.author.name}: {message.content}")
         
-        return f"Recent chat history:\n" + "\n".join(reversed(messages))
+        self.logger.info(f"Attempting to retrieve {limit} messages from channel {channel.id}")
+        
+        try:
+            messages = []
+            async for message in channel.history(limit=limit):
+                messages.append(f"{message.author.name}: {message.content}")
+            
+            if not messages:
+                return "No messages found in the recent chat history."
+            
+            return f"Recent chat history:\n" + "\n".join(reversed(messages))
+        except discord.errors.Forbidden:
+            self.logger.error(f"Forbidden to access channel history. Channel: {channel.id}")
+            return "Error: Bot doesn't have permission to read message history in this channel."
+        except Exception as e:
+            self.logger.error(f"Error retrieving channel history: {str(e)}", exc_info=True)
+            return f"Error: Unable to retrieve chat history. {str(e)}"
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
