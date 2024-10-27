@@ -87,13 +87,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         original_question = kwargs.get('input', '')
         chat_history = kwargs.get('chat_history', [])
         context = kwargs.get('context')
-        user = kwargs.get('user', {})  # Add this line to get user information
+        user = kwargs.get('user', {})
+        
+        # Use nickname if available, otherwise use name
+        user_display_name = user.get('nickname') or user.get('name', 'Unknown')
         
         context_prompt = f"""Original question: {original_question}
 
         User Information:
-        Name: {user.get('name', 'Unknown')}
-        Nickname: {user.get('nickname', 'Unknown')}
+        Display Name: {user_display_name}
         ID: {user.get('id', 'Unknown')}
 
         Chat History:
@@ -114,14 +116,14 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         Tool Usage Guidelines:
         - Always use 'Current Date and Time (CST)' for any time-related queries, regardless of chat history
         - Use 'Calculator' for any mathematical calculations
-        - Use 'DuckDuckGo Search' for current events or recent information
-        - Use 'Wikipedia' for detailed information on specific topics
+        - Use 'DuckDuckGo Search' for current events, recent information, or when Wikipedia doesn't have sufficient data
+        - Use 'Wikipedia' for general knowledge topics, but prefer 'DuckDuckGo Search' for more current or specific information
         - Use 'Discord Server Info' when asked about the current server
         - Use 'Channel Chat History' when context from recent messages is needed
 
         Remember:
         - Maintain your cat-themed personality throughout!
-        - Address the user by their name or nickname when appropriate
+        - Always address the user as {user_display_name}
         - Only reference chat history when it's directly relevant to answering the current question
         - Always ignore time references in chat history and use the 'Current Date and Time (CST)' tool instead
         - For new topics, prefer generating fresh responses over relying on chat history
@@ -129,6 +131,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         - Always use tools for real-time information or specific data you don't inherently know
         - If one tool doesn't provide sufficient information, use another or refine your query
         - When specifying a tool name, do not add asterisks or newlines. Use the exact tool name as provided.
+        - Prefer using 'DuckDuckGo Search' over 'Wikipedia' for most queries, especially if Wikipedia doesn't have the information
         """
 
         messages = self.prompt.format_messages(
@@ -736,11 +739,13 @@ class AIResponder(commands.Cog):
         
         formatted_history = "\n".join([f"{'Human' if isinstance(msg, HumanMessage) else 'AI'}: {msg.content}" for msg in chat_history[-5:]])
         
+        # Use nickname if available, otherwise use name
+        user_display_name = user.get('nickname') or user.get('name', 'Unknown')
+        
         prompt = f"""Original question: {original_question}
 
         User Information:
-        Name: {user.get('name', 'Unknown')}
-        Nickname: {user.get('nickname', 'Unknown')}
+        Display Name: {user_display_name}
         ID: {user.get('id', 'Unknown')}
 
         Recent Chat History:
@@ -752,14 +757,15 @@ class AIResponder(commands.Cog):
         Instructions:
         1. Analyze the original question and recent chat history
         2. Incorporate relevant information from tool results
-        3. Craft a response that fits naturally into the ongoing conversation
-        4. Use Discord-friendly formatting (bold, italic, code blocks) where appropriate
-        5. Break long responses into multiple shorter paragraphs for readability
-        6. Include a cat-themed element (pun, phrase, or emoji) if it fits naturally
-        7. Encourage further engagement by asking a follow-up question if appropriate
-        8. Limit response length to around 2000 characters (Discord message limit)
-        9. Use emojis sparingly to enhance your cat personality
-        10. Address the user by their name or nickname, preferring the nickname if available
+        3. If information is missing or incomplete, consider using additional tools, especially 'DuckDuckGo Search'
+        4. Craft a response that fits naturally into the ongoing conversation
+        5. Use Discord-friendly formatting (bold, italic, code blocks) where appropriate
+        6. Break long responses into multiple shorter paragraphs for readability
+        7. Include a cat-themed element (pun, phrase, or emoji) if it fits naturally
+        8. Encourage further engagement by asking a follow-up question if appropriate
+        9. Limit response length to around 2000 characters (Discord message limit)
+        10. Use emojis sparingly to enhance your cat personality
+        11. Always address the user as {user_display_name}
 
         Remember:
         - Maintain your cat-themed personality consistently
@@ -768,7 +774,8 @@ class AIResponder(commands.Cog):
         - Ensure accuracy while being entertaining and informative
         - Use the current date and time for any time-related information
         - Ignore any outdated time references from the chat history
-        - When addressing the user, prefer their nickname if available, otherwise use their name
+        - Always address the user as {user_display_name}
+        - If information seems incomplete, suggest using 'DuckDuckGo Search' for more current or specific data
 
         Format your response for Discord, using markdown where appropriate:
         - Use **bold** for emphasis
@@ -779,18 +786,18 @@ class AIResponder(commands.Cog):
         - Use numbered lists (1., 2., 3.) for steps or sequences
         - Use bullet points (•) for unordered lists
 
-        Your response should be engaging, informative, and tailored to a Discord conversation with {user.get('nickname') or user.get('name', 'the user')}."""
+        Your response should be engaging, informative, and tailored to a Discord conversation with {user_display_name}."""
 
         try:
             messages = [
-                SystemMessage(content=f"You are Meow, a helpful AI assistant with a cat-themed personality in a Discord server. Craft your response to fit seamlessly into a Discord conversation with {user.get('nickname') or user.get('name', 'the user')}."),
+                SystemMessage(content=f"You are Meow, a helpful AI assistant with a cat-themed personality in a Discord server. Craft your response to fit seamlessly into a Discord conversation with {user_display_name}."),
                 HumanMessage(content=prompt)
             ]
             response = await self.llm.agenerate(messages=[messages])
             return response.generations[0][0].text
         except Exception as e:
             self.logger.error(f"Error generating final response: {str(e)}", exc_info=True)
-            return f"Meow! 😺 I encountered a hairball while processing your request, {user.get('nickname') or user.get('name', 'friend')}. Can you try asking me again, perhaps with different wording?"
+            return f"Meow! 😺 I encountered a hairball while processing your request, {user_display_name}. Can you try asking me again, perhaps with different wording?"
 
     async def process_intermediate_step(self, step, response_message):
         if isinstance(step, tuple) and len(step) == 2:
