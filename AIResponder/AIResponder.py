@@ -128,6 +128,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         - Be consistent with information provided in previous responses only when necessary
         - Always use tools for real-time information or specific data you don't inherently know
         - If one tool doesn't provide sufficient information, use another or refine your query
+        - When specifying a tool name, do not add asterisks or newlines. Use the exact tool name as provided.
         """
 
         messages = self.prompt.format_messages(
@@ -146,12 +147,24 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     if len(action_parts) == 2:
                         tool_name = action_parts[0].strip()
                         tool_input = action_parts[1].strip()
-                        return AgentAction(
-                            tool=tool_name,
-                            tool_input=tool_input,
-                            log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}",
-                            context=context
-                        )
+                        
+                        # Clean up tool name
+                        tool_name = tool_name.strip('*').strip()
+                        
+                        # Check if the cleaned tool name is valid
+                        if tool_name in self.tools:
+                            return AgentAction(
+                                tool=tool_name,
+                                tool_input=tool_input,
+                                log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}",
+                                context=context
+                            )
+                        else:
+                            # If tool is invalid, add a message to prompt the AI to choose a valid tool
+                            valid_tools = ", ".join(self.tools.keys())
+                            messages.append(HumanMessage(content=f"The tool '{tool_name}' is not valid. Please choose from these valid tools: {valid_tools}"))
+                            continue
+                            
                 elif "Final Answer:" in response_text:
                     final_answer = response_text.split("Final Answer:", 1)[1].strip()
                     return AgentFinish(
@@ -160,7 +173,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     )
                 else:
                     # If no action or final answer, assume more thinking is needed
-                    messages.append(HumanMessage(content="You haven't provided a final answer or chosen a tool. Please either use a tool or provide a final answer."))
+                    messages.append(HumanMessage(content="You haven't provided a final answer or chosen a valid tool. Please either use a valid tool or provide a final answer."))
             except Exception as e:
                 self.logger.error(f"Error in aplan method: {str(e)}", exc_info=True)
                 return AgentFinish(
@@ -227,7 +240,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
     # Add a new method to handle tool execution with context
     async def execute_tool(self, tool: AgentAction) -> str:
-        tool_name = tool.tool
+        tool_name = tool.tool.strip('*').strip()  # Clean up tool name
         tool_input = tool.tool_input
         context = tool.context if hasattr(tool, 'context') else None
 
