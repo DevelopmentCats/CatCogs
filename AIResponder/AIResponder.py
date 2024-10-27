@@ -292,6 +292,16 @@ class AIResponder(commands.Cog):
                 self.bot.loop
             ).result()
 
+        # Modify the DuckDuckGo Search tool
+        async def duckduckgo_search(query: str) -> str:
+            search = DuckDuckGoSearchRun()
+            try:
+                result = await search.arun(query)
+                return result
+            except Exception as e:
+                self.logger.error(f"Error in DuckDuckGo search: {str(e)}")
+                return f"Error performing search: {str(e)}"
+
         tools = [
             Tool(
                 name="Current Date and Time (CST)",
@@ -307,8 +317,9 @@ class AIResponder(commands.Cog):
             ),
             Tool(
                 name="DuckDuckGo Search",
-                func=DuckDuckGoSearchRun().run,
+                func=duckduckgo_search,
                 description="Search the internet for current information. Input: a search query",
+                coroutine=duckduckgo_search,  # Use the async version
                 return_direct=True
             ),
             Tool(
