@@ -67,13 +67,14 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         self.logger.error(f"❌ Tool Error: {str(error)}")
 
 class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
-    llm: BaseChatModel = Field(...)  # Required field
+    llm: BaseChatModel = Field(...)
     tools: dict = Field(default_factory=dict)
     prompt: ChatPromptTemplate = Field(...)
+    max_iterations: int = Field(default=3)
 
-    def __init__(self, llm, tools, prompt, **kwargs):
+    def __init__(self, llm, tools, prompt, max_iterations=3, **kwargs):
         tools_dict = {tool.name: tool for tool in tools}
-        super().__init__(llm=llm, tools=tools_dict, prompt=prompt, **kwargs)
+        super().__init__(llm=llm, tools=tools_dict, prompt=prompt, max_iterations=max_iterations, **kwargs)
 
     @property
     def input_keys(self):
@@ -85,23 +86,30 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
         original_question = kwargs.get('input', '')
         chat_history = kwargs.get('chat_history', [])
-        context = kwargs.get('context')  # Get the context from kwargs
+        context = kwargs.get('context')
+        user = kwargs.get('user', {})  # Add this line to get user information
         
         context_prompt = f"""Original question: {original_question}
+
+        User Information:
+        Name: {user.get('name', 'Unknown')}
+        Nickname: {user.get('nickname', 'Unknown')}
+        ID: {user.get('id', 'Unknown')}
 
         Chat History:
         {self.format_chat_history(chat_history)}
 
         Current thought process:
-        1. Analyze the question carefully
+        1. Analyze the question carefully, considering the user's information
         2. Determine if the question is a follow-up or a new topic
         3. For follow-ups, consider relevant information from chat history, but ignore any time references
         4. For new topics, focus on generating a fresh response
         5. Assess if additional information is needed to answer accurately
         6. If needed, select the most appropriate tool(s) and formulate specific queries
         7. Use multiple tools if necessary for comprehensive information
-        8. If no tools are needed, provide a direct answer based on your knowledge
-        9. Ensure consistency with previous interactions only when directly relevant
+        8. If initial tool use doesn't provide sufficient information, refine your approach and try again
+        9. If no tools are needed, provide a direct answer based on your knowledge
+        10. Ensure consistency with previous interactions only when directly relevant
 
         Tool Usage Guidelines:
         - Always use 'Current Date and Time (CST)' for any time-related queries, regardless of chat history
@@ -113,11 +121,13 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
         Remember:
         - Maintain your cat-themed personality throughout!
+        - Address the user by their name or nickname when appropriate
         - Only reference chat history when it's directly relevant to answering the current question
         - Always ignore time references in chat history and use the 'Current Date and Time (CST)' tool instead
         - For new topics, prefer generating fresh responses over relying on chat history
         - Be consistent with information provided in previous responses only when necessary
         - Always use tools for real-time information or specific data you don't inherently know
+        - If one tool doesn't provide sufficient information, use another or refine your query
         """
 
         messages = self.prompt.format_messages(
@@ -126,34 +136,43 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             agent_scratchpad=self.format_intermediate_steps(intermediate_steps)
         )
 
-        try:
-            response = await self.llm.agenerate(messages=[messages])
-            response_text = response.generations[0][0].text
-            
-            # Check if the response indicates the need for a tool
-            if "Action:" in response_text:
-                action_parts = response_text.split("Action:", 1)[1].split("Action Input:", 1)
-                if len(action_parts) == 2:
-                    tool_name = action_parts[0].strip()
-                    tool_input = action_parts[1].strip()
-                    return AgentAction(
-                        tool=tool_name,
-                        tool_input=tool_input,
-                        log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}",
-                        context=context  # Pass the context here
+        for _ in range(self.max_iterations):
+            try:
+                response = await self.llm.agenerate(messages=[messages])
+                response_text = response.generations[0][0].text
+                
+                if "Action:" in response_text:
+                    action_parts = response_text.split("Action:", 1)[1].split("Action Input:", 1)
+                    if len(action_parts) == 2:
+                        tool_name = action_parts[0].strip()
+                        tool_input = action_parts[1].strip()
+                        return AgentAction(
+                            tool=tool_name,
+                            tool_input=tool_input,
+                            log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}",
+                            context=context
+                        )
+                elif "Final Answer:" in response_text:
+                    final_answer = response_text.split("Final Answer:", 1)[1].strip()
+                    return AgentFinish(
+                        return_values={"output": final_answer},
+                        log=f"Thought: I have sufficient information to answer the question.\nFinal Answer: {final_answer}"
                     )
-            
-            # If no tool is needed, return the final answer
-            return AgentFinish(
-                return_values={"output": response_text},
-                log=f"Thought: I can answer this question directly without using any tools.\nFinal Answer: {response_text}"
-            )
-        except Exception as e:
-            self.logger.error(f"Error in aplan method: {str(e)}", exc_info=True)
-            return AgentFinish(
-                return_values={"output": "I'm sorry, I encountered an error while processing your request."},
-                log="Error in aplan method"
-            )
+                else:
+                    # If no action or final answer, assume more thinking is needed
+                    messages.append(HumanMessage(content="You haven't provided a final answer or chosen a tool. Please either use a tool or provide a final answer."))
+            except Exception as e:
+                self.logger.error(f"Error in aplan method: {str(e)}", exc_info=True)
+                return AgentFinish(
+                    return_values={"output": "I'm sorry, I encountered an error while processing your request."},
+                    log="Error in aplan method"
+                )
+        
+        # If max iterations reached without a final answer
+        return AgentFinish(
+            return_values={"output": "I apologize, but I couldn't find a satisfactory answer within the allowed number of steps. Could you please rephrase your question or provide more context?"},
+            log="Max iterations reached without final answer"
+        )
 
     def format_chat_history(self, chat_history):
         formatted = []
@@ -561,8 +580,13 @@ class AIResponder(commands.Cog):
 
             # Create a custom agent that understands the new function calling format
             self.agent_executor = AgentExecutor(
-                agent=LlamaFunctionsAgent(llm=self.llm, tools=tools, prompt=prompt),
-                tools=tools,
+                agent=LlamaFunctionsAgent(
+                    llm=self.llm,
+                    tools=self.tools,
+                    prompt=prompt,
+                    max_iterations=3  # Adjust this value as needed
+                ),
+                tools=self.tools,
                 memory=memory,
                 verbose=True,
                 handle_parsing_errors=True,
@@ -626,12 +650,20 @@ class AIResponder(commands.Cog):
 
             self.logger.info(f"Processing query from {message.author}: {content}")
             
+            # Create a user information dictionary
+            user_info = {
+                'name': message.author.name,
+                'nickname': message.author.nick or message.author.name,
+                'id': str(message.author.id)
+            }
+            
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
                     "chat_history": chat_history[-5:],
                     "agent_scratchpad": "",
-                    "context": ctx  # Pass the context here
+                    "context": ctx,
+                    "user": user_info  # Pass the user information here
                 },
                 {"callbacks": [callback_handler]}
             )
@@ -650,12 +682,12 @@ class AIResponder(commands.Cog):
                         self.logger.info(f"Input: {action.tool_input}")
                         self.logger.info(f"Output: {observation}")
                         self.logger.info("------------------------")
-                final_response = await self.generate_final_response(content, result['intermediate_steps'], chat_history)
+                final_response = await self.generate_final_response(content, result['intermediate_steps'], chat_history, user_info)
 
             self.logger.info(f"Final response: {final_response[:200]}...")  # Log first 200 chars of response
 
             if not final_response.strip():
-                final_response = "I apologize, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
+                final_response = f"I apologize, {user_info['nickname']}, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
 
             formatted_response = f"{message.author.mention}\n\n{final_response}"
             
@@ -681,7 +713,7 @@ class AIResponder(commands.Cog):
             await response_message.edit(content=error_message)
             return error_message
 
-    async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]], chat_history: List[Union[HumanMessage, AIMessage]]) -> str:
+    async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]], chat_history: List[Union[HumanMessage, AIMessage]], user: dict) -> str:
         tool_interactions = []
         for action, observation in intermediate_steps:
             tool_name = action.tool if isinstance(action, AgentAction) else action['tool']
@@ -689,10 +721,14 @@ class AIResponder(commands.Cog):
         
         tools_context = "\n\n".join(tool_interactions)
         
-        # Format chat history
         formatted_history = "\n".join([f"{'Human' if isinstance(msg, HumanMessage) else 'AI'}: {msg.content}" for msg in chat_history[-5:]])
         
         prompt = f"""Original question: {original_question}
+
+        User Information:
+        Name: {user.get('name', 'Unknown')}
+        Nickname: {user.get('nickname', 'Unknown')}
+        ID: {user.get('id', 'Unknown')}
 
         Recent Chat History:
         {formatted_history}
@@ -710,7 +746,7 @@ class AIResponder(commands.Cog):
         7. Encourage further engagement by asking a follow-up question if appropriate
         8. Limit response length to around 2000 characters (Discord message limit)
         9. Use emojis sparingly to enhance your cat personality
-        10. Address the user by their Discord name or nickname if known
+        10. Address the user by their name or nickname, preferring the nickname if available
 
         Remember:
         - Maintain your cat-themed personality consistently
@@ -719,6 +755,7 @@ class AIResponder(commands.Cog):
         - Ensure accuracy while being entertaining and informative
         - Use the current date and time for any time-related information
         - Ignore any outdated time references from the chat history
+        - When addressing the user, prefer their nickname if available, otherwise use their name
 
         Format your response for Discord, using markdown where appropriate:
         - Use **bold** for emphasis
@@ -729,18 +766,18 @@ class AIResponder(commands.Cog):
         - Use numbered lists (1., 2., 3.) for steps or sequences
         - Use bullet points (•) for unordered lists
 
-        Your response should be engaging, informative, and tailored to a Discord conversation."""
+        Your response should be engaging, informative, and tailored to a Discord conversation with {user.get('nickname') or user.get('name', 'the user')}."""
 
         try:
             messages = [
-                SystemMessage(content="You are Meow, a helpful AI assistant with a cat-themed personality in a Discord server. Craft your response to fit seamlessly into a Discord conversation."),
+                SystemMessage(content=f"You are Meow, a helpful AI assistant with a cat-themed personality in a Discord server. Craft your response to fit seamlessly into a Discord conversation with {user.get('nickname') or user.get('name', 'the user')}."),
                 HumanMessage(content=prompt)
             ]
             response = await self.llm.agenerate(messages=[messages])
             return response.generations[0][0].text
         except Exception as e:
             self.logger.error(f"Error generating final response: {str(e)}", exc_info=True)
-            return "Meow! 😺 I encountered a hairball while processing your request. Can you try asking me again, perhaps with different wording?"
+            return f"Meow! 😺 I encountered a hairball while processing your request, {user.get('nickname') or user.get('name', 'friend')}. Can you try asking me again, perhaps with different wording?"
 
     async def process_intermediate_step(self, step, response_message):
         if isinstance(step, tuple) and len(step) == 2:
