@@ -89,7 +89,6 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         context = kwargs.get('context')
         user = kwargs.get('user', {})
         
-        # Use nickname if available, otherwise use name
         user_display_name = user.get('nickname') or user.get('name', 'Unknown')
         
         context_prompt = f"""Original question: {original_question}
@@ -140,10 +139,12 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             agent_scratchpad=self.format_intermediate_steps(intermediate_steps)
         )
 
-        for _ in range(self.max_iterations):
+        for iteration in range(self.max_iterations):
+            logging.info(f"Iteration {iteration + 1}/{self.max_iterations}")
             try:
                 response = await self.llm.agenerate(messages=[messages])
                 response_text = response.generations[0][0].text
+                logging.info(f"AI Response: {response_text[:100]}...")  # Log first 100 chars
                 
                 if "Action:" in response_text:
                     action_parts = response_text.split("Action:", 1)[1].split("Action Input:", 1)
@@ -154,39 +155,42 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                         # Clean up tool name
                         tool_name = tool_name.strip('*').strip()
                         
+                        logging.info(f"Attempting to use tool: {tool_name}")
+                        
                         # Check if the cleaned tool name is valid
                         if tool_name in self.tools:
                             return AgentAction(
                                 tool=tool_name,
                                 tool_input=tool_input,
                                 log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}",
-                                context=context
+                                context=kwargs.get('context')
                             )
                         else:
-                            # If tool is invalid, add a message to prompt the AI to choose a valid tool
+                            logging.warning(f"Invalid tool name: {tool_name}")
                             valid_tools = ", ".join(self.tools.keys())
                             messages.append(HumanMessage(content=f"The tool '{tool_name}' is not valid. Please choose from these valid tools: {valid_tools}"))
                             continue
-                            
+                        
                 elif "Final Answer:" in response_text:
                     final_answer = response_text.split("Final Answer:", 1)[1].strip()
+                    logging.info(f"Final answer found: {final_answer[:100]}...")
                     return AgentFinish(
                         return_values={"output": final_answer},
                         log=f"Thought: I have sufficient information to answer the question.\nFinal Answer: {final_answer}"
                     )
                 else:
-                    # If no action or final answer, assume more thinking is needed
+                    logging.warning("No action or final answer found in response")
                     messages.append(HumanMessage(content="You haven't provided a final answer or chosen a valid tool. Please either use a valid tool or provide a final answer."))
             except Exception as e:
-                self.logger.error(f"Error in aplan method: {str(e)}", exc_info=True)
+                logging.error(f"Error in aplan method: {str(e)}", exc_info=True)
                 return AgentFinish(
-                    return_values={"output": "I'm sorry, I encountered an error while processing your request."},
+                    return_values={"output": f"I'm sorry, {user_display_name}, I encountered an error while processing your request."},
                     log="Error in aplan method"
                 )
         
-        # If max iterations reached without a final answer
+        logging.warning("Max iterations reached without final answer")
         return AgentFinish(
-            return_values={"output": "I apologize, but I couldn't find a satisfactory answer within the allowed number of steps. Could you please rephrase your question or provide more context?"},
+            return_values={"output": f"I apologize, {user_display_name}, but I couldn't find a satisfactory answer within the allowed number of steps. Could you please rephrase your question or provide more context?"},
             log="Max iterations reached without final answer"
         )
 
@@ -679,7 +683,7 @@ class AIResponder(commands.Cog):
                     "chat_history": chat_history[-5:],
                     "agent_scratchpad": "",
                     "context": ctx,
-                    "user": user_info  # Pass the user information here
+                    "user": user_info
                 },
                 {"callbacks": [callback_handler]}
             )
