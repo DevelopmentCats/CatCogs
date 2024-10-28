@@ -153,7 +153,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     action_parts = response_text.split("Action:", 1)[1].split("Action Input:", 1)
                     if len(action_parts) == 2:
                         tool_name = action_parts[0].strip()
-                        tool_input = action_parts[1].strip()
+                        tool_input = action_parts[1].split('\n')[0].strip()  # Only take the first line
                         
                         # Clean up tool name
                         tool_name = tool_name.strip('*').strip()
@@ -348,7 +348,9 @@ class AIResponder(commands.Cog):
         async def duckduckgo_search(query: str) -> str:
             search = DuckDuckGoSearchRun()
             try:
-                result = await search.arun(query)
+                # Clean the query by removing any extra text after newlines
+                clean_query = query.split('\n')[0].strip()
+                result = await search.arun(clean_query)
                 return result
             except Exception as e:
                 self.logger.error(f"Error in DuckDuckGo search: {str(e)}")
@@ -770,7 +772,10 @@ class AIResponder(commands.Cog):
         2. Use NO MORE THAN ONE emoji per message
         3. Analyze the original question and recent chat history
         4. Incorporate relevant information from tool results
-        5. If information is missing or incomplete, consider using additional tools, especially 'DuckDuckGo Search'
+        5. If tool results are unhelpful or incomplete:
+           - Rely on your general knowledge to provide a helpful response
+           - Be honest about limitations while still being helpful
+           - Suggest alternative approaches or questions if appropriate
         6. Craft a response that fits naturally into the ongoing conversation
         7. Use Discord-friendly formatting (bold, italic, code blocks) where appropriate
         8. Break long responses into multiple shorter paragraphs for readability
@@ -785,6 +790,11 @@ class AIResponder(commands.Cog):
         - Keep responses natural and conversational without being overly playful
         - Be conversational and engaging, adapting to the user's tone
         - Don't mention the use of tools or the processing of information
+        - If tools don't provide useful information, still provide value through:
+          • General knowledge and logical reasoning
+          • Clear explanation of limitations
+          • Helpful suggestions or alternatives
+          • Engaging follow-up questions
         - Ensure accuracy while being entertaining and informative
         - Use the current date and time for any time-related information
         - Ignore any outdated time references from the chat history
