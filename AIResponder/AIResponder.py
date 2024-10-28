@@ -200,7 +200,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         formatted = []
         for message in chat_history[-5:]:  # Only consider last 5 messages
             role = "Human" if isinstance(message, HumanMessage) else "AI"
-            formatted.append(f"{role}: {message.content}")
+            # Clean any tool usage patterns from history to avoid confusion
+            content = message.content
+            if role == "AI":
+                # Remove any tool usage patterns from AI responses
+                if "Action:" in content:
+                    content = content.split("Action:", 1)[0]
+                if "Observation:" in content:
+                    content = content.split("Observation:", 1)[0]
+            formatted.append(f"{role}: {content.strip()}")
         return "\n".join(formatted)
 
     def format_intermediate_steps(self, intermediate_steps):
@@ -871,6 +879,26 @@ class AIResponder(commands.Cog):
         """Set the Wolfram Alpha AppID."""
         await self.bot.set_shared_api_tokens("wolfram_alpha", app_id=app_id)
         await ctx.send("Wolfram Alpha AppID has been set.")
+
+    @air.command(name="clearmemory")
+    @commands.is_owner()
+    async def clear_memory(self, ctx: commands.Context):
+        """Clear the AI's conversation history."""
+        try:
+            # Clear the user chat histories dictionary
+            self.user_chat_histories.clear()
+            
+            # Reset the agent's memory if it exists
+            if hasattr(self, 'agent_executor') and self.agent_executor is not None:
+                if hasattr(self.agent_executor, 'memory'):
+                    self.agent_executor.memory.clear()
+            
+            await ctx.send("🧹 Memory cleared! My mind is fresh as a newborn kitten! 😺")
+            self.logger.info(f"Chat memory cleared by owner: {ctx.author.name}")
+            
+        except Exception as e:
+            self.logger.error(f"Error clearing memory: {str(e)}", exc_info=True)
+            await ctx.send("❌ Oops! Something went wrong while clearing my memory. Please check the logs.")
 
     async def update_langchain_components(self):
         try:
