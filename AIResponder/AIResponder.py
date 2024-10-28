@@ -89,13 +89,17 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         context = kwargs.get('context')
         user = kwargs.get('user', {})
         
-        user_display_name = user.get('nickname')
+        # Get user info with defaults for all fields
+        user_display_name = user.get('nickname', 'User')
+        user_name = user.get('name', 'User')
+        user_id = user.get('id', 'Unknown')
         
         context_prompt = f"""Question: {original_question}
 
         User Information:
+        Username: {user_name}
         Display Name: {user_display_name}
-        ID: {user.get('id', 'Unknown')}
+        ID: {user_id}
 
         Recent Chat History:
         {self.format_chat_history(chat_history)}
