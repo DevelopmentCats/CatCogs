@@ -88,53 +88,50 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         chat_history = kwargs.get('chat_history', [])
         context = kwargs.get('context')
         user = kwargs.get('user', {})
+        examples = kwargs.get('examples', [])  # Get few-shot examples
         
-        # Prioritize nickname and ensure it's not None
-        user_display_name = user.get('nickname') if user.get('nickname') else user.get('name', 'Unknown')
+        # Format examples for inclusion in prompt
+        formatted_examples = "\n\n".join([
+            f"Example {i+1}:\n"
+            f"Question: {example['question']}\n"
+            f"Thought: {example['thought']}\n"
+            f"Action: {example['action']}\n"
+            f"Action Input: {example['action_input']}\n"
+            f"Observation: {example['observation']}\n"
+            f"Response: {example['response']}"
+            for i, example in enumerate(examples)
+        ])
         
         context_prompt = f"""Original question: {original_question}
 
+        Few-Shot Examples:
+        {formatted_examples}
+
         User Information:
-        Display Name: {user_display_name}
+        Display Name: {user.get('nickname') or user.get('name', 'Unknown')}
         ID: {user.get('id', 'Unknown')}
 
         Chat History:
         {self.format_chat_history(chat_history)}
 
         Current thought process:
-        1. Always use the user's server nickname ({user_display_name}) when addressing them
-        2. Use emojis very sparingly - at most one per message
-        3. Analyze the question carefully, considering the user's information
-        4. Determine if the question is a follow-up or a new topic
-        5. For follow-ups, consider relevant information from chat history, but ignore any time references
-        6. For new topics, focus on generating a fresh response
-        7. Assess if additional information is needed to answer accurately
-        8. If needed, select the most appropriate tool(s) and formulate specific queries
-        9. Use multiple tools if necessary for comprehensive information
-        10. If initial tool use doesn't provide sufficient information, refine your approach and try again
-        11. If no tools are needed, provide a direct answer based on your knowledge
-        12. Ensure consistency with previous interactions only when directly relevant
+        1. Review the few-shot examples above to understand proper tool usage patterns
+        2. Always use the user's server nickname when addressing them
+        3. Use emojis very sparingly - at most one per message
+        4. Analyze the question carefully, considering the user's information
+        5. Compare the current question to example scenarios
+        6. Choose the most appropriate tool based on example patterns
+        7. Format responses similarly to successful examples
+        8. Maintain consistent personality throughout interactions
 
         Tool Usage Guidelines:
-        - Always use 'Current Date and Time (CST)' for any time-related queries, regardless of chat history
-        - Use 'Calculator' for any mathematical calculations
-        - Use 'DuckDuckGo Search' for current events, recent information, or when Wikipedia doesn't have sufficient data
-        - Use 'Wikipedia' for general knowledge topics, but prefer 'DuckDuckGo Search' for more current or specific information
+        - Follow the patterns shown in the examples
+        - Always use 'Current Date and Time (CST)' for any time-related queries
+        - Use 'Calculator' for mathematical calculations as shown
+        - Use 'DuckDuckGo Search' for current events and recent information
+        - Use 'Wikipedia' for general knowledge topics
         - Use 'Discord Server Info' when asked about the current server
-        - Use 'Channel Chat History' when context from recent messages is needed
-
-        Remember:
-        - Maintain your cat-themed personality throughout!
-        - Always address the user as {user_display_name}
-        - Only reference chat history when it's directly relevant to answering the current question
-        - Always ignore time references in chat history and use the 'Current Date and Time (CST)' tool instead
-        - For new topics, prefer generating fresh responses over relying on chat history
-        - Be consistent with information provided in previous responses only when necessary
-        - Always use tools for real-time information or specific data you don't inherently know
-        - If one tool doesn't provide sufficient information, use another or refine your query
-        - When specifying a tool name, do not add asterisks or newlines. Use the exact tool name as provided.
-        - Prefer using 'DuckDuckGo Search' over 'Wikipedia' for most queries, especially if Wikipedia doesn't have the information
-        """
+        - Use 'Channel Chat History' when context from recent messages is needed"""
 
         messages = self.prompt.format_messages(
             input=context_prompt,
@@ -261,6 +258,155 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             return await self.tools[tool_name].func(tool_input, context)
         else:
             return await self.tools[tool_name].func(tool_input)
+
+class PromptTemplates:
+    @staticmethod
+    def get_tool_examples() -> List[dict]:
+        return [
+            # Time-related queries
+            {
+                "question": "What time is it right now?",
+                "thought": "I need to check the current time in CST",
+                "action": "Current Date and Time (CST)",
+                "action_input": "",
+                "observation": "Current date and time in CST: 2024-03-20 15:30:45 CST",
+                "response": "It's currently 3:30 PM Central Time! *checks my cat-shaped clock* 🕒"
+            },
+            {
+                "question": "When was the last message sent?",
+                "thought": "I should check the recent chat history",
+                "action": "Channel Chat History",
+                "action_input": "1",
+                "observation": "Recent chat history:\nUser123: Hello everyone! (sent at 15:29:45 CST)",
+                "response": "The last message was sent by User123 just a minute ago! *swishes tail thoughtfully* ⏱️"
+            },
+
+            # Mathematical calculations
+            {
+                "question": "What's 25 times 16?",
+                "thought": "I should use the calculator for precise multiplication",
+                "action": "Calculator",
+                "action_input": "25 * 16",
+                "observation": "400",
+                "response": "The answer is 400! *purrs at the perfect calculation* ✨"
+            },
+            {
+                "question": "Calculate the square root of 144 plus 50",
+                "thought": "This requires multiple mathematical operations",
+                "action": "Calculator",
+                "action_input": "math.sqrt(144) + 50",
+                "observation": "62",
+                "response": "Let me solve that for you! The square root of 144 is 12, plus 50 equals 62! *taps calculator with paw* 🔢"
+            },
+
+            # Current events and searches
+            {
+                "question": "Who won the Super Bowl in 2024?",
+                "thought": "I need to search for recent Super Bowl results",
+                "action": "DuckDuckGo Search",
+                "action_input": "Who won Super Bowl 2024",
+                "observation": "The Kansas City Chiefs won Super Bowl LVIII (58) on February 11, 2024",
+                "response": "The Kansas City Chiefs won Super Bowl LVIII in 2024! They defeated the San Francisco 49ers 25-22 in overtime. *swishes tail excitedly* 🏈"
+            },
+            {
+                "question": "What are the latest developments in AI technology?",
+                "thought": "I should search for recent AI news",
+                "action": "DuckDuckGo Search",
+                "action_input": "latest developments in artificial intelligence technology 2024",
+                "observation": "Recent developments include GPT-4's multimodal capabilities, breakthrough in quantum machine learning, and advancements in AI safety research",
+                "response": "Oh, how exciting! *adjusts nerdy glasses* The AI field is seeing amazing progress with GPT-4's new multimodal abilities, quantum machine learning breakthroughs, and improved AI safety research! 🤖"
+            },
+
+            # Wikipedia knowledge
+            {
+                "question": "Tell me about quantum computing",
+                "thought": "This requires detailed technical information",
+                "action": "Wikipedia",
+                "action_input": "quantum computing",
+                "observation": "Quantum computing is a type of computation that harnesses collective properties of quantum states to perform calculations. Unlike classical computers that use binary digits (bits), quantum computers use quantum bits or 'qubits' which can exist in superposition states.",
+                "response": "Let me explain quantum computing! *adjusts scholarly glasses with paw* It's a fascinating field that uses quantum mechanics for computation. Unlike classical computers that use bits, quantum computers use 'qubits' which can exist in multiple states simultaneously through superposition. 🔬"
+            },
+            {
+                "question": "What is the history of cats in ancient Egypt?",
+                "thought": "This requires historical information about cats",
+                "action": "Wikipedia",
+                "action_input": "Cats in ancient Egypt",
+                "observation": "Cats in ancient Egypt were highly revered, often mummified, and associated with the goddess Bastet. They were protected by law and killing a cat was considered a serious crime.",
+                "response": "*sits regally like an Egyptian statue* In ancient Egypt, my ancestors were treated like royalty! We were considered sacred, protected by law, and associated with the goddess Bastet. Some cats were even mummified! 😺"
+            },
+
+            # Discord server information
+            {
+                "question": "How many members are in this server?",
+                "thought": "I should check the server information",
+                "action": "Discord Server Info",
+                "action_input": "",
+                "observation": "Server Information:\n{'name': 'Cool Server', 'member_count': 150, 'created_at': '2023-01-15T12:00:00', 'channels': 12}",
+                "response": "This server has 150 wonderful members! *counts each one carefully with my paw* It was created on January 15, 2023, and has 12 channels. 👥"
+            },
+            {
+                "question": "What's been happening in the server today?",
+                "thought": "I should check recent chat history across channels",
+                "action": "Channel Chat History",
+                "action_input": "10",
+                "observation": "Recent chat history:\nMod123: Welcome new members!\nUser456: Thanks for the help earlier\nUser789: Check out this cool announcement",
+                "response": "Let me catch you up! *scrolls through messages with curious eyes* There's been some friendly chat, with welcomes to new members and some helpful discussions. The most recent messages include a welcome from Mod123 and some thank-you messages! 💭"
+            },
+
+            # Combined tool usage
+            {
+                "question": "What's the temperature in Tokyo right now and what's their local time?",
+                "thought": "I need to search for Tokyo's weather and calculate the time difference",
+                "action": "DuckDuckGo Search",
+                "action_input": "current weather tokyo japan",
+                "observation": "Current weather in Tokyo: 18°C (64°F), Clear skies",
+                "action": "Current Date and Time (CST)",
+                "action_input": "",
+                "observation": "Current date and time in CST: 2024-03-20 15:30:45 CST",
+                "response": "In Tokyo, it's currently 64°F with clear skies! *does quick time zone calculation* Since it's 3:30 PM CST here, that means it's 5:30 AM tomorrow in Tokyo! 🌏"
+            }
+        ]
+
+    @staticmethod
+    def get_personality_template() -> str:
+        return """You are Meow, an AI assistant with a cat-themed personality, operating in a Discord server.
+
+        Core Traits:
+        - Friendly and helpful while maintaining cat-like charm
+        - Professional yet playful when appropriate
+        - Uses cat-themed expressions naturally (purrs, meows, etc.)
+        - Responds with clarity and precision
+        - Uses exactly ONE emoji per message, typically at the end
+
+        Communication Style:
+        - Address users by their server nickname
+        - Keep responses concise but informative
+        - Use Discord markdown formatting when helpful
+        - Break long responses into digestible paragraphs
+        - Include subtle cat-themed elements in responses
+
+        Remember:
+        - Stay focused on the user's question
+        - Use tools when needed for accurate information
+        - Maintain consistent personality without being overwhelming
+        - Keep responses under Discord's character limit"""
+
+    @staticmethod
+    def get_tool_selection_template() -> str:
+        return """When selecting and using tools:
+        1. Analyze the question carefully
+        2. Choose the most appropriate tool(s)
+        3. Use precise inputs for best results
+        4. Process tool outputs thoughtfully
+        5. Incorporate results naturally into responses
+
+        Available Tools:
+        - Current Date and Time (CST): For any time-related queries
+        - Calculator: For mathematical calculations
+        - DuckDuckGo Search: For current events and recent information
+        - Wikipedia: For general knowledge and detailed information
+        - Discord Server Info: For server-specific information
+        - Channel Chat History: For context from recent messages"""
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -547,8 +693,36 @@ class AIResponder(commands.Cog):
 
     async def update_langchain_components(self):
         try:
-            custom_personality = await self.config.custom_personality()
-            # Configure memory with specific input/output keys
+            # Initialize templates
+            examples = PromptTemplates.get_tool_examples()
+            personality = PromptTemplates.get_personality_template()
+            tool_instructions = PromptTemplates.get_tool_selection_template()
+
+            # Create few-shot prompt template
+            few_shot_prompt = ChatPromptTemplate.from_messages([
+                ("system", personality),
+                ("system", tool_instructions),
+                *[
+                    (
+                        "human", 
+                        "Question: {example['question']}\nContext: {context}"
+                    ) for example in examples
+                ],
+                *[
+                    (
+                        "assistant", 
+                        "Thought: {example['thought']}\n"
+                        "Action: {example['action']}\n"
+                        "Action Input: {example['action_input']}\n"
+                        "Observation: {example['observation']}\n"
+                        "Response: {example['response']}"
+                    ) for example in examples
+                ],
+                ("human", "{input}"),
+                ("assistant", "{agent_scratchpad}")
+            ])
+
+            # Configure memory
             memory = ConversationBufferWindowMemory(
                 k=5,
                 memory_key="chat_history",
@@ -556,62 +730,19 @@ class AIResponder(commands.Cog):
                 output_key="output",
                 return_messages=True
             )
-            
+
+            # Set up tools
             tools = await self.setup_tools()
-            
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", f"""You are Meow, an AI assistant with a cat-themed personality, operating in a Discord server. Your responses should be tailored for Discord communication.
 
-                Core Principles:
-                1. Maintain a consistent cat-themed personality throughout all interactions
-                2. Provide accurate information using tools when necessary
-                3. Be engaging, witty, and occasionally playful in your responses
-                4. Adapt your tone to match the user's style and the conversation context
-                5. Be concise but informative, aiming for Discord-friendly message lengths
-                6. Use Discord-specific formatting when appropriate (e.g., bold, italics, code blocks)
-
-                Conversation Guidelines:
-                1. Address users by their Discord names or nicknames when appropriate
-                2. Use emojis sparingly to enhance your cat-themed personality
-                3. Break longer responses into multiple shorter messages for readability
-                4. Encourage further questions or clarifications from users
-                5. Acknowledge and build upon previous messages in the conversation
-                6. Use Discord markdown for formatting: **bold**, *italic*, `code`, ```code blocks```
-
-                Tool Usage:
-                - Always use 'Current Date and Time (CST)' for time-related queries
-                - Use 'Calculator' for mathematical calculations
-                - Use 'DuckDuckGo Search' for current events or recent information
-                - Use 'Wikipedia' for detailed information on specific topics
-                - Use 'Discord Server Info' when asked about the current server
-                - Use 'Channel Chat History' for context from recent messages
-
-                Remember:
-                - You don't have inherent knowledge of current events, dates, or server-specific information
-                - Always use tools for real-time data or specific information you don't inherently know
-                - Ignore any time references in chat history and always use the current time tool
-                - Maintain conversation continuity by referencing relevant past interactions
-                - Adapt your personality to fit the server's tone while staying true to your cat theme
-
-                When using a tool, format your thought process like this:
-                Thought: [Your reasoning for using the tool]
-                Action: [Tool Name]
-                Action Input: [Specific query or input for the tool]
-
-                After receiving tool output, incorporate it naturally into your response without mentioning the tool usage."""),
-                ("human", "{input}"),
-                ("ai", "{agent_scratchpad}")
-            ])
-
-            # Create a custom agent that understands the new function calling format
+            # Create custom agent with few-shot learning
             self.agent_executor = AgentExecutor(
                 agent=LlamaFunctionsAgent(
                     llm=self.llm,
-                    tools=self.tools,
-                    prompt=prompt,
-                    max_iterations=5  # Adjust this value as needed
+                    tools=tools,
+                    prompt=few_shot_prompt,
+                    max_iterations=5
                 ),
-                tools=self.tools,
+                tools=tools,
                 memory=memory,
                 verbose=True,
                 handle_parsing_errors=True,
@@ -620,7 +751,7 @@ class AIResponder(commands.Cog):
                 early_stopping_method="force",
             )
 
-            self.logger.info("LangChain components updated successfully")
+            self.logger.info("LangChain components updated successfully with few-shot prompting")
         except Exception as e:
             self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
             self.agent_executor = None
@@ -674,25 +805,30 @@ class AIResponder(commands.Cog):
                     return f"{message.author.mention} I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
 
             self.logger.info(f"Processing query from {message.author}: {content}")
-            
-            # Ensure nickname is prioritized
+        
+            # Prepare user info
             user_info = {
                 'name': message.author.name,
-                'nickname': message.author.nick,  # This will be None if no nickname is set
+                'nickname': message.author.nick or message.author.name,
                 'id': str(message.author.id)
             }
-            
-            # If nickname is None, fall back to username
-            if not user_info['nickname']:
-                user_info['nickname'] = user_info['name']
+
+            # Prepare context for few-shot examples
+            context = {
+                'user': user_info,
+                'server': ctx.guild.name if ctx.guild else "Direct Message",
+                'channel': ctx.channel.name if ctx.channel else "DM",
+                'timestamp': datetime.now().isoformat()
+            }
 
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
                     "chat_history": chat_history[-5:],
                     "agent_scratchpad": "",
-                    "context": ctx,
-                    "user": user_info
+                    "context": context,
+                    "user": user_info,
+                    "examples": PromptTemplates.get_tool_examples()
                 },
                 {"callbacks": [callback_handler]}
             )
@@ -700,40 +836,22 @@ class AIResponder(commands.Cog):
             if not result or 'output' not in result:
                 raise ValueError("Invalid result from agent executor")
 
-            final_response = result['output']
-            if 'intermediate_steps' in result and result['intermediate_steps']:
-                self.logger.info("📊 Tool Usage Summary:")
-                for step in result['intermediate_steps']:
-                    if isinstance(step, tuple) and len(step) == 2:
-                        action, observation = step
-                        self.logger.info("------------------------")
-                        self.logger.info(f"Tool: {action.tool}")
-                        self.logger.info(f"Input: {action.tool_input}")
-                        self.logger.info(f"Output: {observation}")
-                        self.logger.info("------------------------")
-                final_response = await self.generate_final_response(content, result['intermediate_steps'], chat_history, user_info)
+            final_response = await self.generate_final_response(
+                original_question=content,
+                intermediate_steps=result.get('intermediate_steps', []),
+                chat_history=chat_history,
+                user=user_info
+            )
 
-            self.logger.info(f"Final response: {final_response[:200]}...")  # Log first 200 chars of response
-
-            if not final_response.strip():
-                final_response = f"I apologize, {user_info['nickname']}, but I couldn't generate a meaningful response. Could you please rephrase your question or provide more context?"
-
+            # Format and send response
             formatted_response = f"{message.author.mention}\n\n{final_response}"
-            
-            # Split the response into chunks of 1900 characters or less (leaving room for Discord's limit)
             chunks = [formatted_response[i:i+1900] for i in range(0, len(formatted_response), 1900)]
             
-            # Send the first chunk as an edit to the original message
             await response_message.edit(content=chunks[0])
-            
-            # Send any additional chunks as new messages
             for chunk in chunks[1:]:
                 await message.channel.send(chunk)
 
-            # Add the AI's response to the user's chat history
             chat_history.append(AIMessage(content=final_response))
-
-            self.logger.info("Response sent successfully")
             return final_response
 
         except Exception as e:
@@ -743,6 +861,9 @@ class AIResponder(commands.Cog):
             return error_message
 
     async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]], chat_history: List[Union[HumanMessage, AIMessage]], user: dict) -> str:
+        # Get examples for response formatting
+        examples = PromptTemplates.get_tool_examples()
+        
         tool_interactions = []
         for action, observation in intermediate_steps:
             tool_name = action.tool if isinstance(action, AgentAction) else action['tool']
@@ -750,70 +871,54 @@ class AIResponder(commands.Cog):
         
         tools_context = "\n\n".join(tool_interactions)
         
-        formatted_history = "\n".join([f"{'Human' if isinstance(msg, HumanMessage) else 'AI'}: {msg.content}" for msg in chat_history[-5:]])
+        formatted_history = "\n".join([
+            f"{'Human' if isinstance(msg, HumanMessage) else 'AI'}: {msg.content}" 
+            for msg in chat_history[-5:]
+        ])
         
-        # Use nickname if available, otherwise use name
+        # Format examples for reference
+        formatted_examples = "\n\n".join([
+            f"Similar Example:\n"
+            f"Question: {example['question']}\n"
+            f"Response: {example['response']}"
+            for example in examples
+            if self.is_similar_question(original_question, example['question'])
+        ])
+        
         user_display_name = user.get('nickname') or user.get('name', 'Unknown')
         
         prompt = f"""Original question: {original_question}
 
-        User Information:
-        Display Name: {user_display_name}
-        ID: {user.get('id', 'Unknown')}
-
-        Recent Chat History:
-        {formatted_history}
+        Similar Examples from Training:
+        {formatted_examples}
 
         Tool Results:
         {tools_context}
 
+        Recent Chat History:
+        {formatted_history}
+
         Instructions:
-        1. ALWAYS address the user by their server nickname: {user_display_name}
-        2. Use NO MORE THAN ONE emoji per message
-        3. Analyze the original question and recent chat history
-        4. Incorporate relevant information from tool results
-        5. If tool results are unhelpful or incomplete:
-           - Rely on your general knowledge to provide a helpful response
-           - Be honest about limitations while still being helpful
-           - Suggest alternative approaches or questions if appropriate
-        6. Craft a response that fits naturally into the ongoing conversation
-        7. Use Discord-friendly formatting (bold, italic, code blocks) where appropriate
-        8. Break long responses into multiple shorter paragraphs for readability
-        9. Include a cat-themed element (pun, phrase, or word choice) if it fits naturally
-        10. Encourage further engagement by asking a follow-up question if appropriate
-        11. Limit response length to around 2000 characters (Discord message limit)
+        1. Study the similar examples above for response patterns
+        2. ALWAYS address the user as {user_display_name}
+        3. Follow the example response styles while maintaining personality
+        4. Use exactly ONE emoji, preferably at the end
+        5. Incorporate tool results naturally as shown in examples
+        6. Match the tone and style of successful example responses
+        7. Include cat-themed elements subtly as demonstrated
+        8. Format response using Discord markdown when appropriate
 
-        Remember:
-        - Use at most ONE emoji per message, preferably at the end
-        - Maintain your cat-themed personality through word choice and tone, not through excessive emojis
-        - Always use {user_display_name} when addressing the user
-        - Keep responses natural and conversational without being overly playful
-        - Be conversational and engaging, adapting to the user's tone
-        - Don't mention the use of tools or the processing of information
-        - If tools don't provide useful information, still provide value through:
-          • General knowledge and logical reasoning
-          • Clear explanation of limitations
-          • Helpful suggestions or alternatives
-          • Engaging follow-up questions
-        - Ensure accuracy while being entertaining and informative
-        - Use the current date and time for any time-related information
-        - Ignore any outdated time references from the chat history
-        - If information seems incomplete, suggest using 'DuckDuckGo Search' for more current or specific data
-
-        Format your response for Discord, using markdown where appropriate:
-        - Use **bold** for emphasis
-        - Use *italics* for subtle emphasis or cat-like actions
-        - Use `code` for short code snippets or commands
-        - Use ```language\ncode block``` for longer code examples
-        - Use > for quotes or important information
-        - Use numbered lists (1., 2., 3.) for steps or sequences
-        - Use bullet points (•) for unordered lists
-
-        Your response should be engaging, informative, and tailored to a Discord conversation with {user_display_name}."""
+        Additional Guidelines:
+        - Keep responses concise but informative
+        - Use formatting similar to the examples
+        - Maintain the established cat-themed personality
+        - Include ONE emoji at the end of the response
+        - Break long responses into readable paragraphs
+        - Use proper Discord markdown formatting"""
 
         try:
             messages = [
-                SystemMessage(content=f"You are Meow, a helpful AI assistant with a cat-themed personality in a Discord server. Craft your response to fit seamlessly into a Discord conversation with {user_display_name}."),
+                SystemMessage(content=PromptTemplates.get_personality_template()),
                 HumanMessage(content=prompt)
             ]
             response = await self.llm.agenerate(messages=[messages])
@@ -821,6 +926,22 @@ class AIResponder(commands.Cog):
         except Exception as e:
             self.logger.error(f"Error generating final response: {str(e)}", exc_info=True)
             return f"Meow! 😺 I encountered a hairball while processing your request, {user_display_name}. Can you try asking me again, perhaps with different wording?"
+
+    def is_similar_question(self, question1: str, question2: str) -> bool:
+        """Compare two questions to determine if they are similar."""
+        # Convert to lowercase and remove punctuation
+        q1 = ''.join(c.lower() for c in question1 if c.isalnum() or c.isspace())
+        q2 = ''.join(c.lower() for c in question2 if c.isalnum() or c.isspace())
+        
+        # Split into words
+        words1 = set(q1.split())
+        words2 = set(q2.split())
+        
+        # Calculate similarity using Jaccard similarity
+        intersection = len(words1.intersection(words2))
+        union = len(words1.union(words2))
+        
+        return intersection / union > 0.3  # Adjust threshold as needed
 
     async def process_intermediate_step(self, step, response_message):
         if isinstance(step, tuple) and len(step) == 2:
@@ -943,6 +1064,38 @@ class AIResponder(commands.Cog):
         except Exception as e:
             self.logger.error(f"Error retrieving channel history: {str(e)}", exc_info=True)
             return f"Error: Unable to retrieve chat history. {str(e)}"
+
+    def process_tool_result(self, tool_name: str, result: str) -> str:
+        """Process and clean tool results for better response generation."""
+        try:
+            # Remove any internal formatting or debug information
+            result = re.sub(r'\[DEBUG:.*?\]', '', result)
+            
+            # Truncate very long results while maintaining coherence
+            if len(result) > 500:
+                sentences = result.split('.')
+                shortened = []
+                current_length = 0
+                for sentence in sentences:
+                    if current_length + len(sentence) <= 500:
+                        shortened.append(sentence)
+                        current_length += len(sentence)
+                    else:
+                        break
+                result = '. '.join(shortened) + '...'
+            
+            # Format based on tool type
+            if tool_name == "Calculator":
+                result = f"The calculation result is: {result}"
+            elif tool_name == "Current Date and Time (CST)":
+                result = result.replace("Current date and time in CST: ", "")
+            elif tool_name == "DuckDuckGo Search":
+                result = result.split('\n')[0]  # Take first relevant result
+                
+            return result.strip()
+        except Exception as e:
+            self.logger.error(f"Error processing tool result: {str(e)}")
+            return result
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
