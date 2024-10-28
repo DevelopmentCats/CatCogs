@@ -93,8 +93,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         
         context_prompt = f"""Question: {original_question}
 
-        User: {user_display_name} (ID: {user.get('id', 'Unknown')})
-        
+        User Information:
+        Display Name: {user_display_name}
+        ID: {user.get('id', 'Unknown')}
+
         Recent Chat History:
         {self.format_chat_history(chat_history)}
 
