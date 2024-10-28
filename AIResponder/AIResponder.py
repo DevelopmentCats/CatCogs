@@ -88,69 +88,25 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         chat_history = kwargs.get('chat_history', [])
         context = kwargs.get('context')
         user = kwargs.get('user', {})
-        examples = kwargs.get('examples', [])  # Get few-shot examples
         
-        # Format examples for inclusion in prompt
-        formatted_examples = "\n\n".join([
-            f"Example {i+1}:\n"
-            f"Question: {example['question']}\n"
-            f"Thought: {example['thought']}\n"
-            f"Action: {example['action']}\n"
-            f"Action Input: {example['action_input']}\n"
-            f"Observation: {example['observation']}\n"
-            f"Response: {example['response']}"
-            for i, example in enumerate(examples)
-        ]) if examples else ""
+        user_display_name = user.get('nickname')
         
-        user_display_name = user.get('nickname')  # Prefer nickname (display name)
-        context_prompt = f"""Original question: {original_question}
+        context_prompt = f"""Question: {original_question}
 
-        Few-Shot Examples:
-        {formatted_examples}
-
-        User Information:
-        Display Name: {user_display_name}
-        ID: {user.get('id', 'Unknown')}
-
-        Chat History:
+        User: {user_display_name} (ID: {user.get('id', 'Unknown')})
+        
+        Recent Chat History:
         {self.format_chat_history(chat_history)}
 
-        Current thought process:
-        1. Review the few-shot examples above to understand proper tool usage patterns
-        2. Always use the user's server nickname when addressing them
-        3. Use emojis very sparingly - at most one per message
-        4. If you need to use a tool, format as:
-           Thought: [your reasoning]
-           Action: [tool name]
-           Action Input: [input for tool]
-        5. If you can answer directly, format as:
-           Thought: [your reasoning]
-           Final Answer: [your response]
+        Current Context:
+        {context if context else 'No additional context provided'}
 
-        Important:
-        - ALWAYS prefix your final response with "Final Answer:"
-        - For any factual information you're not 100% certain about, use DuckDuckGo Search
-        - Never make up information - if unsure, search first
-        - Use tools when needed for accuracy
-        - Follow the example patterns exactly
-
-        Tool Usage Guidelines:
-        - Use 'DuckDuckGo Search' for:
-          * Any current information
-          * Technical topics
-          * Product details
-          * General knowledge verification
-        - Use 'Wikipedia' for historical or well-established topics
-        - Use 'Calculator' for mathematical calculations
-        - Use 'Current Date and Time (CST)' for time-related queries
-        - Use 'Discord Server Info' for server-specific information
-        - Use 'Channel Chat History' for recent discord message context"""
+        Remember: Always address the user as {user_display_name} and include exactly one emoji in your final response."""
 
         messages = self.prompt.format_messages(
             input=context_prompt,
             chat_history=chat_history,
-            agent_scratchpad=self.format_intermediate_steps(intermediate_steps),
-            examples=examples
+            agent_scratchpad=self.format_intermediate_steps(intermediate_steps)
         )
 
         for iteration in range(self.max_iterations):
@@ -489,20 +445,25 @@ class PromptTemplates:
 
     @staticmethod
     def get_tool_selection_template() -> str:
-        return """When selecting and using tools:
-        1. Analyze the question carefully
-        2. Choose the most appropriate tool(s)
-        3. Use precise inputs for best results
-        4. Process tool outputs thoughtfully
-        5. Incorporate results naturally into responses
+        return """You have access to the following tools:
 
-        Available Tools:
-        - Current Date and Time (CST): For any time-related queries
-        - Calculator: For mathematical calculations
-        - DuckDuckGo Search: For current events and recent information
-        - Wikipedia: For general knowledge and detailed information
-        - Discord Server Info: For server-specific information
-        - Channel Chat History: For context from recent messages"""
+        1. Calculator - For any mathematical calculations
+        2. DuckDuckGo Search - For looking up current information and facts
+        3. Wikipedia - For historical and well-established information
+        4. Current Date and Time (CST) - For time-related queries
+        5. Discord Server Info - For server-specific information
+        6. Channel Chat History - For recent chat context
+
+        To use a tool, you MUST use this exact format:
+        Thought: [your reasoning]
+        Action: [exact tool name from list above]
+        Action Input: [your input to the tool]
+
+        After getting a tool result, either:
+        1. Use another tool if needed using the same format
+        2. Give your final answer in this format:
+        Thought: [your reasoning]
+        Final Answer: [your response]"""
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -935,30 +896,20 @@ class AIResponder(commands.Cog):
                 ("system", tool_instructions),
                 ("human", "{input}"),
                 ("assistant", "{agent_scratchpad}"),
-                ("system", "Examples:\n{examples}")  # Changed from previous format
+                ("system", "Examples:\n{examples}")
             ])
 
-            # Configure memory
-            memory = ConversationBufferWindowMemory(
-                k=5,
-                memory_key="chat_history",
-                input_key="input",
-                output_key="output",
-                return_messages=True
+            # Initialize the agent
+            self.agent = LlamaFunctionsAgent(
+                llm=self.llm,
+                tools=self.tools,
+                prompt=few_shot_prompt
             )
 
-            # Set up tools
-            tools = await self.setup_tools()
-
-            # Create custom agent with few-shot learning
+            # Create agent executor
             self.agent_executor = AgentExecutor(
-                agent=LlamaFunctionsAgent(
-                    llm=self.llm,
-                    tools=tools,
-                    prompt=few_shot_prompt,
-                    max_iterations=5
-                ),
-                tools=tools,
+                agent=self.agent,
+                tools=self.tools,
                 memory=memory,
                 verbose=True,
                 handle_parsing_errors=True,
