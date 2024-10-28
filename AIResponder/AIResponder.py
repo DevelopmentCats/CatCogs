@@ -100,7 +100,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             f"Observation: {example['observation']}\n"
             f"Response: {example['response']}"
             for i, example in enumerate(examples)
-        ])
+        ]) if examples else ""
         
         context_prompt = f"""Original question: {original_question}
 
@@ -136,7 +136,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         messages = self.prompt.format_messages(
             input=context_prompt,
             chat_history=chat_history,
-            agent_scratchpad=self.format_intermediate_steps(intermediate_steps)
+            agent_scratchpad=self.format_intermediate_steps(intermediate_steps),
+            examples=examples  # Add this line
         )
 
         for iteration in range(self.max_iterations):
@@ -702,24 +703,9 @@ class AIResponder(commands.Cog):
             few_shot_prompt = ChatPromptTemplate.from_messages([
                 ("system", personality),
                 ("system", tool_instructions),
-                *[
-                    (
-                        "human", 
-                        "Question: {example['question']}\nContext: {context}"
-                    ) for example in examples
-                ],
-                *[
-                    (
-                        "assistant", 
-                        "Thought: {example['thought']}\n"
-                        "Action: {example['action']}\n"
-                        "Action Input: {example['action_input']}\n"
-                        "Observation: {example['observation']}\n"
-                        "Response: {example['response']}"
-                    ) for example in examples
-                ],
                 ("human", "{input}"),
-                ("assistant", "{agent_scratchpad}")
+                ("assistant", "{agent_scratchpad}"),
+                ("system", "Examples:\n{examples}")  # Changed from previous format
             ])
 
             # Configure memory
