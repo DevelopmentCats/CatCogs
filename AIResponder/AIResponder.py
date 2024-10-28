@@ -890,12 +890,16 @@ class AIResponder(commands.Cog):
             personality = PromptTemplates.get_personality_template()
             tool_instructions = PromptTemplates.get_tool_selection_template()
 
-            # Initialize memory
-            memory = ConversationBufferWindowMemory(
-                k=5,  # Keep last 5 interactions
-                memory_key="chat_history",
-                return_messages=True
-            )
+            # Format examples string
+            examples_str = "\n\n".join([
+                f"Question: {example['question']}\n"
+                f"Thought: {example['thought']}\n"
+                f"Action: {example['action']}\n"
+                f"Action Input: {example['action_input']}\n"
+                f"Observation: {example['observation']}\n"
+                f"Response: {example['response']}"
+                for example in examples
+            ])
 
             # Create few-shot prompt template
             few_shot_prompt = ChatPromptTemplate.from_messages([
@@ -903,8 +907,15 @@ class AIResponder(commands.Cog):
                 ("system", tool_instructions),
                 ("human", "{input}"),
                 ("assistant", "{agent_scratchpad}"),
-                ("system", "Examples:\n{examples}")
+                ("system", f"Examples:\n{examples_str}")  # Pre-formatted examples
             ])
+
+            # Initialize memory
+            memory = ConversationBufferWindowMemory(
+                k=5,
+                memory_key="chat_history",
+                return_messages=True
+            )
 
             # Initialize the agent
             self.agent = LlamaFunctionsAgent(
