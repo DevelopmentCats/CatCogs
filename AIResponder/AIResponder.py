@@ -890,6 +890,13 @@ class AIResponder(commands.Cog):
             personality = PromptTemplates.get_personality_template()
             tool_instructions = PromptTemplates.get_tool_selection_template()
 
+            # Initialize memory
+            memory = ConversationBufferWindowMemory(
+                k=5,  # Keep last 5 interactions
+                memory_key="chat_history",
+                return_messages=True
+            )
+
             # Create few-shot prompt template
             few_shot_prompt = ChatPromptTemplate.from_messages([
                 ("system", personality),
