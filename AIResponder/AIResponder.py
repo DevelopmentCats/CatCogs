@@ -119,11 +119,19 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         1. Review the few-shot examples above to understand proper tool usage patterns
         2. Always use the user's server nickname when addressing them
         3. Use emojis very sparingly - at most one per message
-        4. Analyze the question carefully, considering the user's information
-        5. Compare the current question to example scenarios
-        6. Choose the most appropriate tool based on example patterns
-        7. Format responses similarly to successful examples
-        8. Maintain consistent personality throughout interactions
+        4. If you need to use a tool, format as:
+           Thought: [your reasoning]
+           Action: [tool name]
+           Action Input: [input for tool]
+        5. If you can answer directly, format as:
+           Thought: [your reasoning]
+           Final Answer: [your response]
+
+        Important:
+        - ALWAYS prefix your final response with "Final Answer:"
+        - Use tools only when necessary
+        - For direct responses or introductions, use "Final Answer:"
+        - Follow the example patterns exactly
 
         Tool Usage Guidelines:
         - Follow the patterns shown in the examples
