@@ -86,19 +86,20 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
         original_question = kwargs.get('input', '')
         chat_history = kwargs.get('chat_history', [])
-        context = kwargs.get('context')
+        context = kwargs.get('context', {})
         user = kwargs.get('user', {})
         
-        # Get user info with defaults for all fields
+        # Fix: Ensure we're accessing the dictionary correctly
         user_display_name = user.get('nickname', 'User')
         user_name = user.get('name', 'User')
         user_id = user.get('id', 'Unknown')
         
+        # Create the context prompt with proper string formatting
         context_prompt = f"""Question: {original_question}
 
         User Information:
-        Username: {user_name}
         Display Name: {user_display_name}
+        Username: {user_name}
         ID: {user_id}
 
         Recent Chat History:
@@ -109,6 +110,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
         Remember: Always address the user as {user_display_name} and include exactly one emoji in your final response."""
 
+        # Update how we pass the formatted prompt
         messages = self.prompt.format_messages(
             input=context_prompt,
             chat_history=chat_history,
@@ -907,7 +909,7 @@ class AIResponder(commands.Cog):
                 for example in examples
             ])
 
-            # Create few-shot prompt template
+            # Create prompt template with few-shot examples
             few_shot_prompt = ChatPromptTemplate.from_messages([
                 ("system", personality),
                 ("system", tool_instructions),
@@ -923,7 +925,7 @@ class AIResponder(commands.Cog):
                 return_messages=True
             )
 
-            # Initialize the agent
+            # Initialize the agent with the few-shot prompt
             self.agent = LlamaFunctionsAgent(
                 llm=self.llm,
                 tools=self.tools,
