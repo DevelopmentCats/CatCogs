@@ -129,18 +129,22 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
         Important:
         - ALWAYS prefix your final response with "Final Answer:"
-        - Use tools only when necessary
-        - For direct responses or introductions, use "Final Answer:"
+        - For any factual information you're not 100% certain about, use DuckDuckGo Search
+        - Never make up information - if unsure, search first
+        - Use tools when needed for accuracy
         - Follow the example patterns exactly
 
         Tool Usage Guidelines:
-        - Follow the patterns shown in the examples
-        - Always use 'Current Date and Time (CST)' for any time-related queries
-        - Use 'Calculator' for mathematical calculations as shown
-        - Use 'DuckDuckGo Search' for current events and recent information
-        - Use 'Wikipedia' for general knowledge topics
-        - Use 'Discord Server Info' when asked about the current server
-        - Use 'Channel Chat History' when context from recent messages is needed"""
+        - Use 'DuckDuckGo Search' for:
+          * Any current information
+          * Technical topics
+          * Product details
+          * General knowledge verification
+        - Use 'Wikipedia' for historical or well-established topics
+        - Use 'Calculator' for mathematical calculations
+        - Use 'Current Date and Time (CST)' for time-related queries
+        - Use 'Discord Server Info' for server-specific information
+        - Use 'Channel Chat History' for recent discord message context"""
 
         messages = self.prompt.format_messages(
             input=context_prompt,
