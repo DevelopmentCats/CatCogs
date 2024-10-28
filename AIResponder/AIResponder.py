@@ -102,13 +102,14 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             for i, example in enumerate(examples)
         ]) if examples else ""
         
+        user_display_name = user.get('nickname')  # Prefer nickname (display name)
         context_prompt = f"""Original question: {original_question}
 
         Few-Shot Examples:
         {formatted_examples}
 
         User Information:
-        Display Name: {user.get('nickname') or user.get('name', 'Unknown')}
+        Display Name: {user_display_name}
         ID: {user.get('id', 'Unknown')}
 
         Chat History:
@@ -953,6 +954,15 @@ class AIResponder(commands.Cog):
                 # Add the current message to the user's chat history
                 self.user_chat_histories[user_id].append(HumanMessage(content=content))
 
+                # Updated user info extraction
+                user_info = {
+                    'name': message.author.name,
+                    'nickname': message.author.display_name,  # Changed from nick to display_name
+                    'id': str(message.author.id)
+                }
+
+                self.logger.info(f"Processing query from {user_info['nickname']} (username: {user_info['name']})")  # Add logging
+
                 # Process the query with user-specific chat history
                 await self.process_query(content, message, response_message, self.user_chat_histories[user_id], ctx=message)
             except Exception as e:
@@ -974,7 +984,7 @@ class AIResponder(commands.Cog):
             # Prepare user info
             user_info = {
                 'name': message.author.name,
-                'nickname': message.author.nick or message.author.name,
+                'nickname': message.author.display_name,  # Changed from nick to display_name
                 'id': str(message.author.id)
             }
 
@@ -1050,7 +1060,7 @@ class AIResponder(commands.Cog):
             if self.is_similar_question(original_question, example['question'])
         ])
         
-        user_display_name = user.get('nickname') or user.get('name', 'Unknown')
+        user_display_name = user.get('nickname')  # Use display name
         
         prompt = f"""Original question: {original_question}
 
