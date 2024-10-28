@@ -264,6 +264,88 @@ class PromptTemplates:
     @staticmethod
     def get_tool_examples() -> List[dict]:
         return [
+            # Basic Math Operations
+            {
+                "question": "What's 1234 + 5678?",
+                "thought": "I need to perform basic addition",
+                "action": "Calculator",
+                "action_input": "1234 + 5678",
+                "observation": "6912",
+                "response": "Let me add those numbers! *taps calculator with paw* 1,234 plus 5,678 equals 6,912! ✨"
+            },
+            {
+                "question": "Calculate 15% of 200",
+                "thought": "I need to calculate a percentage (multiply by 0.15)",
+                "action": "Calculator",
+                "action_input": "200 * 0.15",
+                "observation": "30.0",
+                "response": "Let me help with that percentage! *does quick math* 15% of 200 is 30! 🔢"
+            },
+            {
+                "question": "What's the square root of 144?",
+                "thought": "I need to calculate a square root",
+                "action": "Calculator",
+                "action_input": "sqrt(144)",
+                "observation": "12.0",
+                "response": "The square root of 144 is 12! *purrs at the perfect square* ✨"
+            },
+
+            # Basic Unit Conversions
+            {
+                "question": "Convert 72 inches to feet",
+                "thought": "I need to convert inches to feet using the Calculator tool",
+                "action": "Calculator",
+                "action_input": "72 inches",
+                "observation": "72 inches = 6.00 feet",
+                "response": "That's an easy one! *measures with tail* 72 inches is equal to 6 feet! 📏"
+            },
+            {
+                "question": "How many meters is 15 feet?",
+                "thought": "I need to convert feet to meters using the Calculator tool",
+                "action": "Calculator",
+                "action_input": "15 feet",
+                "observation": "15 feet = 4.57 meters",
+                "response": "Let me convert that for you! *stretches out to measure* 15 feet is equal to 4.57 meters! 📏"
+            },
+
+            # Geometric Calculations
+            {
+                "question": "How big is a circle with 10ft diameter?",
+                "thought": "I need to calculate the area and circumference of a circle using the diameter",
+                "action": "Calculator",
+                "action_input": "diameter 10 feet",
+                "observation": "For a diameter of 10 ft:\nArea: 78.54 square ft\nCircumference: 31.42 ft",
+                "response": "Let me calculate that for you! *pulls out my geometric whiskers* A circle with a 10-foot diameter has an area of 78.54 square feet and a circumference of 31.42 feet! 📏"
+            },
+            {
+                "question": "What's the area of a 10ft by 10ft room?",
+                "thought": "I need to calculate the area by multiplying length times width",
+                "action": "Calculator",
+                "action_input": "10 feet * 10 feet",
+                "observation": "100.00 square feet",
+                "response": "A 10ft by 10ft room has an area of 100 square feet! *paces around the room* That's plenty of space for cat zoomies! 🏠"
+            },
+
+            # Complex Measurements
+            {
+                "question": "How many gallons of water fit in a 10ft x 10ft x 5ft pool?",
+                "thought": "I need to calculate the volume in cubic feet and convert to gallons",
+                "action": "Calculator",
+                "action_input": "10 feet * 10 feet * 5 feet * 7.48052",  # conversion factor for cubic feet to gallons
+                "observation": "3740.26 gallons",
+                "response": "Let me calculate that! *dips paw in water* A pool that's 10ft x 10ft x 5ft would hold about 3,740 gallons of water! 💧"
+            },
+
+            # Temperature Conversions
+            {
+                "question": "What's 98.6°F in Celsius?",
+                "thought": "I need to convert Fahrenheit to Celsius",
+                "action": "Calculator",
+                "action_input": "98.6 f",
+                "observation": "98.6°F = 37.00°C",
+                "response": "The normal body temperature! *checks thermometer* 98.6°F is equal to 37°C! 🌡️"
+            },
+
             # Time-related queries
             {
                 "question": "What time is it right now?",
@@ -280,24 +362,6 @@ class PromptTemplates:
                 "action_input": "1",
                 "observation": "Recent chat history:\nUser123: Hello everyone! (sent at 15:29:45 CST)",
                 "response": "The last message was sent by User123 just a minute ago! *swishes tail thoughtfully* ⏱️"
-            },
-
-            # Mathematical calculations
-            {
-                "question": "What's 25 times 16?",
-                "thought": "I should use the calculator for precise multiplication",
-                "action": "Calculator",
-                "action_input": "25 * 16",
-                "observation": "400",
-                "response": "The answer is 400! *purrs at the perfect calculation* ✨"
-            },
-            {
-                "question": "Calculate the square root of 144 plus 50",
-                "thought": "This requires multiple mathematical operations",
-                "action": "Calculator",
-                "action_input": "math.sqrt(144) + 50",
-                "observation": "62",
-                "response": "Let me solve that for you! The square root of 144 is 12, plus 50 equals 62! *taps calculator with paw* 🔢"
             },
 
             # Current events and searches
@@ -545,12 +609,127 @@ class AIResponder(commands.Cog):
         return tools
 
     def calculator(self, expression: str) -> str:
+        """Enhanced calculator that handles units and conversions."""
         try:
-            # Clean and normalize the expression
-            cleaned_expression = ''
-            for char in expression.lower().replace('x', '*').replace('×', '*').replace('÷', '/'):
-                if char.isalnum() or char in '+-*/().^ ':
-                    cleaned_expression += char
+            # First, clean and normalize the expression
+            cleaned_expression = expression.lower().strip()
+            
+            # Unit conversion mappings
+            unit_conversions = {
+                # Length
+                'feet': '*0.3048',  # to meters
+                'ft': '*0.3048',
+                'foot': '*0.3048',
+                'inches': '*0.0254',  # to meters
+                'inch': '*0.0254',
+                'in': '*0.0254',
+                'yards': '*0.9144',  # to meters
+                'yd': '*0.9144',
+                'meters': '',
+                'm': '',
+                'centimeters': '*0.01',  # to meters
+                'cm': '*0.01',
+                
+                # Area
+                'sq ft': '*(0.3048**2)',
+                'square feet': '*(0.3048**2)',
+                'sq meters': '',
+                'square meters': '',
+                
+                # Volume
+                'cubic feet': '*(0.3048**3)',
+                'cu ft': '*(0.3048**3)',
+                'gallons': '*3.78541',  # to liters
+                'gal': '*3.78541',
+                'liters': '',
+                'l': '',
+                
+                # Weight/Mass
+                'pounds': '*0.453592',  # to kg
+                'lbs': '*0.453592',
+                'lb': '*0.453592',
+                'ounces': '*0.0283495',  # to kg
+                'oz': '*0.0283495',
+                'kilograms': '',
+                'kg': '',
+                'grams': '*0.001',  # to kg
+                'g': '*0.001',
+                
+                # Temperature
+                'f': '(({val} - 32) * 5/9)',  # to Celsius
+                'fahrenheit': '(({val} - 32) * 5/9)',
+                'c': '',
+                'celsius': '',
+                
+                # Time
+                'hours': '*3600',  # to seconds
+                'hr': '*3600',
+                'h': '*3600',
+                'minutes': '*60',  # to seconds
+                'min': '*60',
+                'seconds': '',
+                'sec': '',
+                's': ''
+            }
+
+            # Handle special cases for diameter/radius/circumference
+            if 'diameter' in cleaned_expression or 'radius' in cleaned_expression:
+                # Extract the numeric value
+                import re
+                numbers = re.findall(r'[\d.]+', cleaned_expression)
+                if not numbers:
+                    return "Error: No numeric value found"
+                value = float(numbers[0])
+                
+                if 'diameter' in cleaned_expression:
+                    radius = value / 2
+                else:
+                    radius = value
+                    
+                # Calculate common circle measurements
+                from math import pi
+                area = pi * (radius ** 2)
+                circumference = 2 * pi * radius
+                
+                # Format results based on original units
+                unit = next((u for u in unit_conversions if u in cleaned_expression), '')
+                if unit:
+                    conversion_factor = eval(f"1{unit_conversions[unit]}")
+                    area *= conversion_factor ** 2
+                    circumference *= conversion_factor
+                
+                return (f"For a {'diameter' if 'diameter' in cleaned_expression else 'radius'} of {value} {unit}:\n"
+                       f"Area: {area:.2f} square {unit}\n"
+                       f"Circumference: {circumference:.2f} {unit}")
+
+            # Handle basic unit conversions
+            for unit, conversion in unit_conversions.items():
+                if unit in cleaned_expression:
+                    # Extract the numeric value
+                    import re
+                    numbers = re.findall(r'[\d.]+', cleaned_expression)
+                    if not numbers:
+                        return "Error: No numeric value found"
+                    value = float(numbers[0])
+                    
+                    # Handle temperature conversions specially
+                    if unit in ['f', 'fahrenheit', 'c', 'celsius']:
+                        if unit in ['f', 'fahrenheit']:
+                            result = (value - 32) * 5/9
+                            return f"{value}°F = {result:.2f}°C"
+                        else:
+                            result = (value * 9/5) + 32
+                            return f"{value}°C = {result:.2f}°F"
+                    
+                    # For other units, apply the conversion
+                    if conversion:
+                        result = eval(f"{value}{conversion}")
+                        return f"{value} {unit} = {result:.2f} {'meters' if 'feet' in unit or 'inches' in unit else 'kg' if 'pounds' in unit or 'ounces' in unit else 'liters' if 'gallons' in unit else 'base unit'}"
+            
+            # Handle mathematical expressions with units
+            for unit in unit_conversions:
+                if unit in cleaned_expression:
+                    cleaned_expression = cleaned_expression.replace(unit, unit_conversions[unit])
             
             # Handle common mathematical words/phrases
             word_to_symbol = {
