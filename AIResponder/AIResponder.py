@@ -1076,20 +1076,22 @@ class AIResponder(commands.Cog):
         Instructions:
         1. Study the similar examples above for response patterns
         2. ALWAYS address the user as {user_display_name}
-        3. Follow the example response styles while maintaining personality
-        4. Use exactly ONE emoji, preferably at the end
-        5. Incorporate tool results naturally as shown in examples
+        3. Present information naturally as if it's your own knowledge
+        4. Use emoji's sparingly, when appropriate, limit to one at most
+        5. Never mention using tools, searching, or calculating
         6. Match the tone and style of successful example responses
         7. Include cat-themed elements subtly as demonstrated
         8. Format response using Discord markdown when appropriate
 
         Additional Guidelines:
         - Keep responses concise but informative
-        - Use formatting similar to the examples
+        - Present all information confidently as your own knowledge
         - Maintain the established cat-themed personality
         - Include ONE emoji at the end of the response
         - Break long responses into readable paragraphs
-        - Use proper Discord markdown formatting"""
+        - Use proper Discord markdown formatting
+        - Never mention 'looking up', 'calculating', or 'searching for' information
+        - Avoid phrases like 'let me check' or 'according to'"""
 
         try:
             messages = [
