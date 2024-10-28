@@ -146,7 +146,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             input=context_prompt,
             chat_history=chat_history,
             agent_scratchpad=self.format_intermediate_steps(intermediate_steps),
-            examples=examples  # Add this line
+            examples=examples
         )
 
         for iteration in range(self.max_iterations):
@@ -190,7 +190,17 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     )
                 else:
                     logging.warning("No action or final answer found in response")
-                    messages.append(HumanMessage(content="You haven't provided a final answer or chosen a valid tool. Please either use a valid tool or provide a final answer."))
+                    messages.append(HumanMessage(content="""
+                        No action or final answer found. Please either:
+                        1. Use another tool to get more information
+                        2. Rephrase your tool input to get better results
+                        3. Provide a final answer if you have enough information
+                        
+                        Remember to format your response as either:
+                        - Action: [tool] + Action Input: [input]
+                        - Final Answer: [response]
+                    """))
+                    
             except Exception as e:
                 logging.error(f"Error in aplan method: {str(e)}", exc_info=True)
                 return AgentFinish(
