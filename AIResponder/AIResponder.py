@@ -1015,7 +1015,6 @@ class AIResponder(commands.Cog):
 
             # Prepare context for few-shot examples
             context = {
-                'user': user_info,
                 'server': ctx.guild.name if ctx.guild else "Direct Message",
                 'channel': ctx.channel.name if ctx.channel else "DM",
                 'timestamp': datetime.now().isoformat()
