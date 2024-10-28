@@ -70,9 +70,9 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     llm: BaseChatModel = Field(...)
     tools: dict = Field(default_factory=dict)
     prompt: ChatPromptTemplate = Field(...)
-    max_iterations: int = Field(default=3)
+    max_iterations: int = Field(default=5)
 
-    def __init__(self, llm, tools, prompt, max_iterations=3, **kwargs):
+    def __init__(self, llm, tools, prompt, max_iterations=5, **kwargs):
         tools_dict = {tool.name: tool for tool in tools}
         super().__init__(llm=llm, tools=tools_dict, prompt=prompt, max_iterations=max_iterations, **kwargs)
 
@@ -604,13 +604,13 @@ class AIResponder(commands.Cog):
                     llm=self.llm,
                     tools=self.tools,
                     prompt=prompt,
-                    max_iterations=3  # Adjust this value as needed
+                    max_iterations=5  # Adjust this value as needed
                 ),
                 tools=self.tools,
                 memory=memory,
                 verbose=True,
                 handle_parsing_errors=True,
-                max_iterations=3,
+                max_iterations=5,
                 return_intermediate_steps=True,
                 early_stopping_method="force",
             )
