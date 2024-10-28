@@ -1006,18 +1006,19 @@ class AIResponder(commands.Cog):
 
             self.logger.info(f"Processing query from {message.author}: {content}")
         
-            # Fix the user info to use ctx instead of message
+            # Fix: Update user info dictionary format
             user_info = {
-                'name': ctx.author.name,
-                'nickname': ctx.author.display_name,
-                'id': str(ctx.author.id)
+                "name": str(ctx.author.name),  # Convert to string and remove quotes
+                "nickname": str(ctx.author.display_name),  # Convert to string and remove quotes
+                "id": str(ctx.author.id)
             }
 
             # Prepare context for few-shot examples
             context = {
-                'server': ctx.guild.name if ctx.guild else "Direct Message",
-                'channel': ctx.channel.name if ctx.channel else "DM",
-                'timestamp': datetime.now().isoformat()
+                "user": user_info,
+                "server": str(ctx.guild.name) if ctx.guild else "Direct Message",
+                "channel": str(ctx.channel.name) if ctx.channel else "DM",
+                "timestamp": datetime.now().isoformat()
             }
 
             result = await self.agent_executor.ainvoke(
