@@ -1006,11 +1006,11 @@ class AIResponder(commands.Cog):
 
             self.logger.info(f"Processing query from {message.author}: {content}")
         
-            # Prepare user info
+            # Fix the user info to use ctx instead of message
             user_info = {
-                'name': message.author.name,
-                'nickname': message.author.display_name,  # Changed from nick to display_name
-                'id': str(message.author.id)
+                'name': ctx.author.name,
+                'nickname': ctx.author.display_name,
+                'id': str(ctx.author.id)
             }
 
             # Prepare context for few-shot examples
