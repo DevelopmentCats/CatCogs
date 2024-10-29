@@ -124,18 +124,26 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         self.logger.debug(f"Formatted context prompt: {context_prompt}")
 
         try:
-            messages = self.prompt.format_messages(
-                input=context_prompt,
-                chat_history=chat_history,
-                agent_scratchpad=self.format_intermediate_steps(intermediate_steps),
-                name=user_name,
-                display_name=user_display_name,
-                user_id=user_id
-            )
+            # Add these debug lines
+            self.logger.debug("Prompt template details:")
+            self.logger.debug(f"Input variables required: {self.prompt.input_variables}")
+            self.logger.debug("Attempting to format with:")
+            format_dict = {
+                "input": context_prompt,
+                "chat_history": chat_history,
+                "agent_scratchpad": self.format_intermediate_steps(intermediate_steps),
+                "name": user_name,
+                "display_name": user_display_name,
+                "user_id": user_id
+            }
+            self.logger.debug(f"Format dictionary: {format_dict}")
+            
+            messages = self.prompt.format_messages(**format_dict)  # Use unpacking instead
             self.logger.debug(f"Successfully formatted messages")
         except KeyError as e:
             self.logger.error(f"KeyError in format_messages: {str(e)}")
             self.logger.error(f"Available keys: {locals().keys()}")
+            self.logger.error(f"Prompt template variables: {self.prompt.input_variables}")
             raise
 
         for iteration in range(self.max_iterations):
@@ -940,15 +948,15 @@ class AIResponder(commands.Cog):
 
             # Create prompt template with few-shot examples
             few_shot_prompt = ChatPromptTemplate.from_messages([
-                ("system", personality),
-                ("system", tool_instructions),
-                ("human", "{input}"),
-                ("assistant", "{agent_scratchpad}"),
-                ("system", f"Examples:\n{examples_str}")
+                SystemMessage(content=personality),
+                SystemMessage(content=tool_instructions),
+                HumanMessage(content="{input}"),
+                AIMessage(content="{agent_scratchpad}"),
+                SystemMessage(content=f"Examples:\n{examples_str}")
             ])
 
-            # Add this right after creating few_shot_prompt
-            self.logger.debug(f"Prompt template input variables: {few_shot_prompt.input_variables}")
+            # Add debug logging
+            self.logger.debug(f"Created prompt template with variables: {few_shot_prompt.input_variables}")
 
             # Initialize memory
             memory = ConversationBufferWindowMemory(
