@@ -447,11 +447,11 @@ class PromptTemplates:
             },
             {
                 "question": "What events are happening in St Louis and Chicago today?",
-                "thought": "I need to search for events in each city separately to get accurate information.",
+                "thought": "I need to check events in St Louis first",
                 "action": "DuckDuckGo Search",
                 "action_input": "events in St Louis today",
                 "observation": "St. Louis: Cardinals baseball game at Busch Stadium, Art exhibition at the Contemporary Art Museum",
-                "response": "Now let me check Chicago's events!",
+                "thought": "Now I need to check Chicago events with a separate search",
                 "action": "DuckDuckGo Search",
                 "action_input": "events in Chicago today",
                 "observation": "Chicago: Broadway show 'Hamilton' at CIBC Theatre, Bulls basketball game at United Center",
@@ -488,7 +488,7 @@ class PromptTemplates:
 
     @staticmethod
     def get_tool_selection_template() -> str:
-        return """You are an AI assistant with access to the following tools:
+        return """You have access to the following tools:
 
         1. Calculator - For any mathematical calculations
         2. DuckDuckGo Search - For looking up current information and facts
@@ -497,33 +497,32 @@ class PromptTemplates:
         5. Discord Server Info - For getting information about the current server
         6. Channel Chat History - For checking recent messages
 
-        CRITICAL INSTRUCTIONS:
-        For ALL responses, you MUST use this EXACT format:
+        CRITICAL INSTRUCTIONS FOR MULTI-PART QUERIES:
+        1. Make ONE tool call at a time
+        2. Wait for the actual observation before proceeding
+        3. DO NOT create fake observations or use asterisks
+        4. Verify dates carefully - only include events happening today
+        5. Format MUST be EXACTLY:
 
-        Thought: [Your reasoning for the next action]
-        Action: [The exact name of the tool to use]
-        Action Input: [The input for the tool]
+        Thought: [Your reasoning]
+        Action: [Tool name]
+        Action Input: [Tool input]
 
-        For multi-part queries (e.g., asking about multiple cities), you MUST:
-        1. Make one tool call at a time
-        2. Wait for each observation
-        3. Make additional tool calls as needed
-        4. Only give your final response after all necessary information is gathered
+        [Wait for actual observation]
 
-        Example for "What's happening in New York and London?":
-        Thought: I need to check events in New York first
-        Action: DuckDuckGo Search
-        Action Input: events in New York today
+        Thought: [Your next reasoning based on real observation]
+        Action: [Next tool name]
+        Action Input: [Next tool input]
 
-        [Wait for observation, then...]
+        [Wait for actual observation]
 
-        Thought: Now I need to check London events
-        Action: DuckDuckGo Search
-        Action Input: events in London today
+        Final Answer: [Complete response combining verified information]
 
-        [After all observations, combine information in final response]
-
-        IMPORTANT: NEVER make up information or skip tool calls. ALWAYS follow this exact format."""
+        IMPORTANT:
+        - Never make up observations
+        - Never use asterisks for fake results
+        - Only include events confirmed for today's date
+        - Wait for each tool's actual response"""
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -1387,23 +1386,119 @@ class AIResponder(commands.Cog):
                     processed_result["formatted_result"] = cleaned_time
 
             elif tool_name == "DuckDuckGo Search":
-                # Split into sentences and clean
-                sentences = [s.strip() for s in cleaned_result.split('.') if s.strip()]
+                # Initialize search-specific metadata
+                search_metadata = {
+                    "source": "DuckDuckGo",
+                    "total_results": 0,
+                    "date_verified": False,
+                    "categories": set(),
+                    "locations": set(),
+                    "dates": set()
+                }
+
+                # Split and clean results
+                result_entries = cleaned_result.split('\n-')
+                processed_entries = []
                 
-                # Process for relevance and formatting
-                if len(sentences) > 3:
-                    # Keep most relevant sentences
-                    formatted_text = '. '.join(sentences[:3]) + '...'
+                # Date detection patterns
+                date_patterns = [
+                    r'(?:today|tonight|this morning|this evening)',
+                    r'(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:st|nd|rd|th)?(?:\s*,\s*\d{4})?',
+                    r'\d{1,2}/\d{1,2}/\d{2,4}',
+                    r'\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)',
+                ]
+                
+                # Location detection
+                location_pattern = r'(?:at|in|near)\s+([A-Z][a-zA-Z\s]+(?:Stadium|Center|Theatre|Museum|Park|Hall|Arena|Square|Place|Mall|Garden|Library|Gallery))'
+                
+                # Category keywords
+                categories = {
+                    'sports': r'(?:game|match|tournament|championship|sports|baseball|football|basketball|soccer|hockey)',
+                    'entertainment': r'(?:concert|show|performance|theatre|movie|exhibition|festival|fair)',
+                    'food': r'(?:restaurant|dining|food|drink|tasting|culinary|brewery|winery)',
+                    'cultural': r'(?:museum|art|gallery|history|exhibition|cultural|heritage)',
+                    'community': r'(?:meeting|gathering|workshop|seminar|conference|community)'
+                }
+
+                today = datetime.now()
+                today_str = today.strftime("%B %d").replace(" 0", " ")
+                
+                for entry in result_entries:
+                    if not entry.strip():
+                        continue
+                        
+                    entry_data = {
+                        "text": entry.strip(),
+                        "relevance_score": 0,
+                        "date_mentioned": False,
+                        "location_mentioned": False,
+                        "categories": set(),
+                        "times_mentioned": set()
+                    }
+
+                    # Check for date relevance
+                    for pattern in date_patterns:
+                        matches = re.finditer(pattern, entry_data["text"], re.IGNORECASE)
+                        for match in matches:
+                            date_str = match.group()
+                            entry_data["date_mentioned"] = True
+                            search_metadata["dates"].add(date_str)
+                            if any(today_term in date_str.lower() for today_term in ['today', 'tonight', 'this morning', 'this evening']):
+                                entry_data["relevance_score"] += 3
+
+                    # Extract locations
+                    locations = re.finditer(location_pattern, entry_data["text"])
+                    for match in locations:
+                        location = match.group(1)
+                        entry_data["location_mentioned"] = True
+                        search_metadata["locations"].add(location)
+                        entry_data["relevance_score"] += 1
+
+                    # Categorize content
+                    for category, pattern in categories.items():
+                        if re.search(pattern, entry_data["text"], re.IGNORECASE):
+                            entry_data["categories"].add(category)
+                            search_metadata["categories"].add(category)
+                            entry_data["relevance_score"] += 1
+
+                    # Extract times
+                    time_matches = re.finditer(r'\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)', entry_data["text"])
+                    for match in time_matches:
+                        entry_data["times_mentioned"].add(match.group())
+
+                    processed_entries.append(entry_data)
+
+                # Sort by relevance score
+                processed_entries.sort(key=lambda x: x["relevance_score"], reverse=True)
+                
+                # Format final output
+                if processed_entries:
+                    relevant_entries = [entry for entry in processed_entries 
+                                      if entry["date_mentioned"] or entry["location_mentioned"]]
+                    
+                    if relevant_entries:
+                        formatted_text = ""
+                        for entry in relevant_entries[:3]:  # Take top 3 most relevant
+                            formatted_text += f"{entry['text']}\n"
+                    else:
+                        formatted_text = "Found some results, but couldn't verify specific dates or locations for today."
                 else:
-                    formatted_text = '. '.join(sentences)
+                    formatted_text = "No relevant results found for the current search."
+
+                # Update metadata
+                search_metadata.update({
+                    "total_results": len(processed_entries),
+                    "relevant_results": len(relevant_entries),
+                    "date_verified": any(entry["date_mentioned"] for entry in processed_entries),
+                    "categories": list(search_metadata["categories"]),
+                    "locations": list(search_metadata["locations"]),
+                    "dates": list(search_metadata["dates"])
+                })
 
                 processed_result.update({
                     "type": "search_result",
-                    "formatted_result": formatted_text,
-                    "metadata": {
-                        "source": "DuckDuckGo",
-                        "result_count": len(sentences)
-                    }
+                    "formatted_result": formatted_text.strip(),
+                    "metadata": search_metadata
                 })
 
             elif tool_name == "Wikipedia":
@@ -1472,7 +1567,6 @@ class AIResponder(commands.Cog):
                 "type": "text",
                 "confidence": 0.5,
                 "metadata": {"error": str(e)}
-            }
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
