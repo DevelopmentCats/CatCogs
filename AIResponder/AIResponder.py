@@ -1022,21 +1022,21 @@ class AIResponder(commands.Cog):
 
             self.logger.info(f"Processing query from {message.author}: {content}")
         
-            # Fix: Update user info dictionary format
+            # Updated user info dictionary with safer attribute access
             user_info = {
-                "name": message.author.name,  # Convert to string and remove quotes
-                "nickname": message.author.display_name,  # Convert to string and remove quotes
-                "id": str(message.author.id)
+                "name": str(getattr(message.author, 'name', 'User')),
+                "nickname": str(getattr(message.author, 'display_name', 'User')),
+                "id": str(getattr(message.author, 'id', '0'))
             }
 
-            # Log user_info to debug the KeyError
+            # Log user_info to debug
             self.logger.debug(f"User info: {user_info}")
 
-            # Prepare context for few-shot examples
+            # Updated context dictionary with safer access
             context = {
                 "user": user_info,
-                "server": ctx.guild.name if ctx.guild else "Direct Message",
-                "channel": ctx.channel.name if ctx.channel else "DM",
+                "server": getattr(ctx.guild, 'name', 'Direct Message') if ctx.guild else "Direct Message",
+                "channel": getattr(ctx.channel, 'name', 'DM') if ctx.channel else "DM",
                 "timestamp": datetime.now().isoformat()
             }
 
@@ -1046,8 +1046,7 @@ class AIResponder(commands.Cog):
                     "chat_history": chat_history[-5:],
                     "agent_scratchpad": "",
                     "context": context,
-                    "user": user_info,
-                    "examples": PromptTemplates.get_tool_examples()
+                    "user": user_info
                 },
                 {"callbacks": [callback_handler]}
             )
@@ -1322,4 +1321,3 @@ async def setup(bot: Red):
     cog = AIResponder(bot)
     await bot.add_cog(cog)
     await cog.initialize()
-
