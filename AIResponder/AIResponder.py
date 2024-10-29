@@ -1279,37 +1279,131 @@ class AIResponder(commands.Cog):
             self.logger.error(f"Error retrieving channel history: {str(e)}", exc_info=True)
             return f"Error: Unable to retrieve chat history. {str(e)}"
 
-    def process_tool_result(self, tool_name: str, result: str) -> str:
+    def process_tool_result(self, tool_name: str, result: str) -> dict:
         """Process and clean tool results for better response generation."""
         try:
-            # Remove any internal formatting or debug information
-            result = re.sub(r'\[DEBUG:.*?\]', '', result)
-            
-            # Truncate very long results while maintaining coherence
-            if len(result) > 500:
-                sentences = result.split('.')
-                shortened = []
-                current_length = 0
-                for sentence in sentences:
-                    if current_length + len(sentence) <= 500:
-                        shortened.append(sentence)
-                        current_length += len(sentence)
-                    else:
-                        break
-                result = '. '.join(shortened) + '...'
-            
-            # Format based on tool type
+            # Initialize result structure
+            processed_result = {
+                "raw_result": result,
+                "formatted_result": "",
+                "type": "text",  # Default type
+                "confidence": 1.0,  # Default confidence
+                "metadata": {}
+            }
+
+            # Remove debug information
+            cleaned_result = re.sub(r'\[DEBUG:.*?\]', '', result)
+
+            # Determine result type and format accordingly
             if tool_name == "Calculator":
-                result = f"The calculation result is: {result}"
+                processed_result.update({
+                    "type": "numerical",
+                    "formatted_result": f"{cleaned_result}",
+                    "metadata": {"format": "number"}
+                })
+
             elif tool_name == "Current Date and Time (CST)":
-                result = result.replace("Current date and time in CST: ", "")
+                cleaned_time = cleaned_result.replace("Current date and time in CST: ", "")
+                try:
+                    dt = datetime.strptime(cleaned_time, "%Y-%m-%d %H:%M:%S CST")
+                    processed_result.update({
+                        "type": "datetime",
+                        "formatted_result": cleaned_time,
+                        "metadata": {
+                            "timestamp": dt.timestamp(),
+                            "format": "datetime"
+                        }
+                    })
+                except ValueError:
+                    processed_result["formatted_result"] = cleaned_time
+
             elif tool_name == "DuckDuckGo Search":
-                result = result.split('\n')[0]  # Take first relevant result
+                # Split into sentences and clean
+                sentences = [s.strip() for s in cleaned_result.split('.') if s.strip()]
                 
-            return result.strip()
+                # Process for relevance and formatting
+                if len(sentences) > 3:
+                    # Keep most relevant sentences
+                    formatted_text = '. '.join(sentences[:3]) + '...'
+                else:
+                    formatted_text = '. '.join(sentences)
+
+                processed_result.update({
+                    "type": "search_result",
+                    "formatted_result": formatted_text,
+                    "metadata": {
+                        "source": "DuckDuckGo",
+                        "result_count": len(sentences)
+                    }
+                })
+
+            elif tool_name == "Wikipedia":
+                # Clean and format Wikipedia results
+                cleaned_wiki = re.sub(r'\[\d+\]', '', cleaned_result)  # Remove citations
+                paragraphs = [p.strip() for p in cleaned_wiki.split('\n\n') if p.strip()]
+                
+                if len(paragraphs) > 0:
+                    # Format for Discord
+                    formatted_text = paragraphs[0]  # Take first paragraph
+                    if len(formatted_text) > 500:
+                        formatted_text = formatted_text[:497] + "..."
+
+                    processed_result.update({
+                        "type": "wiki_content",
+                        "formatted_result": formatted_text,
+                        "metadata": {
+                            "source": "Wikipedia",
+                            "has_more": len(paragraphs) > 1
+                        }
+                    })
+
+            elif tool_name == "Discord Server Info":
+                try:
+                    # Parse server info and format for Discord
+                    info_dict = json.loads(cleaned_result.replace("Server Information:\n", ""))
+                    formatted_text = (
+                        f"**Server Name:** {info_dict.get('name', 'Unknown')}\n"
+                        f"**Members:** {info_dict.get('member_count', 0)}\n"
+                        f"**Channels:** {info_dict.get('channels', 0)}"
+                    )
+                    processed_result.update({
+                        "type": "server_info",
+                        "formatted_result": formatted_text,
+                        "metadata": info_dict
+                    })
+                except json.JSONDecodeError:
+                    processed_result["formatted_result"] = cleaned_result
+
+            elif tool_name == "Channel Chat History":
+                # Format chat history for readability
+                history_lines = cleaned_result.split('\n')
+                if len(history_lines) > 1:  # Skip the "Recent chat history:" line
+                    formatted_text = '\n'.join(history_lines[1:])
+                    processed_result.update({
+                        "type": "chat_history",
+                        "formatted_result": formatted_text,
+                        "metadata": {
+                            "message_count": len(history_lines) - 1
+                        }
+                    })
+                else:
+                    processed_result["formatted_result"] = cleaned_result
+
+            # If no specific formatting was applied, use the cleaned result
+            if not processed_result["formatted_result"]:
+                processed_result["formatted_result"] = cleaned_result
+
+            return processed_result
+
         except Exception as e:
             self.logger.error(f"Error processing tool result: {str(e)}")
-            return result
+            return {
+                "raw_result": result,
+                "formatted_result": result,
+                "type": "text",
+                "confidence": 0.5,
+                "metadata": {"error": str(e)}
+            }
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
