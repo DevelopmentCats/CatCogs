@@ -1015,6 +1015,9 @@ class AIResponder(commands.Cog):
                 "id": str(ctx.author.id)
             }
 
+            # Log user_info to debug the KeyError
+            self.logger.debug(f"User info: {user_info}")
+
             # Prepare context for few-shot examples
             context = {
                 "user": user_info,
