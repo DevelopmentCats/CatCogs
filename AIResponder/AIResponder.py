@@ -474,7 +474,7 @@ class PromptTemplates:
 
     @staticmethod
     def get_tool_selection_template() -> str:
-        return """You have access to the following tools:
+        return """You are an AI assistant with access to the following tools:
 
         1. Calculator - For any mathematical calculations
         2. DuckDuckGo Search - For looking up current information and facts
@@ -483,24 +483,33 @@ class PromptTemplates:
         5. Discord Server Info - For getting information about the current server
         6. Channel Chat History - For checking recent messages
 
-        IMPORTANT: For multi-part queries, you MUST:
-        1. Use separate tool calls for each part
-        2. Follow this EXACT format for EACH tool call:
+        CRITICAL INSTRUCTIONS:
+        For ALL responses, you MUST use this EXACT format:
 
-        Thought: [Your reasoning]
-        Action: [Tool name]
-        Action Input: [Tool input]
-        Observation: [Wait for result]
-        Response: [Optional intermediate response]
+        Thought: [Your reasoning for the next action]
+        Action: [The exact name of the tool to use]
+        Action Input: [The input for the tool]
 
-        REPEAT the above format for each part of the query before giving a Final Answer.
+        For multi-part queries (e.g., asking about multiple cities), you MUST:
+        1. Make one tool call at a time
+        2. Wait for each observation
+        3. Make additional tool calls as needed
+        4. Only give your final response after all necessary information is gathered
 
-        For example, if asked about two cities:
-        1. Make a tool call for the first city
-        2. Make a tool call for the second city
-        3. Only then combine results in a Final Answer
+        Example for "What's happening in New York and London?":
+        Thought: I need to check events in New York first
+        Action: DuckDuckGo Search
+        Action Input: events in New York today
 
-        Never fabricate information - always use tool calls to get real data."""
+        [Wait for observation, then...]
+
+        Thought: Now I need to check London events
+        Action: DuckDuckGo Search
+        Action Input: events in London today
+
+        [After all observations, combine information in final response]
+
+        IMPORTANT: NEVER make up information or skip tool calls. ALWAYS follow this exact format."""
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
