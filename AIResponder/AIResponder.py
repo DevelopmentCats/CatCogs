@@ -958,10 +958,12 @@ class AIResponder(commands.Cog):
             # Add debug logging
             self.logger.debug(f"Created prompt template with variables: {few_shot_prompt.input_variables}")
 
-            # Initialize memory
+            # Initialize memory with specific input/output keys
             memory = ConversationBufferWindowMemory(
                 k=5,
                 memory_key="chat_history",
+                input_key="input",
+                output_key="output",
                 return_messages=True
             )
 
@@ -1071,9 +1073,7 @@ class AIResponder(commands.Cog):
                 {
                     "input": content,
                     "chat_history": chat_history[-5:],
-                    "agent_scratchpad": "",
-                    "context": context,
-                    "user": user_info
+                    "agent_scratchpad": ""
                 },
                 {"callbacks": [callback_handler]}
             )
