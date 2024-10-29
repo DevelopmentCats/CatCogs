@@ -25,7 +25,7 @@ from sympy import sympify, SympifyError, E, pi, oo, zoo
 import os
 import json
 import aiohttp
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, ConfigDict
 from langchain_core.language_models.chat_models import BaseChatModel
 import re
 import math
@@ -72,6 +72,9 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     prompt: ChatPromptTemplate = Field(...)
     max_iterations: int = Field(default=5)
     logger: logging.Logger = None
+
+    class Config:
+        arbitrary_types_allowed = True
 
     def __init__(self, llm, tools, prompt, max_iterations=5, logger=None, **kwargs):
         tools_dict = {tool.name: tool for tool in tools}
