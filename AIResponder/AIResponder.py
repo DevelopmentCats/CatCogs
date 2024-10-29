@@ -125,12 +125,19 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     tool_input = action_match.group(2).strip()
                     self.logger.info(f"PARSED: Tool={tool_name}, Input={tool_input}")
                     
-                    if tool_name in [tool.name for tool in self.tools]:
+                    # Check if tool exists in the tools dictionary
+                    if tool_name in self.tools:
                         return AgentAction(
                             tool=tool_name,
                             tool_input=tool_input,
                             log=response_text,
                             context=kwargs.get('context')
+                        )
+                    else:
+                        self.logger.warning(f"Tool not found: {tool_name}")
+                        return AgentFinish(
+                            return_values={"output": "I apologize, but I encountered an error with my tools. Could you please rephrase your question? 😿"},
+                            log=f"Tool not found: {tool_name}"
                         )
 
             elif "Final Answer:" in response_text:
