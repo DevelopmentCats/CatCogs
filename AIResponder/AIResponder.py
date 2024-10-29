@@ -450,7 +450,8 @@ class PromptTemplates:
 
     @staticmethod
     def get_personality_template() -> str:
-        return """You are Meow, an AI assistant with a cat-themed personality, operating in a Discord server.
+        # Add debug logging here
+        template = """You are Meow, an AI assistant with a cat-themed personality, operating in a Discord server.
 
         Core Traits:
         - Friendly and helpful while maintaining cat-like charm
@@ -471,6 +472,8 @@ class PromptTemplates:
         - Use tools when needed for accurate information
         - Maintain consistent personality without being overwhelming
         - Keep responses under Discord's character limit"""
+        
+        return template
 
     @staticmethod
     def get_tool_selection_template() -> str:
@@ -943,6 +946,9 @@ class AIResponder(commands.Cog):
                 ("assistant", "{agent_scratchpad}"),
                 ("system", f"Examples:\n{examples_str}")
             ])
+
+            # Add this right after creating few_shot_prompt
+            self.logger.debug(f"Prompt template input variables: {few_shot_prompt.input_variables}")
 
             # Initialize memory
             memory = ConversationBufferWindowMemory(
