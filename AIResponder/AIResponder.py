@@ -89,13 +89,9 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         raise NotImplementedError("This agent only supports async operations via aplan")
     
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
-        # Add a recursion counter to prevent infinite loops
-        recursion_count = kwargs.get('_recursion_count', 0)
-        if recursion_count > 2:  # Limit recursion to 2 attempts
-            return AgentFinish(
-                return_values={"output": "I apologize, but I'm having trouble understanding how to process your request. Could you please rephrase it? 😿"},
-                log="Exceeded maximum recursion attempts"
-            )
+        # Log the incoming request
+        self.logger.debug(f"aplan called with question: {kwargs.get('input', '')}")
+        self.logger.debug(f"Current intermediate_steps: {intermediate_steps}")
 
         original_question = kwargs.get('input', '')
         chat_history = kwargs.get('chat_history', [])
@@ -159,18 +155,16 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 "user_id": user_id
             })
 
-            # Debug log the prompt being sent
-            self.logger.debug(f"Sending prompt to LLM: {messages[0].content[:500]}...")
+            # Log the formatted messages being sent to the LLM
+            self.logger.debug(f"Sending to LLM: {messages[0].content}")
 
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text
-            
-            # Debug log the full response
-            self.logger.debug(f"Full LLM Response:\n{response_text}")
+            self.logger.debug(f"LLM Response: {response_text}")
 
-            # Enhanced response parsing with detailed logging
+            # Log the parsing attempt
             if "Action:" in response_text:
-                self.logger.debug("Found 'Action:' in response")
+                self.logger.debug("Found Action directive in response")
                 action_match = re.search(r"Action:\s*([^\n]+)\s*Action Input:\s*([^\n]+)", response_text, re.IGNORECASE)
                 if action_match:
                     self.logger.debug(f"Action match groups: {action_match.groups()}")
@@ -188,12 +182,14 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                             context=kwargs.get('context')
                         )
                     else:
-                        self.logger.debug(f"Tool '{tool_name}' not found in available tools: {list(self.tools.keys())}")
-                else:
-                    self.logger.debug("Action keyword found but couldn't parse action and input")
+                        self.logger.warning(f"Invalid tool name: {tool_name}")
+                        return AgentFinish(
+                            return_values={"output": f"I apologize, {user_display_name}, but I encountered an error with tool selection. Could you please rephrase your question? 😿"},
+                            log=f"Invalid tool name: {tool_name}"
+                        )
 
             elif "Final Answer:" in response_text:
-                self.logger.debug("Found 'Final Answer:' in response")
+                self.logger.debug("Found Final Answer in response")
                 final_answer = response_text.split("Final Answer:", 1)[1].strip()
                 self.logger.debug(f"Extracted final answer: '{final_answer}'")
                 return AgentFinish(
@@ -201,13 +197,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     log=f"Thought: Direct response appropriate.\nFinal Answer: {final_answer}"
                 )
             else:
-                self.logger.debug("No 'Action:' or 'Final Answer:' found in response")
-
-            # If we reach here, log why we're recursing
-            self.logger.debug("Response not properly formatted, attempting recursion")
-            kwargs['_recursion_count'] = recursion_count + 1
-            messages.append(HumanMessage(content="Please provide either a Final Answer or a valid Tool Action."))
-            return await self.aplan(intermediate_steps, **kwargs)
+                self.logger.debug("No Action or Final Answer found in response")
+                return AgentFinish(
+                    return_values={"output": f"I apologize, {user_display_name}, but I need to think about this differently. Could you please rephrase your question? 😿"},
+                    log="Invalid response format"
+                )
 
         except Exception as e:
             self.logger.error(f"Error in aplan: {str(e)}", exc_info=True)
