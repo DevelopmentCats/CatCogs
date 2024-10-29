@@ -90,8 +90,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
         # Log the incoming request
-        self.logger.debug(f"aplan called with question: {kwargs.get('input', '')}")
-        self.logger.debug(f"Current intermediate_steps: {intermediate_steps}")
+        self.logger.info(f"PROMPT: Question received: {kwargs.get('input', '')}")
+        self.logger.info(f"PROMPT: Intermediate steps: {intermediate_steps}")
 
         original_question = kwargs.get('input', '')
         chat_history = kwargs.get('chat_history', [])
@@ -99,9 +99,9 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         user = kwargs.get('user', {})
         
         # Add debug logging
-        self.logger.debug(f"aplan kwargs: {kwargs}")
-        self.logger.debug(f"user dict: {user}")
-        self.logger.debug(f"context dict: {context}")
+        self.logger.info(f"aplan kwargs: {kwargs}")
+        self.logger.info(f"user dict: {user}")
+        self.logger.info(f"context dict: {context}")
         
         user_display_name = user.get('nickname', 'User')
         user_name = user.get('name', 'User')
@@ -156,23 +156,20 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             })
 
             # Log the formatted messages being sent to the LLM
-            self.logger.debug(f"Sending to LLM: {messages[0].content}")
+            self.logger.info(f"PROMPT SENT TO LLM: {messages[0].content}")
 
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text
-            self.logger.debug(f"LLM Response: {response_text}")
+            self.logger.info(f"LLM RESPONSE: {response_text}")
 
             # Log the parsing attempt
             if "Action:" in response_text:
-                self.logger.debug("Found Action directive in response")
+                self.logger.info("FOUND ACTION IN RESPONSE")
                 action_match = re.search(r"Action:\s*([^\n]+)\s*Action Input:\s*([^\n]+)", response_text, re.IGNORECASE)
                 if action_match:
-                    self.logger.debug(f"Action match groups: {action_match.groups()}")
                     tool_name = action_match.group(1).strip('*').strip()
                     tool_input = action_match.group(2).strip()
-                    
-                    self.logger.debug(f"Extracted tool_name: '{tool_name}'")
-                    self.logger.debug(f"Extracted tool_input: '{tool_input}'")
+                    self.logger.info(f"PARSED: Tool={tool_name}, Input={tool_input}")
                     
                     if tool_name in self.tools:
                         return AgentAction(
@@ -189,7 +186,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                         )
 
             elif "Final Answer:" in response_text:
-                self.logger.debug("Found Final Answer in response")
+                self.logger.info("FOUND FINAL ANSWER IN RESPONSE")
                 final_answer = response_text.split("Final Answer:", 1)[1].strip()
                 self.logger.debug(f"Extracted final answer: '{final_answer}'")
                 return AgentFinish(
@@ -204,7 +201,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 )
 
         except Exception as e:
-            self.logger.error(f"Error in aplan: {str(e)}", exc_info=True)
+            self.logger.error(f"ERROR IN APLAN: {str(e)}", exc_info=True)
             return AgentFinish(
                 return_values={"output": f"I apologize, {user_display_name}, but I encountered an error. Could you please rephrase your question? 😿"},
                 log=f"Error in aplan: {str(e)}"
