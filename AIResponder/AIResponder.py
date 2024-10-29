@@ -120,11 +120,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         Remember: Always address the user as {user_display_name} and include exactly one emoji in your final response."""
 
         # Update how we pass the formatted prompt
-        messages = self.prompt.format_messages(
-            input=context_prompt,
-            chat_history=chat_history,
-            agent_scratchpad=self.format_intermediate_steps(intermediate_steps)
-        )
+        try:
+            messages = self.prompt.format_messages(
+                input=context_prompt,
+                chat_history=chat_history,
+                agent_scratchpad=self.format_intermediate_steps(intermediate_steps)
+            )
+        except KeyError as e:
+            self.logger.error(f"KeyError in format_messages: {str(e)}")
+            raise
 
         for iteration in range(self.max_iterations):
             logging.info(f"Iteration {iteration + 1}/{self.max_iterations}")
