@@ -159,16 +159,26 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 "user_id": user_id
             })
 
+            # Debug log the prompt being sent
+            self.logger.debug(f"Sending prompt to LLM: {messages[0].content[:500]}...")
+
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text
-            self.logger.info(f"AI Response: {response_text[:100]}...")
+            
+            # Debug log the full response
+            self.logger.debug(f"Full LLM Response:\n{response_text}")
 
-            # Enhanced response parsing with better error handling
+            # Enhanced response parsing with detailed logging
             if "Action:" in response_text:
+                self.logger.debug("Found 'Action:' in response")
                 action_match = re.search(r"Action:\s*([^\n]+)\s*Action Input:\s*([^\n]+)", response_text, re.IGNORECASE)
                 if action_match:
+                    self.logger.debug(f"Action match groups: {action_match.groups()}")
                     tool_name = action_match.group(1).strip('*').strip()
                     tool_input = action_match.group(2).strip()
+                    
+                    self.logger.debug(f"Extracted tool_name: '{tool_name}'")
+                    self.logger.debug(f"Extracted tool_input: '{tool_input}'")
                     
                     if tool_name in self.tools:
                         return AgentAction(
@@ -177,15 +187,24 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                             log=f"Thought: Using {tool_name} to get accurate information.\nAction: {tool_name}\nInput: {tool_input}",
                             context=kwargs.get('context')
                         )
+                    else:
+                        self.logger.debug(f"Tool '{tool_name}' not found in available tools: {list(self.tools.keys())}")
+                else:
+                    self.logger.debug("Action keyword found but couldn't parse action and input")
 
             elif "Final Answer:" in response_text:
+                self.logger.debug("Found 'Final Answer:' in response")
                 final_answer = response_text.split("Final Answer:", 1)[1].strip()
+                self.logger.debug(f"Extracted final answer: '{final_answer}'")
                 return AgentFinish(
                     return_values={"output": final_answer},
                     log=f"Thought: Direct response appropriate.\nFinal Answer: {final_answer}"
                 )
+            else:
+                self.logger.debug("No 'Action:' or 'Final Answer:' found in response")
 
-            # If we reach here, the response wasn't properly formatted
+            # If we reach here, log why we're recursing
+            self.logger.debug("Response not properly formatted, attempting recursion")
             kwargs['_recursion_count'] = recursion_count + 1
             messages.append(HumanMessage(content="Please provide either a Final Answer or a valid Tool Action."))
             return await self.aplan(intermediate_steps, **kwargs)
