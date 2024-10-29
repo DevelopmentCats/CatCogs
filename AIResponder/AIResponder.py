@@ -98,56 +98,13 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         context = kwargs.get('context', {})
         user = kwargs.get('user', {})
         
-        # Add debug logging
-        self.logger.info(f"aplan kwargs: {kwargs}")
-        self.logger.info(f"user dict: {user}")
-        self.logger.info(f"context dict: {context}")
-        
         user_display_name = user.get('nickname', 'User')
         user_name = user.get('name', 'User')
         user_id = user.get('id', 'Unknown')
 
-        # Enhanced decision-making prompt
-        context_prompt = f"""Question: {original_question}
-
-        User Information:
-        Display Name: {user_display_name}
-        Username: {user_name}
-        ID: {user_id}
-
-        Available Tools:
-        1. Calculator - For mathematical calculations, unit conversions, and geometric computations
-        2. DuckDuckGo Search - For current events, facts, and real-time information
-        3. Wikipedia - For detailed historical or established knowledge
-        4. Current Date and Time (CST) - For time-related queries
-        5. Discord Server Info - For server-specific information
-        6. Channel Chat History - For context from recent messages
-
-        Recent Chat History:
-        {self.format_chat_history(chat_history)}
-
-        Current Context:
-        {context if context else 'No additional context provided'}
-
-        Instructions:
-        1. First, determine if tools are needed to answer the question accurately
-        2. If no tools are needed, provide a direct Final Answer
-        3. If tools are needed, select the most appropriate tool
-        4. Use tools only when necessary for accuracy
-        5. Remember to maintain cat-themed personality and include one emoji
-
-        Decision Process:
-        1. Is this a factual query requiring current information? → Use DuckDuckGo Search
-        2. Is this a mathematical calculation? → Use Calculator
-        3. Is this about historical/established topics? → Use Wikipedia
-        4. Is this about time/date? → Use Current Date and Time
-        5. Is this about the Discord server? → Use Discord Server Info
-        6. Is this about recent chat? → Use Channel Chat History
-        7. Is this a general conversation? → Provide direct Final Answer"""
-
         try:
             messages = self.prompt.format_messages(**{
-                "input": context_prompt,
+                "input": original_question,  # Pass the original question directly
                 "chat_history": chat_history,
                 "agent_scratchpad": self.format_intermediate_steps(intermediate_steps),
                 "name": user_name,
@@ -188,7 +145,6 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             elif "Final Answer:" in response_text:
                 self.logger.info("FOUND FINAL ANSWER IN RESPONSE")
                 final_answer = response_text.split("Final Answer:", 1)[1].strip()
-                self.logger.debug(f"Extracted final answer: '{final_answer}'")
                 return AgentFinish(
                     return_values={"output": final_answer},
                     log=f"Thought: Direct response appropriate.\nFinal Answer: {final_answer}"
