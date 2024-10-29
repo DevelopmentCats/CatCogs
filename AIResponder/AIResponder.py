@@ -71,15 +71,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     tools: dict = Field(default_factory=dict)
     prompt: ChatPromptTemplate = Field(...)
     max_iterations: int = Field(default=5)
-    logger: logging.Logger = None
+    logger: Optional[logging.Logger] = None  # Use Optional for logger
 
     class Config:
         arbitrary_types_allowed = True
 
     def __init__(self, llm, tools, prompt, max_iterations=5, logger=None, **kwargs):
         tools_dict = {tool.name: tool for tool in tools}
-        self.logger = logger
         super().__init__(llm=llm, tools=tools_dict, prompt=prompt, max_iterations=max_iterations, **kwargs)
+        self.logger = logger  # Assign logger after super().__init__()
 
     @property
     def input_keys(self):
