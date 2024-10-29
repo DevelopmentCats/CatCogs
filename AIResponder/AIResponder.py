@@ -930,10 +930,8 @@ class AIResponder(commands.Cog):
             personality = PromptTemplates.get_personality_template()
             tool_instructions = PromptTemplates.get_tool_selection_template()
 
-            # Log the template creation
-            self.logger.debug(f"Creating prompt template with:")
-            self.logger.debug(f"Personality: {personality[:100]}...")
-            self.logger.debug(f"Tool instructions: {tool_instructions[:100]}...")
+            # Set up tools
+            self.tools = await self.setup_tools()
 
             # Format examples string
             examples_str = "\n\n".join([
@@ -946,7 +944,7 @@ class AIResponder(commands.Cog):
                 for example in examples
             ])
 
-            # Create prompt template with few-shot examples
+            # Create prompt template with few-shot examples and tool instructions
             few_shot_prompt = ChatPromptTemplate.from_messages([
                 SystemMessage(content=personality),
                 SystemMessage(content=tool_instructions),
@@ -954,9 +952,6 @@ class AIResponder(commands.Cog):
                 AIMessage(content="{agent_scratchpad}"),
                 SystemMessage(content=f"Examples:\n{examples_str}")
             ])
-
-            # Add debug logging
-            self.logger.debug(f"Created prompt template with variables: {few_shot_prompt.input_variables}")
 
             # Initialize memory with specific input/output keys
             memory = ConversationBufferWindowMemory(
@@ -967,7 +962,7 @@ class AIResponder(commands.Cog):
                 return_messages=True
             )
 
-            # Initialize the agent with the few-shot prompt
+            # Initialize the agent with the few-shot prompt and tools
             self.agent = LlamaFunctionsAgent(
                 llm=self.llm,
                 tools=self.tools,
@@ -975,7 +970,7 @@ class AIResponder(commands.Cog):
                 logger=self.logger
             )
 
-            # Create agent executor
+            # Create agent executor with tools
             self.agent_executor = AgentExecutor(
                 agent=self.agent,
                 tools=self.tools,
@@ -1058,22 +1053,20 @@ class AIResponder(commands.Cog):
                 "id": str(getattr(message.author, 'id', '0'))
             }
 
-            # Log user_info to debug
-            self.logger.debug(f"User info: {user_info}")
-
-            # Updated context dictionary with safer access
+            # Create context dictionary
             context = {
-                "user": user_info,
-                "server": getattr(ctx.guild, 'name', 'Direct Message') if ctx.guild else "Direct Message",
-                "channel": getattr(ctx.channel, 'name', 'DM') if ctx.channel else "DM",
-                "timestamp": datetime.now().isoformat()
+                "message": message,
+                "channel": message.channel,
+                "guild": message.guild,
+                "user": user_info
             }
 
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
                     "chat_history": chat_history[-5:],
-                    "agent_scratchpad": ""
+                    "agent_scratchpad": "",
+                    "context": context  # Pass the context
                 },
                 {"callbacks": [callback_handler]}
             )
