@@ -548,17 +548,25 @@ class AIResponder(commands.Cog):
                 search = DuckDuckGoSearchResults()
                 results = await search.arun(clean_query)
                 
-                # Log the actual results
+                # Log the actual results for debugging
                 self.logger.info(f"DuckDuckGo Search Results: {results}")
                 
                 if not results:
                     return "No results found for the search query."
-                    
-                # Format the results
-                formatted_results = "Here are the current search results:\n"
-                for result in results[:3]:  # Get top 3 results
-                    formatted_results += f"- {result['title']}: {result['snippet']}\n"
-                    
+                
+                # Parse the results string into individual results
+                result_entries = results.split('snippet:')
+                
+                # Format the results, skipping the first empty entry
+                formatted_results = "Here are the latest results:\n"
+                for entry in result_entries[1:4]:  # Get up to 3 results
+                    # Extract title and snippet
+                    parts = entry.split('title:')
+                    if len(parts) >= 2:
+                        snippet = parts[0].strip()
+                        title = parts[1].split('link:')[0].strip()
+                        formatted_results += f"- {title}: {snippet}\n"
+                
                 return formatted_results
                     
             except Exception as e:
