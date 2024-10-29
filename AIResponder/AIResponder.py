@@ -1024,9 +1024,9 @@ class AIResponder(commands.Cog):
         
             # Fix: Update user info dictionary format
             user_info = {
-                "name": ctx.author.name,  # Convert to string and remove quotes
-                "nickname": ctx.author.display_name,  # Convert to string and remove quotes
-                "id": str(ctx.author.id)
+                "name": message.author.name,  # Convert to string and remove quotes
+                "nickname": message.author.display_name,  # Convert to string and remove quotes
+                "id": str(message.author.id)
             }
 
             # Log user_info to debug the KeyError
