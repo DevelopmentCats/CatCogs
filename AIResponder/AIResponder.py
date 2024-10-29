@@ -89,6 +89,14 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         raise NotImplementedError("This agent only supports async operations via aplan")
     
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
+        # Add a recursion counter to prevent infinite loops
+        recursion_count = kwargs.get('_recursion_count', 0)
+        if recursion_count > 2:  # Limit recursion to 2 attempts
+            return AgentFinish(
+                return_values={"output": "I apologize, but I'm having trouble understanding how to process your request. Could you please rephrase it? 😿"},
+                log="Exceeded maximum recursion attempts"
+            )
+
         original_question = kwargs.get('input', '')
         chat_history = kwargs.get('chat_history', [])
         context = kwargs.get('context', {})
@@ -155,7 +163,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             response_text = response.generations[0][0].text
             self.logger.info(f"AI Response: {response_text[:100]}...")
 
-            # Enhanced response parsing
+            # Enhanced response parsing with better error handling
             if "Action:" in response_text:
                 action_match = re.search(r"Action:\s*([^\n]+)\s*Action Input:\s*([^\n]+)", response_text, re.IGNORECASE)
                 if action_match:
@@ -169,11 +177,6 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                             log=f"Thought: Using {tool_name} to get accurate information.\nAction: {tool_name}\nInput: {tool_input}",
                             context=kwargs.get('context')
                         )
-                    else:
-                        self.logger.warning(f"Invalid tool name: {tool_name}")
-                        valid_tools = ", ".join(self.tools.keys())
-                        messages.append(HumanMessage(content=f"Invalid tool '{tool_name}'. Valid tools: {valid_tools}"))
-                        return await self.aplan(intermediate_steps, **kwargs)
 
             elif "Final Answer:" in response_text:
                 final_answer = response_text.split("Final Answer:", 1)[1].strip()
@@ -182,14 +185,9 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     log=f"Thought: Direct response appropriate.\nFinal Answer: {final_answer}"
                 )
 
-            # If no clear action or final answer, prompt for clarification
-            messages.append(HumanMessage(content="""
-                Please either:
-                1. Use a tool (Action: [tool] + Action Input: [input])
-                2. Provide a final answer (Final Answer: [response])
-                
-                Base your decision on whether tools are needed for accuracy.
-            """))
+            # If we reach here, the response wasn't properly formatted
+            kwargs['_recursion_count'] = recursion_count + 1
+            messages.append(HumanMessage(content="Please provide either a Final Answer or a valid Tool Action."))
             return await self.aplan(intermediate_steps, **kwargs)
 
         except Exception as e:
