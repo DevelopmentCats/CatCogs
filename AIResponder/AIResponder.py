@@ -116,29 +116,43 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             response_text = response.generations[0][0].text
             self.logger.info(f"LLM RESPONSE: {response_text}")
 
-            # Parse response for tool usage or final answer
+            # Parse response for actions or final answer
             if "Action:" in response_text:
                 self.logger.info("FOUND ACTION IN RESPONSE")
-                action_match = re.search(r"Action:\s*([^\n]+)\s*Action Input:\s*([^\n]+)", response_text, re.IGNORECASE)
-                if action_match:
-                    tool_name = action_match.group(1).strip()
-                    tool_input = action_match.group(2).strip()
-                    self.logger.info(f"PARSED: Tool={tool_name}, Input={tool_input}")
-                    
-                    # Check if tool exists in the tools dictionary
-                    if tool_name in self.tools:
-                        return AgentAction(
-                            tool=tool_name,
-                            tool_input=tool_input,
-                            log=response_text,
-                            context=kwargs.get('context')
+                
+                # Find all action-input pairs in the response
+                action_pairs = re.findall(
+                    r"Action:\s*([^\n]+)\s*Action Input:\s*([^\n]+)(?=\n|$)", 
+                    response_text, 
+                    re.IGNORECASE | re.MULTILINE
+                )
+
+                if action_pairs:
+                    # Take the first action that hasn't been executed yet
+                    for tool_name, tool_input in action_pairs:
+                        tool_name = tool_name.strip()
+                        tool_input = tool_input.strip()
+                        
+                        # Check if this exact action was already taken
+                        action_already_taken = any(
+                            step[0].tool == tool_name and step[0].tool_input == tool_input
+                            for step in intermediate_steps
                         )
-                    else:
-                        self.logger.warning(f"Tool not found: {tool_name}")
-                        return AgentFinish(
-                            return_values={"output": "I apologize, but I encountered an error with my tools. Could you please rephrase your question? 😿"},
-                            log=f"Tool not found: {tool_name}"
-                        )
+                        
+                        if not action_already_taken and tool_name in self.tools:
+                            self.logger.info(f"EXECUTING: Tool={tool_name}, Input={tool_input}")
+                            return AgentAction(
+                                tool=tool_name,
+                                tool_input=tool_input,
+                                log=response_text
+                            )
+
+                    # If all actions were already taken, treat as final answer
+                    final_text = response_text.split("Response:", 1)[-1].strip()
+                    return AgentFinish(
+                        return_values={"output": final_text},
+                        log=response_text
+                    )
 
             elif "Final Answer:" in response_text:
                 self.logger.info("FOUND FINAL ANSWER IN RESPONSE")
