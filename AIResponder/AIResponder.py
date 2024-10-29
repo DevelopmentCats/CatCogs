@@ -93,12 +93,19 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         self.logger.info(f"PROMPT: Intermediate steps: {intermediate_steps}")
 
         try:
-            # Format messages using the full prompt template
-            messages = self.prompt.format_messages(
-                input=kwargs.get('input', ''),
-                agent_scratchpad=self.format_intermediate_steps(intermediate_steps),
-                chat_history=kwargs.get('chat_history', [])
-            )
+            # Get the input and format the scratchpad
+            user_input = kwargs.get('input', '')
+            scratchpad = self.format_intermediate_steps(intermediate_steps)
+            chat_history = kwargs.get('chat_history', [])
+
+            # Create the messages list manually to ensure proper formatting
+            messages = [
+                SystemMessage(content=PromptTemplates.get_personality_template()),
+                SystemMessage(content=PromptTemplates.get_tool_selection_template()),
+                HumanMessage(content=user_input),
+                AIMessage(content=scratchpad),
+                SystemMessage(content=f"Examples:\n{PromptTemplates.get_tool_examples()}")
+            ]
 
             # Log the complete prompt being sent
             for msg in messages:
