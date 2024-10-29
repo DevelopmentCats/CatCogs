@@ -540,14 +540,29 @@ class AIResponder(commands.Cog):
 
         # Modify the DuckDuckGo Search tool
         async def duckduckgo_search(query: str) -> str:
-            search = DuckDuckGoSearchRun()
             try:
-                # Clean the query by removing any extra text after newlines
-                clean_query = query.split('\n')[0].strip()
-                result = await search.arun(clean_query)
-                return result
+                # Remove quotes and clean the query
+                clean_query = query.replace('"', '').strip()
+                
+                # Use DuckDuckGoSearchResults for better result handling
+                search = DuckDuckGoSearchResults()
+                results = await search.arun(clean_query)
+                
+                # Log the actual results
+                self.logger.info(f"DuckDuckGo Search Results: {results}")
+                
+                if not results:
+                    return "No results found for the search query."
+                    
+                # Format the results
+                formatted_results = "Here are the current search results:\n"
+                for result in results[:3]:  # Get top 3 results
+                    formatted_results += f"- {result['title']}: {result['snippet']}\n"
+                    
+                return formatted_results
+                    
             except Exception as e:
-                self.logger.error(f"Error in DuckDuckGo search: {str(e)}")
+                self.logger.error(f"Error in DuckDuckGo search: {str(e)}", exc_info=True)
                 return f"Error performing search: {str(e)}"
 
         tools = [
@@ -566,7 +581,7 @@ class AIResponder(commands.Cog):
             Tool(
                 name="DuckDuckGo Search",
                 func=duckduckgo_search,
-                description="Search the internet for current information. Input: a search query",
+                description="Search the internet for current information and events. Remove quotes from search terms. Returns actual search results.",
                 coroutine=duckduckgo_search,  # Use the async version
                 return_direct=True
             ),
