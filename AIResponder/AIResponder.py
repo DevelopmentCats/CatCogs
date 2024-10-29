@@ -483,17 +483,24 @@ class PromptTemplates:
         5. Discord Server Info - For getting information about the current server
         6. Channel Chat History - For checking recent messages
 
-        Important Instructions:
-        - For multi-part queries about different locations, topics, or items, make separate tool calls for each part
-        - Always verify information independently for each part of a compound question
-        - Combine the results naturally in your final response
-        - Maintain your cat personality while providing accurate information for all parts of the query
+        IMPORTANT: For multi-part queries, you MUST:
+        1. Use separate tool calls for each part
+        2. Follow this EXACT format for EACH tool call:
 
-        Example thought process:
-        "If a user asks about events in multiple cities, search for each city separately"
-        "If comparing items/places/topics, research each one individually"
-        "For complex queries, break them down into separate tool calls and combine the results"
-        """
+        Thought: [Your reasoning]
+        Action: [Tool name]
+        Action Input: [Tool input]
+        Observation: [Wait for result]
+        Response: [Optional intermediate response]
+
+        REPEAT the above format for each part of the query before giving a Final Answer.
+
+        For example, if asked about two cities:
+        1. Make a tool call for the first city
+        2. Make a tool call for the second city
+        3. Only then combine results in a Final Answer
+
+        Never fabricate information - always use tool calls to get real data."""
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
