@@ -94,14 +94,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         context = kwargs.get('context', {})
         user = kwargs.get('user', {})
         
+        # Add debug logging
+        self.logger.debug(f"aplan kwargs: {kwargs}")
+        self.logger.debug(f"user dict: {user}")
+        self.logger.debug(f"context dict: {context}")
+        
         # Ensure all expected keys are present in the user dictionary
         user_display_name = user.get('nickname', 'User')
         user_name = user.get('name', 'User')
         user_id = user.get('id', 'Unknown')
-
-        # Log the user and context information
-        self.logger.debug(f"User info: {user}")
-        self.logger.debug(f"Context: {context}")
 
         # Create the context prompt with proper string formatting
         context_prompt = f"""Question: {original_question}
@@ -119,15 +120,19 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
         Remember: Always address the user as {user_display_name} and include exactly one emoji in your final response."""
 
-        # Update how we pass the formatted prompt
+        # Log the formatted prompt
+        self.logger.debug(f"Formatted context prompt: {context_prompt}")
+
         try:
             messages = self.prompt.format_messages(
                 input=context_prompt,
                 chat_history=chat_history,
                 agent_scratchpad=self.format_intermediate_steps(intermediate_steps)
             )
+            self.logger.debug(f"Successfully formatted messages")
         except KeyError as e:
             self.logger.error(f"KeyError in format_messages: {str(e)}")
+            self.logger.error(f"Available keys: {locals().keys()}")
             raise
 
         for iteration in range(self.max_iterations):
@@ -911,6 +916,11 @@ class AIResponder(commands.Cog):
             personality = PromptTemplates.get_personality_template()
             tool_instructions = PromptTemplates.get_tool_selection_template()
 
+            # Log the template creation
+            self.logger.debug(f"Creating prompt template with:")
+            self.logger.debug(f"Personality: {personality[:100]}...")
+            self.logger.debug(f"Tool instructions: {tool_instructions[:100]}...")
+
             # Format examples string
             examples_str = "\n\n".join([
                 f"Question: {example['question']}\n"
@@ -928,7 +938,7 @@ class AIResponder(commands.Cog):
                 ("system", tool_instructions),
                 ("human", "{input}"),
                 ("assistant", "{agent_scratchpad}"),
-                ("system", f"Examples:\n{examples_str}")  # Pre-formatted examples
+                ("system", f"Examples:\n{examples_str}")
             ])
 
             # Initialize memory
@@ -943,7 +953,7 @@ class AIResponder(commands.Cog):
                 llm=self.llm,
                 tools=self.tools,
                 prompt=few_shot_prompt,
-                logger=self.logger  # Pass the logger here
+                logger=self.logger
             )
 
             # Create agent executor
@@ -958,7 +968,7 @@ class AIResponder(commands.Cog):
                 early_stopping_method="force",
             )
 
-            self.logger.info("LangChain components updated successfully with few-shot prompting")
+            self.logger.info("LangChain components updated successfully")
         except Exception as e:
             self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
             self.agent_executor = None
