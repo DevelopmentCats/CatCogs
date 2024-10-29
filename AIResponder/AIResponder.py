@@ -89,57 +89,41 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         raise NotImplementedError("This agent only supports async operations via aplan")
     
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
-        # Log the incoming request
         self.logger.info(f"PROMPT: Question received: {kwargs.get('input', '')}")
         self.logger.info(f"PROMPT: Intermediate steps: {intermediate_steps}")
 
-        original_question = kwargs.get('input', '')
-        chat_history = kwargs.get('chat_history', [])
-        context = kwargs.get('context', {})
-        user = kwargs.get('user', {})
-        
-        user_display_name = user.get('nickname', 'User')
-        user_name = user.get('name', 'User')
-        user_id = user.get('id', 'Unknown')
-
         try:
-            messages = self.prompt.format_messages(**{
-                "input": original_question,  # Pass the original question directly
-                "chat_history": chat_history,
-                "agent_scratchpad": self.format_intermediate_steps(intermediate_steps),
-                "name": user_name,
-                "display_name": user_display_name,
-                "user_id": user_id
-            })
+            # Format messages using the full prompt template
+            messages = self.prompt.format_messages(
+                input=kwargs.get('input', ''),
+                agent_scratchpad=self.format_intermediate_steps(intermediate_steps),
+                chat_history=kwargs.get('chat_history', [])
+            )
 
-            # Log the formatted messages being sent to the LLM
-            self.logger.info(f"PROMPT SENT TO LLM: {messages[0].content}")
+            # Log the complete prompt being sent
+            for msg in messages:
+                self.logger.info(f"PROMPT COMPONENT: {msg.type}: {msg.content[:200]}...")
 
+            # Get LLM response
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text
             self.logger.info(f"LLM RESPONSE: {response_text}")
 
-            # Log the parsing attempt
+            # Parse response for tool usage or final answer
             if "Action:" in response_text:
                 self.logger.info("FOUND ACTION IN RESPONSE")
                 action_match = re.search(r"Action:\s*([^\n]+)\s*Action Input:\s*([^\n]+)", response_text, re.IGNORECASE)
                 if action_match:
-                    tool_name = action_match.group(1).strip('*').strip()
+                    tool_name = action_match.group(1).strip()
                     tool_input = action_match.group(2).strip()
                     self.logger.info(f"PARSED: Tool={tool_name}, Input={tool_input}")
                     
-                    if tool_name in self.tools:
+                    if tool_name in [tool.name for tool in self.tools]:
                         return AgentAction(
                             tool=tool_name,
                             tool_input=tool_input,
-                            log=f"Thought: Using {tool_name} to get accurate information.\nAction: {tool_name}\nInput: {tool_input}",
+                            log=response_text,
                             context=kwargs.get('context')
-                        )
-                    else:
-                        self.logger.warning(f"Invalid tool name: {tool_name}")
-                        return AgentFinish(
-                            return_values={"output": f"I apologize, {user_display_name}, but I encountered an error with tool selection. Could you please rephrase your question? 😿"},
-                            log=f"Invalid tool name: {tool_name}"
                         )
 
             elif "Final Answer:" in response_text:
@@ -147,19 +131,20 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 final_answer = response_text.split("Final Answer:", 1)[1].strip()
                 return AgentFinish(
                     return_values={"output": final_answer},
-                    log=f"Thought: Direct response appropriate.\nFinal Answer: {final_answer}"
+                    log=response_text
                 )
-            else:
-                self.logger.debug("No Action or Final Answer found in response")
-                return AgentFinish(
-                    return_values={"output": f"I apologize, {user_display_name}, but I need to think about this differently. Could you please rephrase your question? 😿"},
-                    log="Invalid response format"
-                )
+
+            # If we get here, the response wasn't properly formatted
+            self.logger.warning(f"Invalid response format: {response_text}")
+            return AgentFinish(
+                return_values={"output": "I apologize, but I need to think about this differently. Could you please rephrase your question? 😿"},
+                log="Invalid response format"
+            )
 
         except Exception as e:
             self.logger.error(f"ERROR IN APLAN: {str(e)}", exc_info=True)
             return AgentFinish(
-                return_values={"output": f"I apologize, {user_display_name}, but I encountered an error. Could you please rephrase your question? 😿"},
+                return_values={"output": "I apologize, but I encountered an error. Could you please rephrase your question? 😿"},
                 log=f"Error in aplan: {str(e)}"
             )
 
