@@ -71,9 +71,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     tools: dict = Field(default_factory=dict)
     prompt: ChatPromptTemplate = Field(...)
     max_iterations: int = Field(default=5)
+    logger: logging.Logger = None
 
-    def __init__(self, llm, tools, prompt, max_iterations=5, **kwargs):
+    def __init__(self, llm, tools, prompt, max_iterations=5, logger=None, **kwargs):
         tools_dict = {tool.name: tool for tool in tools}
+        self.logger = logger
         super().__init__(llm=llm, tools=tools_dict, prompt=prompt, max_iterations=max_iterations, **kwargs)
 
     @property
@@ -933,7 +935,8 @@ class AIResponder(commands.Cog):
             self.agent = LlamaFunctionsAgent(
                 llm=self.llm,
                 tools=self.tools,
-                prompt=few_shot_prompt
+                prompt=few_shot_prompt,
+                logger=self.logger  # Pass the logger here
             )
 
             # Create agent executor
