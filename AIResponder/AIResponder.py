@@ -404,6 +404,44 @@ class PromptTemplates:
                 "action_input": "",
                 "observation": "Current date and time in CST: 2024-03-20 15:30:45 CST",
                 "response": "In Tokyo, it's currently 64°F with clear skies! *does quick time zone calculation* Since it's 3:30 PM CST here, that means it's 5:30 AM tomorrow in Tokyo! 🌏"
+            },
+
+            # Add multi-part query examples
+            {
+                "question": "What's the weather like in New York and London?",
+                "thought": "I need to search for weather information for two different cities. Let me check them separately.",
+                "action": "DuckDuckGo Search",
+                "action_input": "current weather in New York",
+                "observation": "New York: Currently 72°F (22°C), Partly cloudy with light breeze",
+                "response": "Let me check London too!",
+                "action": "DuckDuckGo Search",
+                "action_input": "current weather in London",
+                "observation": "London: Currently 16°C (61°F), Overcast with light rain",
+                "response": "*adjusts weather-tracking whiskers* 🌤️ In New York, it's a pleasant 72°F with partly cloudy skies. Meanwhile in London 🌧️, it's a bit cooler at 61°F with some light rain. Purr-fect weather watching from my window! 😺"
+            },
+            {
+                "question": "Compare the population of Tokyo and Seoul",
+                "thought": "I need to look up population data for both cities separately for accuracy.",
+                "action": "Wikipedia",
+                "action_input": "Tokyo population",
+                "observation": "Tokyo is the most populous metropolitan area in the world, with over 37 million residents",
+                "response": "Now let me check Seoul!",
+                "action": "Wikipedia",
+                "action_input": "Seoul population",
+                "observation": "Seoul has a population of approximately 9.7 million people",
+                "response": "*adjusts my statistical glasses* 📊 Tokyo is absolutely massive with over 37 million people in its metropolitan area, while Seoul has about 9.7 million residents. What a difference! 🏙️"
+            },
+            {
+                "question": "What events are happening in St Louis and Chicago today?",
+                "thought": "I need to search for events in each city separately to get accurate information.",
+                "action": "DuckDuckGo Search",
+                "action_input": "events in St Louis today",
+                "observation": "St. Louis: Cardinals baseball game at Busch Stadium, Art exhibition at the Contemporary Art Museum",
+                "response": "Now let me check Chicago's events!",
+                "action": "DuckDuckGo Search",
+                "action_input": "events in Chicago today",
+                "observation": "Chicago: Broadway show 'Hamilton' at CIBC Theatre, Bulls basketball game at United Center",
+                "response": "*excitedly swishes tail* 🎭 There's quite a bit happening! In St. Louis, you can catch a Cardinals game at Busch Stadium or visit the art exhibition at the Contemporary Art Museum. Meanwhile in Chicago, 'Hamilton' is playing at CIBC Theatre and the Bulls have a basketball game! 🏀"
             }
         ]
 
@@ -440,21 +478,22 @@ class PromptTemplates:
 
         1. Calculator - For any mathematical calculations
         2. DuckDuckGo Search - For looking up current information and facts
-        3. Wikipedia - For historical and well-established information
-        4. Current Date and Time (CST) - For time-related queries
-        5. Discord Server Info - For server-specific information
-        6. Channel Chat History - For recent chat context
+        3. Wikipedia - For getting detailed information about topics
+        4. Current Date and Time (CST) - For checking the current time
+        5. Discord Server Info - For getting information about the current server
+        6. Channel Chat History - For checking recent messages
 
-        To use a tool, you MUST use this exact format:
-        Thought: [your reasoning]
-        Action: [exact tool name from list above]
-        Action Input: [your input to the tool]
+        Important Instructions:
+        - For multi-part queries about different locations, topics, or items, make separate tool calls for each part
+        - Always verify information independently for each part of a compound question
+        - Combine the results naturally in your final response
+        - Maintain your cat personality while providing accurate information for all parts of the query
 
-        After getting a tool result, either:
-        1. Use another tool if needed using the same format
-        2. Give your final answer in this format:
-        Thought: [your reasoning]
-        Final Answer: [your response]"""
+        Example thought process:
+        "If a user asks about events in multiple cities, search for each city separately"
+        "If comparing items/places/topics, research each one individually"
+        "For complex queries, break them down into separate tool calls and combine the results"
+        """
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
