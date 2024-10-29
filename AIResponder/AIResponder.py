@@ -127,7 +127,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             messages = self.prompt.format_messages(
                 input=context_prompt,
                 chat_history=chat_history,
-                agent_scratchpad=self.format_intermediate_steps(intermediate_steps)
+                agent_scratchpad=self.format_intermediate_steps(intermediate_steps),
+                name=user_name,
+                display_name=user_display_name,
+                user_id=user_id
             )
             self.logger.debug(f"Successfully formatted messages")
         except KeyError as e:
