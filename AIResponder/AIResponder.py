@@ -89,11 +89,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         context = kwargs.get('context', {})
         user = kwargs.get('user', {})
         
-        # Fix: Remove quotes from dictionary access
-        user_display_name = user.get('nickname') or 'User'
-        user_name = user.get('name') or 'User'
-        user_id = user.get('id') or 'Unknown'
-        
+        # Ensure all expected keys are present in the user dictionary
+        user_display_name = user.get('nickname', 'User')
+        user_name = user.get('name', 'User')
+        user_id = user.get('id', 'Unknown')
+
+        # Log the user and context information
+        self.logger.debug(f"User info: {user}")
+        self.logger.debug(f"Context: {context}")
+
         # Create the context prompt with proper string formatting
         context_prompt = f"""Question: {original_question}
 
