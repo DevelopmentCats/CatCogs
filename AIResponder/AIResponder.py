@@ -99,12 +99,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         self.logger.debug(f"user dict: {user}")
         self.logger.debug(f"context dict: {context}")
         
-        # Ensure all expected keys are present in the user dictionary
         user_display_name = user.get('nickname', 'User')
         user_name = user.get('name', 'User')
         user_id = user.get('id', 'Unknown')
 
-        # Create the context prompt with proper string formatting
+        # Enhanced decision-making prompt
         context_prompt = f"""Question: {original_question}
 
         User Information:
@@ -112,104 +111,93 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         Username: {user_name}
         ID: {user_id}
 
+        Available Tools:
+        1. Calculator - For mathematical calculations, unit conversions, and geometric computations
+        2. DuckDuckGo Search - For current events, facts, and real-time information
+        3. Wikipedia - For detailed historical or established knowledge
+        4. Current Date and Time (CST) - For time-related queries
+        5. Discord Server Info - For server-specific information
+        6. Channel Chat History - For context from recent messages
+
         Recent Chat History:
         {self.format_chat_history(chat_history)}
 
         Current Context:
         {context if context else 'No additional context provided'}
 
-        Remember: Always address the user as {user_display_name} and include exactly one emoji in your final response."""
+        Instructions:
+        1. First, determine if tools are needed to answer the question accurately
+        2. If no tools are needed, provide a direct Final Answer
+        3. If tools are needed, select the most appropriate tool
+        4. Use tools only when necessary for accuracy
+        5. Remember to maintain cat-themed personality and include one emoji
 
-        # Log the formatted prompt
-        self.logger.debug(f"Formatted context prompt: {context_prompt}")
+        Decision Process:
+        1. Is this a factual query requiring current information? → Use DuckDuckGo Search
+        2. Is this a mathematical calculation? → Use Calculator
+        3. Is this about historical/established topics? → Use Wikipedia
+        4. Is this about time/date? → Use Current Date and Time
+        5. Is this about the Discord server? → Use Discord Server Info
+        6. Is this about recent chat? → Use Channel Chat History
+        7. Is this a general conversation? → Provide direct Final Answer"""
 
         try:
-            # Add these debug lines
-            self.logger.debug("Prompt template details:")
-            self.logger.debug(f"Input variables required: {self.prompt.input_variables}")
-            self.logger.debug("Attempting to format with:")
-            format_dict = {
+            messages = self.prompt.format_messages(**{
                 "input": context_prompt,
                 "chat_history": chat_history,
                 "agent_scratchpad": self.format_intermediate_steps(intermediate_steps),
                 "name": user_name,
                 "display_name": user_display_name,
                 "user_id": user_id
-            }
-            self.logger.debug(f"Format dictionary: {format_dict}")
-            
-            messages = self.prompt.format_messages(**format_dict)  # Use unpacking instead
-            self.logger.debug(f"Successfully formatted messages")
-        except KeyError as e:
-            self.logger.error(f"KeyError in format_messages: {str(e)}")
-            self.logger.error(f"Available keys: {locals().keys()}")
-            self.logger.error(f"Prompt template variables: {self.prompt.input_variables}")
-            raise
+            })
 
-        for iteration in range(self.max_iterations):
-            logging.info(f"Iteration {iteration + 1}/{self.max_iterations}")
-            try:
-                response = await self.llm.agenerate(messages=[messages])
-                response_text = response.generations[0][0].text
-                logging.info(f"AI Response: {response_text[:100]}...")  # Log first 100 chars
-                
-                if "Action:" in response_text:
-                    action_parts = response_text.split("Action:", 1)[1].split("Action Input:", 1)
-                    if len(action_parts) == 2:
-                        tool_name = action_parts[0].strip()
-                        tool_input = action_parts[1].split('\n')[0].strip()  # Only take the first line
-                        
-                        # Clean up tool name
-                        tool_name = tool_name.strip('*').strip()
-                        
-                        logging.info(f"Attempting to use tool: {tool_name}")
-                        
-                        # Check if the cleaned tool name is valid
-                        if tool_name in self.tools:
-                            return AgentAction(
-                                tool=tool_name,
-                                tool_input=tool_input,
-                                log=f"Thought: I need more information to answer this question.\nAction: Use the {tool_name} tool.\nInput: {tool_input}",
-                                context=kwargs.get('context')
-                            )
-                        else:
-                            logging.warning(f"Invalid tool name: {tool_name}")
-                            valid_tools = ", ".join(self.tools.keys())
-                            messages.append(HumanMessage(content=f"The tool '{tool_name}' is not valid. Please choose from these valid tools: {valid_tools}"))
-                            continue
-                        
-                elif "Final Answer:" in response_text:
-                    final_answer = response_text.split("Final Answer:", 1)[1].strip()
-                    logging.info(f"Final answer found: {final_answer[:100]}...")
-                    return AgentFinish(
-                        return_values={"output": final_answer},
-                        log=f"Thought: I have sufficient information to answer the question.\nFinal Answer: {final_answer}"
-                    )
-                else:
-                    logging.warning("No action or final answer found in response")
-                    messages.append(HumanMessage(content="""
-                        No action or final answer found. Please either:
-                        1. Use another tool to get more information
-                        2. Rephrase your tool input to get better results
-                        3. Provide a final answer if you have enough information
-                        
-                        Remember to format your response as either:
-                        - Action: [tool] + Action Input: [input]
-                        - Final Answer: [response]
-                    """))
+            response = await self.llm.agenerate(messages=[messages])
+            response_text = response.generations[0][0].text
+            self.logger.info(f"AI Response: {response_text[:100]}...")
+
+            # Enhanced response parsing
+            if "Action:" in response_text:
+                action_match = re.search(r"Action:\s*([^\n]+)\s*Action Input:\s*([^\n]+)", response_text, re.IGNORECASE)
+                if action_match:
+                    tool_name = action_match.group(1).strip('*').strip()
+                    tool_input = action_match.group(2).strip()
                     
-            except Exception as e:
-                logging.error(f"Error in aplan method: {str(e)}", exc_info=True)
+                    if tool_name in self.tools:
+                        return AgentAction(
+                            tool=tool_name,
+                            tool_input=tool_input,
+                            log=f"Thought: Using {tool_name} to get accurate information.\nAction: {tool_name}\nInput: {tool_input}",
+                            context=kwargs.get('context')
+                        )
+                    else:
+                        self.logger.warning(f"Invalid tool name: {tool_name}")
+                        valid_tools = ", ".join(self.tools.keys())
+                        messages.append(HumanMessage(content=f"Invalid tool '{tool_name}'. Valid tools: {valid_tools}"))
+                        return await self.aplan(intermediate_steps, **kwargs)
+
+            elif "Final Answer:" in response_text:
+                final_answer = response_text.split("Final Answer:", 1)[1].strip()
                 return AgentFinish(
-                    return_values={"output": f"I'm sorry, {user_display_name}, I encountered an error while processing your request."},
-                    log="Error in aplan method"
+                    return_values={"output": final_answer},
+                    log=f"Thought: Direct response appropriate.\nFinal Answer: {final_answer}"
                 )
-        
-        logging.warning("Max iterations reached without final answer")
-        return AgentFinish(
-            return_values={"output": f"I apologize, {user_display_name}, but I couldn't find a satisfactory answer within the allowed number of steps. Could you please rephrase your question or provide more context?"},
-            log="Max iterations reached without final answer"
-        )
+
+            # If no clear action or final answer, prompt for clarification
+            messages.append(HumanMessage(content="""
+                Please either:
+                1. Use a tool (Action: [tool] + Action Input: [input])
+                2. Provide a final answer (Final Answer: [response])
+                
+                Base your decision on whether tools are needed for accuracy.
+            """))
+            return await self.aplan(intermediate_steps, **kwargs)
+
+        except Exception as e:
+            self.logger.error(f"Error in aplan: {str(e)}", exc_info=True)
+            return AgentFinish(
+                return_values={"output": f"I apologize, {user_display_name}, but I encountered an error. Could you please rephrase your question? 😿"},
+                log=f"Error in aplan: {str(e)}"
+            )
 
     def format_chat_history(self, chat_history):
         formatted = []
