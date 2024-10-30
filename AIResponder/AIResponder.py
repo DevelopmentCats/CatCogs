@@ -95,46 +95,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         try:
             user_input = kwargs.get('input', '')
             scratchpad = self.format_intermediate_steps(intermediate_steps)
-            chat_history = kwargs.get('chat_history', [])
-
-            # Modify the system message to emphasize multi-step execution
-            tool_instructions = """IMPORTANT: For queries about multiple topics or locations:
-            1. Make separate tool calls for each topic/location
-            2. Wait for each observation before proceeding
-            3. Follow this EXACT format:
-
-            Thought: [Your reasoning]
-            Action: [Tool name]
-            Action Input: [Single search or action]
-
-            After receiving observation:
-            Thought: [Your next reasoning]
-            Action: [Next tool name]
-            Action Input: [Next single search or action]
-
-            EXAMPLE:
-            Thought: I need to check events in two cities separately.
-            Action: DuckDuckGo Search
-            Action Input: events in St Louis today
-
-            [Wait for observation, then:]
-            Thought: Now I need to check the second city.
-            Action: DuckDuckGo Search
-            Action Input: events in Seattle today
-
-            DO NOT combine multiple searches into one query."""
-
+            
+            # Construct messages list
             messages = [
                 SystemMessage(content=PromptTemplates.get_personality_template()),
-                SystemMessage(content=tool_instructions),
+                SystemMessage(content=PromptTemplates.get_tool_selection_template()),
                 HumanMessage(content=user_input),
                 AIMessage(content=scratchpad),
                 SystemMessage(content=f"Examples:\n{PromptTemplates.get_tool_examples()}")
             ]
-
-            # Log the complete prompt being sent
-            for msg in messages:
-                self.logger.info(f"PROMPT COMPONENT: {msg.type}: {msg.content[:200]}...")
 
             # Get LLM response
             response = await self.llm.agenerate(messages=[messages])
@@ -146,31 +115,29 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             
             if tool_calls:
                 # Find the next uncompleted action
-                for tool_name, tool_input in tool_calls:
-                    # Check if this exact action was already taken
-                    action_taken = any(
-                        step[0].tool == tool_name and 
-                        step[0].tool_input.strip() == tool_input.strip()
-                        for step in intermediate_steps
-                    )
+                current_step = len(intermediate_steps)
+                
+                # If we haven't completed all tool calls
+                if current_step < len(tool_calls):
+                    tool_name, tool_input = tool_calls[current_step]
                     
-                    if not action_taken and tool_name in self.tools:
-                        self.logger.info(f"Executing tool call {len(intermediate_steps) + 1} of {len(tool_calls)}: {tool_name} - {tool_input}")
+                    if tool_name in self.tools:
+                        self.logger.info(f"Executing tool call {current_step + 1} of {len(tool_calls)}: {tool_name} - {tool_input}")
                         return AgentAction(
                             tool=tool_name,
                             tool_input=tool_input,
                             log=response_text
                         )
                 
-                # If we have all observations, check for final response
-                if len(intermediate_steps) >= len(tool_calls) and "Response:" in response_text:
+                # Only return final response if we've completed all tool calls
+                elif current_step >= len(tool_calls) and "Response:" in response_text:
                     final_response = response_text.split("Response:", 1)[1].strip()
                     return AgentFinish(
                         return_values={"output": final_response},
                         log=response_text
                     )
 
-            # If no tool calls found or invalid format, return error
+            # If no valid tool calls found
             return AgentFinish(
                 return_values={"output": "I need to think about this differently. Could you please rephrase your question? 😿"},
                 log="Invalid response format or no tool calls found"
