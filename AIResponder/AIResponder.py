@@ -145,51 +145,41 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             tool_calls = self.extract_tool_calls(response_text)
             
             if tool_calls:
-                # Check if we've completed all tool calls
-                all_actions_completed = True
-                next_action = None
-
+                # Find the next uncompleted action
                 for tool_name, tool_input in tool_calls:
                     # Check if this exact action was already taken
                     action_taken = any(
-                        step[0].tool == tool_name and step[0].tool_input == tool_input
+                        step[0].tool == tool_name and 
+                        step[0].tool_input.strip() == tool_input.strip()
                         for step in intermediate_steps
                     )
                     
-                    if not action_taken:
-                        all_actions_completed = False
-                        if next_action is None and tool_name in self.tools:
-                            next_action = (tool_name, tool_input)
-                            break
-
-                # If we found a new action to take, return it
-                if next_action:
-                    self.logger.info(f"Executing next tool call: {next_action[0]} with input: {next_action[1]}")
-                    return AgentAction(
-                        tool=next_action[0],
-                        tool_input=next_action[1],
-                        log=response_text
-                    )
+                    if not action_taken and tool_name in self.tools:
+                        self.logger.info(f"Executing tool call {len(intermediate_steps) + 1} of {len(tool_calls)}: {tool_name} - {tool_input}")
+                        return AgentAction(
+                            tool=tool_name,
+                            tool_input=tool_input,
+                            log=response_text
+                        )
                 
-                # Only finish if all actions are completed
-                if all_actions_completed and "Response:" in response_text:
+                # If we have all observations, check for final response
+                if len(intermediate_steps) >= len(tool_calls) and "Response:" in response_text:
                     final_response = response_text.split("Response:", 1)[1].strip()
                     return AgentFinish(
                         return_values={"output": final_response},
                         log=response_text
                     )
 
-            # If no more tool calls and no final response, continue the chain
-            return AgentAction(
-                tool="DuckDuckGo Search",  # Use appropriate default tool
-                tool_input=user_input,
-                log="Continuing with default search"
+            # If no tool calls found or invalid format, return error
+            return AgentFinish(
+                return_values={"output": "I need to think about this differently. Could you please rephrase your question? 😿"},
+                log="Invalid response format or no tool calls found"
             )
 
         except Exception as e:
             self.logger.error(f"ERROR IN APLAN: {str(e)}", exc_info=True)
             return AgentFinish(
-                return_values={"output": "I apologize, but I encountered an error. Could you please rephrase your question? 😿"},
+                return_values={"output": "I encountered an error. Could you please rephrase your question? 😿"},
                 log=f"Error in aplan: {str(e)}"
             )
 
@@ -208,11 +198,20 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             formatted.append(f"{role}: {content.strip()}")
         return "\n".join(formatted)
 
-    def format_intermediate_steps(self, intermediate_steps):
-        formatted = []
+    def format_intermediate_steps(self, intermediate_steps: List[Tuple[AgentAction, str]]) -> str:
+        """Format intermediate steps for the prompt."""
+        if not intermediate_steps:
+            return ""
+            
+        formatted_steps = []
         for action, observation in intermediate_steps:
-            formatted.append(f"Action: {action.tool}\nInput: {action.tool_input}\nObservation: {observation}")
-        return "\n".join(formatted)
+            # Process the observation through our tool result processor
+            processed_result = self.process_tool_result(action.tool, observation)
+            
+            # Add the formatted step
+            formatted_steps.append(f"Action: {action.tool}\nAction Input: {action.tool_input}\nObservation: {processed_result['formatted_result']}")
+        
+        return "\n\n".join(formatted_steps)
 
     def extract_tool_info(self, response_text):
         tool_start = response_text.find("<tool>") + 6
@@ -1434,7 +1433,64 @@ class AIResponder(commands.Cog):
                     "metadata": search_metadata
                 })
 
-            # ... rest of the tool processing code ...
+            elif tool_name == "Wikipedia":
+                # Process Wikipedia results
+                wiki_metadata = {
+                    "source": "Wikipedia",
+                    "summary": cleaned_result
+                }
+                
+                processed_result.update({
+                    "type": "wiki_result",
+                    "formatted_result": cleaned_result,
+                    "metadata": wiki_metadata
+                })
+
+            elif tool_name == "Calculator":
+                # Process calculator results
+                calc_metadata = {
+                    "source": "Calculator",
+                    "expression": result
+                }
+                
+                processed_result.update({
+                    "type": "calculation",
+                    "formatted_result": result,
+                    "metadata": calc_metadata
+                })
+
+            elif tool_name == "Discord Server Info":
+                # Process Discord server info
+                server_metadata = {
+                    "source": "Discord",
+                    "info": cleaned_result
+                }
+                
+                processed_result.update({
+                    "type": "server_info",
+                    "formatted_result": cleaned_result,
+                    "metadata": server_metadata
+                })
+
+            elif tool_name == "Channel Chat History":
+                # Process chat history
+                chat_metadata = {
+                    "source": "Discord",
+                    "history": cleaned_result
+                }
+                
+                processed_result.update({
+                    "type": "chat_history",
+                    "formatted_result": cleaned_result,
+                    "metadata": chat_metadata
+                })
+
+            else:
+                # Handle any other tools
+                processed_result.update({
+                    "formatted_result": cleaned_result,
+                    "metadata": {"source": tool_name}
+                })
 
             return processed_result
 
