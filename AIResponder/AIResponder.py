@@ -126,32 +126,45 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             tool_calls = self.extract_tool_calls(response_text)
             
             if tool_calls:
-                # Find the first tool call that hasn't been executed yet
+                # Check if we've completed all tool calls
+                all_actions_completed = True
+                next_action = None
+
                 for tool_name, tool_input in tool_calls:
                     # Check if this exact action was already taken
-                    action_already_taken = any(
+                    action_taken = any(
                         step[0].tool == tool_name and step[0].tool_input == tool_input
                         for step in intermediate_steps
                     )
                     
-                    if not action_already_taken and tool_name in self.tools:
-                        return AgentAction(
-                            tool=tool_name,
-                            tool_input=tool_input,
-                            log=response_text
-                        )
+                    if not action_taken:
+                        all_actions_completed = False
+                        if next_action is None and tool_name in self.tools:
+                            next_action = (tool_name, tool_input)
+                            break
 
-            # If we get here, either process the final response or handle invalid format
-            if "Response:" in response_text:
-                final_response = response_text.split("Response:", 1)[1].strip()
-                return AgentFinish(
-                    return_values={"output": final_response},
-                    log=response_text
-                )
+                # If we found a new action to take, return it
+                if next_action:
+                    self.logger.info(f"Executing next tool call: {next_action[0]} with input: {next_action[1]}")
+                    return AgentAction(
+                        tool=next_action[0],
+                        tool_input=next_action[1],
+                        log=response_text
+                    )
+                
+                # Only finish if all actions are completed
+                if all_actions_completed and "Response:" in response_text:
+                    final_response = response_text.split("Response:", 1)[1].strip()
+                    return AgentFinish(
+                        return_values={"output": final_response},
+                        log=response_text
+                    )
 
-            return AgentFinish(
-                return_values={"output": "I apologize, but I need to think about this differently. Could you please rephrase your question? 😿"},
-                log="Invalid response format"
+            # If no more tool calls and no final response, continue the chain
+            return AgentAction(
+                tool="DuckDuckGo Search",  # Use appropriate default tool
+                tool_input=user_input,
+                log="Continuing with default search"
             )
 
         except Exception as e:
