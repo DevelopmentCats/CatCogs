@@ -89,14 +89,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         raise NotImplementedError("This agent only supports async operations via aplan")
     
     async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
-        self.logger.info(f"PROMPT: Question received: {kwargs.get('input', '')}")
-        self.logger.info(f"PROMPT: Intermediate steps: {intermediate_steps}")
-
         try:
             user_input = kwargs.get('input', '')
             scratchpad = self.format_intermediate_steps(intermediate_steps)
             
-            # Construct messages list
+            # Get LLM response
             messages = [
                 SystemMessage(content=PromptTemplates.get_personality_template()),
                 SystemMessage(content=PromptTemplates.get_tool_selection_template()),
@@ -104,8 +101,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 AIMessage(content=scratchpad),
                 SystemMessage(content=f"Examples:\n{PromptTemplates.get_tool_examples()}")
             ]
-
-            # Get LLM response
+            
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text
             self.logger.info(f"LLM RESPONSE: {response_text}")
@@ -114,10 +110,9 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             tool_calls = self.extract_tool_calls(response_text)
             
             if tool_calls:
-                # Find the next uncompleted action
                 current_step = len(intermediate_steps)
                 
-                # If we haven't completed all tool calls
+                # If we have more tools to execute
                 if current_step < len(tool_calls):
                     tool_name, tool_input = tool_calls[current_step]
                     
@@ -126,21 +121,36 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                         return AgentAction(
                             tool=tool_name,
                             tool_input=tool_input,
-                            log=response_text
+                            log=f"Step {current_step + 1}/{len(tool_calls)}: {response_text}"
                         )
                 
-                # Only return final response if we've completed all tool calls
-                elif current_step >= len(tool_calls) and "Response:" in response_text:
-                    final_response = response_text.split("Response:", 1)[1].strip()
-                    return AgentFinish(
-                        return_values={"output": final_response},
-                        log=response_text
-                    )
+                # Only finish if we've completed all tools
+                if current_step >= len(tool_calls):
+                    if "Response:" in response_text:
+                        final_response = response_text.split("Response:", 1)[1].strip()
+                        return AgentFinish(
+                            return_values={"output": final_response},
+                            log=response_text
+                        )
+                    else:
+                        # Generate a new response based on all observations
+                        return AgentAction(
+                            tool="DuckDuckGo Search",
+                            tool_input=user_input,
+                            log="Continuing chain for final response"
+                        )
 
-            # If no valid tool calls found
+            # If no tool calls found in response
+            if "Response:" in response_text:
+                final_response = response_text.split("Response:", 1)[1].strip()
+                return AgentFinish(
+                    return_values={"output": final_response},
+                    log=response_text
+                )
+
             return AgentFinish(
                 return_values={"output": "I need to think about this differently. Could you please rephrase your question? 😿"},
-                log="Invalid response format or no tool calls found"
+                log="No valid tool calls or response found"
             )
 
         except Exception as e:
@@ -206,32 +216,32 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     def return_values(self) -> List[str]:
         return ["output"]
 
-    def extract_tool_calls(self, response_text):
-        """Extract multiple tool calls from response text with strict formatting."""
+    def extract_tool_calls(self, response_text: str) -> List[Tuple[str, str]]:
+        """Extract multiple tool calls from response text."""
         tool_calls = []
         
-        # Split the response into lines for better parsing
-        lines = response_text.split('\n')
+        # Split by "Action:" to get separate tool calls
+        actions = response_text.split("Action:")
         
-        current_tool = None
-        current_input = None
-        
-        for line in lines:
-            line = line.strip()
-            
-            # Look for exact "Action:" and "Action Input:" lines
-            if line.startswith('Action:'):
-                current_tool = line[7:].strip()
-            elif line.startswith('Action Input:'):
-                current_input = line[12:].strip()
+        for action in actions[1:]:  # Skip first split as it's pre-action text
+            try:
+                # Extract tool name
+                tool_name = action.split("\n", 1)[0].strip()
                 
-                # When we have both tool and input, add them to our calls
-                if current_tool and current_input:
-                    # Remove any quotes around the input
-                    current_input = current_input.strip("'\"")
-                    tool_calls.append((current_tool, current_input))
-                    current_tool = None
-                    current_input = None
+                # Look for Action Input
+                if "Action Input:" in action:
+                    tool_input = action.split("Action Input:", 1)[1]
+                    # Only get the input part before any other keywords
+                    tool_input = tool_input.split("\n", 1)[0].strip()
+                    
+                    # Clean up the tool input
+                    tool_input = tool_input.strip('"\'')
+                    
+                    if tool_name and tool_input:
+                        tool_calls.append((tool_name, tool_input))
+            except Exception as e:
+                self.logger.error(f"Error parsing tool call: {str(e)}")
+                continue
         
         return tool_calls
 
