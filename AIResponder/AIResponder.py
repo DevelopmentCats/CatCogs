@@ -1567,6 +1567,7 @@ class AIResponder(commands.Cog):
                 "type": "text",
                 "confidence": 0.5,
                 "metadata": {"error": str(e)}
+            }
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
