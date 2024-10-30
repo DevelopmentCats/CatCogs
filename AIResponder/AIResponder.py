@@ -66,12 +66,11 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     async def on_tool_error(self, error, **kwargs):
         self.logger.error(f"❌ Tool Error: {str(error)}")
 
-class LlamaFunctionsAgent(BaseSingleActionAgent):
-    def __init__(self, llm, tools, logger):
-        self.llm = llm
-        self.tools = tools
-        self.logger = logger
-        
+class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
+    llm: BaseChatModel = Field(description="The LLM to use for generating responses")
+    tools: List[Tool] = Field(description="The tools available to the agent")
+    logger: logging.Logger = Field(description="Logger for error handling")
+
     @property
     def input_keys(self):
         return ["input", "chat_history", "agent_scratchpad"]
@@ -114,6 +113,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent):
             # Get response from LLM
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text
+            self.logger.info(f"LLM RESPONSE: {response_text}")
             
             # If we have a final response, return it
             if "Final Response:" in response_text:
