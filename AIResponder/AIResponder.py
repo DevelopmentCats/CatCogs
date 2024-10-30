@@ -93,15 +93,21 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         self.logger.info(f"PROMPT: Intermediate steps: {intermediate_steps}")
 
         try:
-            # Get the input and format the scratchpad
             user_input = kwargs.get('input', '')
             scratchpad = self.format_intermediate_steps(intermediate_steps)
             chat_history = kwargs.get('chat_history', [])
 
-            # Create the messages list manually to ensure proper formatting
+            # Modify the system message to emphasize multi-step execution
+            tool_instructions = (
+                "IMPORTANT: For queries about multiple topics or locations:\n"
+                "1. Make separate tool calls for each topic/location\n"
+                "2. Wait for each observation before proceeding\n"
+                "3. Follow the example format exactly\n\n"
+            ) + PromptTemplates.get_tool_selection_template()
+
             messages = [
                 SystemMessage(content=PromptTemplates.get_personality_template()),
-                SystemMessage(content=PromptTemplates.get_tool_selection_template()),
+                SystemMessage(content=tool_instructions),
                 HumanMessage(content=user_input),
                 AIMessage(content=scratchpad),
                 SystemMessage(content=f"Examples:\n{PromptTemplates.get_tool_examples()}")
@@ -135,8 +141,14 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                             log=response_text
                         )
 
-            # If we get here, the response wasn't properly formatted
-            self.logger.warning(f"Invalid response format: {response_text}")
+            # If we get here, either process the final response or handle invalid format
+            if "Response:" in response_text:
+                final_response = response_text.split("Response:", 1)[1].strip()
+                return AgentFinish(
+                    return_values={"output": final_response},
+                    log=response_text
+                )
+
             return AgentFinish(
                 return_values={"output": "I apologize, but I need to think about this differently. Could you please rephrase your question? 😿"},
                 log="Invalid response format"
