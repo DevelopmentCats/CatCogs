@@ -13,7 +13,7 @@ from langchain_core.tools import Tool
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain.agents import AgentExecutor, create_openai_functions_agent, BaseSingleActionAgent
-from langchain_core.agents import AgentAction, AgentFinish
+from langchain_core.agents import AgentAction, AgentFinish, AgentStep
 from langchain.memory import ConversationBufferWindowMemory
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
@@ -66,198 +66,75 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     async def on_tool_error(self, error, **kwargs):
         self.logger.error(f"❌ Tool Error: {str(error)}")
 
-class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
-    llm: BaseChatModel = Field(...)
-    tools: dict = Field(default_factory=dict)
-    prompt: ChatPromptTemplate = Field(...)
-    max_iterations: int = Field(default=5)
-    logger: Optional[logging.Logger] = None  # Use Optional for logger
-
-    class Config:
-        arbitrary_types_allowed = True
-
-    def __init__(self, llm, tools, prompt, max_iterations=5, logger=None, **kwargs):
-        tools_dict = {tool.name: tool for tool in tools}
-        super().__init__(llm=llm, tools=tools_dict, prompt=prompt, max_iterations=max_iterations, **kwargs)
-        self.logger = logger  # Assign logger after super().__init__()
-
+class LlamaFunctionsAgent(BaseSingleActionAgent):
     @property
     def input_keys(self):
         return ["input", "chat_history", "agent_scratchpad"]
-    
-    def plan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
-        raise NotImplementedError("This agent only supports async operations via aplan")
-    
-    async def aplan(self, intermediate_steps, **kwargs) -> Union[AgentAction, AgentFinish]:
-        try:
-            user_input = kwargs.get('input', '')
-            scratchpad = self.format_intermediate_steps(intermediate_steps)
-            
-            # Get LLM response
-            messages = [
-                SystemMessage(content=PromptTemplates.get_personality_template()),
-                SystemMessage(content=PromptTemplates.get_tool_selection_template()),
-                HumanMessage(content=user_input),
-                AIMessage(content=scratchpad),
-                SystemMessage(content=f"Examples:\n{PromptTemplates.get_tool_examples()}")
-            ]
-            
-            response = await self.llm.agenerate(messages=[messages])
-            response_text = response.generations[0][0].text
-            self.logger.info(f"LLM RESPONSE: {response_text}")
 
-            # Extract all tool calls
-            tool_calls = self.extract_tool_calls(response_text)
-            
-            if tool_calls:
-                current_step = len(intermediate_steps)
-                
-                # If we have more tools to execute
-                if current_step < len(tool_calls):
-                    tool_name, tool_input = tool_calls[current_step]
-                    
-                    if tool_name in self.tools:
-                        self.logger.info(f"Executing tool call {current_step + 1} of {len(tool_calls)}: {tool_name} - {tool_input}")
-                        return AgentAction(
-                            tool=tool_name,
-                            tool_input=tool_input,
-                            log=f"Step {current_step + 1}/{len(tool_calls)}: {response_text}"
-                        )
-                
-                # Only finish if we've completed all tools
-                if current_step >= len(tool_calls):
-                    if "Response:" in response_text:
-                        final_response = response_text.split("Response:", 1)[1].strip()
-                        return AgentFinish(
-                            return_values={"output": final_response},
-                            log=response_text
-                        )
-                    else:
-                        # Generate a new response based on all observations
-                        return AgentAction(
-                            tool="DuckDuckGo Search",
-                            tool_input=user_input,
-                            log="Continuing chain for final response"
-                        )
+    async def aplan(
+        self, intermediate_steps: List[AgentStep], **kwargs
+    ) -> Union[AgentAction, AgentFinish]:
+        """Given input, decide what to do.
 
-            # If no tool calls found in response
-            if "Response:" in response_text:
-                final_response = response_text.split("Response:", 1)[1].strip()
-                return AgentFinish(
-                    return_values={"output": final_response},
-                    log=response_text
-                )
+        Args:
+            intermediate_steps: Steps the LLM has taken to date,
+                along with observations
+            **kwargs: User inputs and other runtime args
 
-            return AgentFinish(
-                return_values={"output": "I need to think about this differently. Could you please rephrase your question? 😿"},
-                log="No valid tool calls or response found"
-            )
-
-        except Exception as e:
-            self.logger.error(f"ERROR IN APLAN: {str(e)}", exc_info=True)
-            return AgentFinish(
-                return_values={"output": "I encountered an error. Could you please rephrase your question? 😿"},
-                log=f"Error in aplan: {str(e)}"
-            )
-
-    def format_chat_history(self, chat_history):
-        formatted = []
-        for message in chat_history[-5:]:  # Only consider last 5 messages
-            role = "Human" if isinstance(message, HumanMessage) else "AI"
-            # Clean any tool usage patterns from history to avoid confusion
-            content = message.content
-            if role == "AI":
-                # Remove any tool usage patterns from AI responses
-                if "Action:" in content:
-                    content = content.split("Action:", 1)[0]
-                if "Observation:" in content:
-                    content = content.split("Observation:", 1)[0]
-            formatted.append(f"{role}: {content.strip()}")
-        return "\n".join(formatted)
-
-    def format_intermediate_steps(self, intermediate_steps: List[Tuple[AgentAction, str]]) -> str:
-        """Format intermediate steps for the prompt."""
-        if not intermediate_steps:
-            return ""
-            
-        formatted_steps = []
+        Returns:
+            Action specifying what tool to use.
+        """
+        # Format message history and include intermediate steps
+        messages = []
+        
+        # Add system messages
+        messages.extend([
+            SystemMessage(content=PromptTemplates.get_personality_template()),
+            SystemMessage(content=PromptTemplates.get_tool_selection_template())
+        ])
+        
+        # Add user input
+        messages.append(HumanMessage(content=kwargs["input"]))
+        
+        # Add intermediate steps as function messages
         for action, observation in intermediate_steps:
-            # Process the observation through our tool result processor
-            processed_result = self.process_tool_result(action.tool, observation)
+            messages.append(
+                AIMessage(content=f"I need to use {action.tool} to find out more.")
+            )
+            messages.append(
+                FunctionMessage(
+                    content=str(observation),
+                    name=action.tool
+                )
+            )
+        
+        # Get response from LLM
+        response = await self.llm.agenerate(messages=[messages])
+        response_text = response.generations[0][0].text
+        
+        # If we have a final response, return it
+        if "Final Response:" in response_text:
+            return AgentFinish(
+                return_values={"output": response_text.split("Final Response:", 1)[1].strip()},
+                log=response_text,
+            )
             
-            # Add the formatted step
-            formatted_steps.append(f"Action: {action.tool}\nAction Input: {action.tool_input}\nObservation: {processed_result['formatted_result']}")
-        
-        return "\n\n".join(formatted_steps)
-
-    def extract_tool_info(self, response_text):
-        tool_start = response_text.find("<tool>") + 6
-        tool_end = response_text.find("</tool>")
-        tool_name = response_text[tool_start:tool_end].strip()
-        
-        input_start = response_text.find("<input>") + 7
-        input_end = response_text.find("</input>")
-        tool_input = response_text[input_start:input_end].strip() if input_start > 0 and input_end > 0 else ""
-        
-        return tool_name, tool_input
-
-    def extract_reason(self, response_text):
-        reason_start = response_text.find("Reason:") + 7
-        reason_end = response_text.find("<tool>")
-        return response_text[reason_start:reason_end].strip() if reason_start > 0 and reason_end > 0 else ""
-
-    def clean_response(self, response_text):
-        clean = response_text
-        for tag in ['<tool>', '</tool>', '<input>', '</input>']:
-            clean = clean.replace(tag, '')
-        return clean.strip()
-
-    @property
-    def return_values(self) -> List[str]:
-        return ["output"]
-
-    def extract_tool_calls(self, response_text: str) -> List[Tuple[str, str]]:
-        """Extract multiple tool calls from response text."""
-        tool_calls = []
-        
-        # Split by "Action:" to get separate tool calls
-        actions = response_text.split("Action:")
-        
-        for action in actions[1:]:  # Skip first split as it's pre-action text
-            try:
-                # Extract tool name
-                tool_name = action.split("\n", 1)[0].strip()
-                
-                # Look for Action Input
-                if "Action Input:" in action:
-                    tool_input = action.split("Action Input:", 1)[1]
-                    # Only get the input part before any other keywords
-                    tool_input = tool_input.split("\n", 1)[0].strip()
-                    
-                    # Clean up the tool input
-                    tool_input = tool_input.strip('"\'')
-                    
-                    if tool_name and tool_input:
-                        tool_calls.append((tool_name, tool_input))
-            except Exception as e:
-                self.logger.error(f"Error parsing tool call: {str(e)}")
-                continue
-        
-        return tool_calls
-
-    # Add a new method to handle tool execution with context
-    async def execute_tool(self, tool: AgentAction) -> str:
-        tool_name = tool.tool.strip('*').strip()  # Clean up tool name
-        tool_input = tool.tool_input
-        context = tool.context if hasattr(tool, 'context') else None
-
-        if tool_name not in self.tools:
-            return f"Error: Tool '{tool_name}' not found."
-        
-        if tool_name in ["Discord Server Info", "Channel Chat History"]:
-            return await self.tools[tool_name].func(tool_input, context)
-        else:
-            return await self.tools[tool_name].func(tool_input)
+        # Otherwise, extract the next tool call
+        if "Action:" in response_text:
+            tool_name = response_text.split("Action:", 1)[1].split("\n")[0].strip()
+            tool_input = response_text.split("Action Input:", 1)[1].split("\n")[0].strip()
+            
+            return AgentAction(
+                tool=tool_name,
+                tool_input=tool_input,
+                log=response_text,
+            )
+            
+        # If no action or final response found, ask for clarification
+        return AgentFinish(
+            return_values={"output": "I need more information. Could you please clarify?"},
+            log=response_text,
+        )
 
 class PromptTemplates:
     @staticmethod
