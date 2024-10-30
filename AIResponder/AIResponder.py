@@ -71,70 +71,75 @@ class LlamaFunctionsAgent(BaseSingleActionAgent):
     def input_keys(self):
         return ["input", "chat_history", "agent_scratchpad"]
 
+    def plan(
+        self, intermediate_steps: List[AgentStep], **kwargs
+    ) -> Union[AgentAction, AgentFinish]:
+        """Synchronous version - required by BaseSingleActionAgent but we'll use aplan."""
+        raise NotImplementedError("Use aplan instead")
+
     async def aplan(
         self, intermediate_steps: List[AgentStep], **kwargs
     ) -> Union[AgentAction, AgentFinish]:
-        """Given input, decide what to do.
-
-        Args:
-            intermediate_steps: Steps the LLM has taken to date,
-                along with observations
-            **kwargs: User inputs and other runtime args
-
-        Returns:
-            Action specifying what tool to use.
-        """
-        # Format message history and include intermediate steps
-        messages = []
-        
-        # Add system messages
-        messages.extend([
-            SystemMessage(content=PromptTemplates.get_personality_template()),
-            SystemMessage(content=PromptTemplates.get_tool_selection_template())
-        ])
-        
-        # Add user input
-        messages.append(HumanMessage(content=kwargs["input"]))
-        
-        # Add intermediate steps as function messages
-        for action, observation in intermediate_steps:
-            messages.append(
-                AIMessage(content=f"I need to use {action.tool} to find out more.")
-            )
-            messages.append(
-                FunctionMessage(
-                    content=str(observation),
-                    name=action.tool
+        """Given input, decide what to do."""
+        try:
+            # Format message history and include intermediate steps
+            messages = []
+            
+            # Add system messages
+            messages.extend([
+                SystemMessage(content=PromptTemplates.get_personality_template()),
+                SystemMessage(content=PromptTemplates.get_tool_selection_template())
+            ])
+            
+            # Add user input
+            messages.append(HumanMessage(content=kwargs["input"]))
+            
+            # Add intermediate steps as function messages
+            for action, observation in intermediate_steps:
+                messages.append(
+                    AIMessage(content=f"I need to use {action.tool} to find out more.")
                 )
-            )
-        
-        # Get response from LLM
-        response = await self.llm.agenerate(messages=[messages])
-        response_text = response.generations[0][0].text
-        
-        # If we have a final response, return it
-        if "Final Response:" in response_text:
+                messages.append(
+                    FunctionMessage(
+                        content=str(observation),
+                        name=action.tool
+                    )
+                )
+            
+            # Get response from LLM
+            response = await self.llm.agenerate(messages=[messages])
+            response_text = response.generations[0][0].text
+            
+            # If we have a final response, return it
+            if "Final Response:" in response_text:
+                return AgentFinish(
+                    return_values={"output": response_text.split("Final Response:", 1)[1].strip()},
+                    log=response_text,
+                )
+                
+            # Otherwise, extract the next tool call
+            if "Action:" in response_text:
+                tool_name = response_text.split("Action:", 1)[1].split("\n")[0].strip()
+                tool_input = response_text.split("Action Input:", 1)[1].split("\n")[0].strip()
+                
+                return AgentAction(
+                    tool=tool_name,
+                    tool_input=tool_input,
+                    log=response_text,
+                )
+                
+            # If no action or final response found, ask for clarification
             return AgentFinish(
-                return_values={"output": response_text.split("Final Response:", 1)[1].strip()},
+                return_values={"output": "I need more information. Could you please clarify?"},
                 log=response_text,
             )
-            
-        # Otherwise, extract the next tool call
-        if "Action:" in response_text:
-            tool_name = response_text.split("Action:", 1)[1].split("\n")[0].strip()
-            tool_input = response_text.split("Action Input:", 1)[1].split("\n")[0].strip()
-            
-            return AgentAction(
-                tool=tool_name,
-                tool_input=tool_input,
-                log=response_text,
+
+        except Exception as e:
+            self.logger.error(f"ERROR IN APLAN: {str(e)}", exc_info=True)
+            return AgentFinish(
+                return_values={"output": "I encountered an error. Could you please rephrase your question? 😿"},
+                log=f"Error in aplan: {str(e)}"
             )
-            
-        # If no action or final response found, ask for clarification
-        return AgentFinish(
-            return_values={"output": "I need more information. Could you please clarify?"},
-            log=response_text,
-        )
 
 class PromptTemplates:
     @staticmethod
