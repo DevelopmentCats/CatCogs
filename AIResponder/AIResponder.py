@@ -98,12 +98,31 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             chat_history = kwargs.get('chat_history', [])
 
             # Modify the system message to emphasize multi-step execution
-            tool_instructions = (
-                "IMPORTANT: For queries about multiple topics or locations:\n"
-                "1. Make separate tool calls for each topic/location\n"
-                "2. Wait for each observation before proceeding\n"
-                "3. Follow the example format exactly\n\n"
-            ) + PromptTemplates.get_tool_selection_template()
+            tool_instructions = """IMPORTANT: For queries about multiple topics or locations:
+            1. Make separate tool calls for each topic/location
+            2. Wait for each observation before proceeding
+            3. Follow this EXACT format:
+
+            Thought: [Your reasoning]
+            Action: [Tool name]
+            Action Input: [Single search or action]
+
+            After receiving observation:
+            Thought: [Your next reasoning]
+            Action: [Next tool name]
+            Action Input: [Next single search or action]
+
+            EXAMPLE:
+            Thought: I need to check events in two cities separately.
+            Action: DuckDuckGo Search
+            Action Input: events in St Louis today
+
+            [Wait for observation, then:]
+            Thought: Now I need to check the second city.
+            Action: DuckDuckGo Search
+            Action Input: events in Seattle today
+
+            DO NOT combine multiple searches into one query."""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_personality_template()),
@@ -222,20 +241,31 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         return ["output"]
 
     def extract_tool_calls(self, response_text):
-        """Extract multiple tool calls from response text."""
+        """Extract multiple tool calls from response text with strict formatting."""
         tool_calls = []
         
-        # Find all action-input pairs
-        matches = re.finditer(
-            r"Action:\s*([^\n]+)\s*Action Input:\s*([^\n]+)(?=\n|$)",
-            response_text,
-            re.IGNORECASE | re.MULTILINE
-        )
+        # Split the response into lines for better parsing
+        lines = response_text.split('\n')
         
-        for match in matches:
-            tool_name = match.group(1).strip()
-            tool_input = match.group(2).strip()
-            tool_calls.append((tool_name, tool_input))
+        current_tool = None
+        current_input = None
+        
+        for line in lines:
+            line = line.strip()
+            
+            # Look for exact "Action:" and "Action Input:" lines
+            if line.startswith('Action:'):
+                current_tool = line[7:].strip()
+            elif line.startswith('Action Input:'):
+                current_input = line[12:].strip()
+                
+                # When we have both tool and input, add them to our calls
+                if current_tool and current_input:
+                    # Remove any quotes around the input
+                    current_input = current_input.strip("'\"")
+                    tool_calls.append((current_tool, current_input))
+                    current_tool = None
+                    current_input = None
         
         return tool_calls
 
