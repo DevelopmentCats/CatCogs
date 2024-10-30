@@ -67,6 +67,11 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         self.logger.error(f"❌ Tool Error: {str(error)}")
 
 class LlamaFunctionsAgent(BaseSingleActionAgent):
+    def __init__(self, llm, tools, logger):
+        self.llm = llm
+        self.tools = tools
+        self.logger = logger
+        
     @property
     def input_keys(self):
         return ["input", "chat_history", "agent_scratchpad"]
@@ -900,7 +905,6 @@ class AIResponder(commands.Cog):
             self.agent = LlamaFunctionsAgent(
                 llm=self.llm,
                 tools=self.tools,
-                prompt=few_shot_prompt,
                 logger=self.logger
             )
 
