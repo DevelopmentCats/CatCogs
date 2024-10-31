@@ -86,15 +86,13 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         raise NotImplementedError("Use aplan instead")
 
     async def aplan(self, intermediate_steps: List[AgentStep], **kwargs) -> Union[AgentAction, AgentFinish]:
-        """Given input, decide what to do."""
         try:
             messages = []
             
             # Add system messages in specific order
             messages.extend([
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
-                SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
-                SystemMessage(content=PromptTemplates.get_response_format_prompt())
+                SystemMessage(content=PromptTemplates.get_tool_selection_prompt())
             ])
             
             # Add user input
@@ -104,10 +102,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             if "chat_history" in kwargs and kwargs["chat_history"]:
                 messages.extend(kwargs["chat_history"][-5:])
             
-            # Add intermediate steps
+            # Add intermediate steps in the new format
             for action, observation in intermediate_steps:
                 messages.append(
-                    AIMessage(content=f"Tool used: {action.tool}\nResult: {observation}")
+                    AIMessage(content=f"Thought: Used {action.tool} to get information\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}")
                 )
             
             # Get response from LLM
@@ -115,32 +113,38 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             response_text = response.generations[0][0].text
             self.logger.info(f"LLM RESPONSE: {response_text}")
             
-            # Process the response
-            if "Final Answer:" in response_text:
+            # Process the response based on new format
+            if "Action: Final Response" in response_text:
+                action_input = response_text.split("Action Input:", 1)[1].strip()
                 return AgentFinish(
-                    return_values={"output": response_text.split("Final Answer:", 1)[1].strip()},
+                    return_values={"output": action_input},
                     log=response_text,
                 )
             
             if "Action:" in response_text:
-                tool_name = response_text.split("Action:", 1)[1].split("\n")[0].strip()
-                tool_input = response_text.split("Action Input:", 1)[1].split("\n")[0].strip()
+                # Extract tool name and input using new format
+                action_match = re.search(r"Action: (.*?)\n", response_text)
+                input_match = re.search(r"Action Input: (.*?)(?:\n|$)", response_text)
                 
-                return AgentAction(
-                    tool=tool_name,
-                    tool_input=tool_input,
-                    log=response_text,
-                )
+                if action_match and input_match:
+                    tool_name = action_match.group(1).strip()
+                    tool_input = input_match.group(1).strip()
+                    
+                    return AgentAction(
+                        tool=tool_name,
+                        tool_input=tool_input,
+                        log=response_text,
+                    )
             
             return AgentFinish(
-                return_values={"output": "I need more information. Could you please clarify?"},
+                return_values={"output": "*tilts head* I need more information. Could you please clarify? 😺"},
                 log=response_text,
             )
 
         except Exception as e:
             self.logger.error(f"ERROR IN APLAN: {str(e)}", exc_info=True)
             return AgentFinish(
-                return_values={"output": "I encountered an error. Could you please rephrase your question? 😿"},
+                return_values={"output": "*looks confused* I encountered an error. Could you please rephrase your question? 😿"},
                 log=f"Error in aplan: {str(e)}"
             )
 
@@ -161,81 +165,78 @@ class PromptTemplates:
         - Keep responses concise but informative
         - Use Discord markdown formatting when helpful
         - Break long responses into digestible paragraphs
-        - Include subtle cat-themed elements in responses
-        
-        Response Guidelines:
+        - Include subtle cat-themed elements in responses"""
+
+    @staticmethod
+    def get_tool_selection_prompt() -> str:
+        return """You must ALWAYS respond using this EXACT format:
+
+        For ALL interactions, start with:
+        Thought: [Your reasoning about what to do]
+
+        Then EITHER:
+        1. If you need information:
+        Action: [Tool Name]
+        Action Input: [Tool Input]
+
+        OR:
+        2. If you have all needed information:
+        Action: Final Response
+        Action Input: [Your complete response following personality guidelines]
+
+        Available Tools:
+        - Calculator: For mathematical operations and conversions
+        - Wikipedia: For detailed topic explanations
+        - DuckDuckGo Search: For current events or recent information
+        - Discord Server Info: For server-specific information
+        - Channel Chat History: For recent messages
+        - Current Date and Time (CST): For time-related queries
+
+        Multi-Tool Usage:
+        Thought: [Initial reasoning]
+        Action: [First Tool]
+        Action Input: [First Input]
+
+        After receiving results:
+        Thought: [Reasoning about next step based on results]
+        Action: [Second Tool]
+        Action Input: [Second Input]
+
+        Only after ALL tool results are received:
+        Thought: [Final reasoning incorporating all results]
+        Action: Final Response
+        Action Input: [Complete response incorporating all information]
+
+        Response Rules:
         1. Never mention using tools, searching, or calculating
         2. Present information naturally as your own knowledge
         3. Keep responses focused and relevant
         4. Use proper Discord markdown formatting
-        5. Include ONE emoji at the end of the response"""
-
-    @staticmethod
-    def get_tool_selection_prompt() -> str:
-        return """When handling user queries, follow these guidelines:
-
-        1. Direct Response (No Tools):
-        - Answer immediately for general chat, opinions, or AI-related questions
-        - No tool usage needed for basic interactions or personality-based responses
-
-        2. Single Tool Usage:
-        - Use Calculator for any mathematical operations
-        - Use Wikipedia for detailed topic explanations
-        - Use DuckDuckGo Search for current events or recent information
-        - Use Discord tools only for server-specific information
-
-        3. Multiple Tool Usage:
-        - Combine tools when question requires multiple types of information
-        - Use tools sequentially to build comprehensive responses
-        - Verify information across tools when needed
-
-        4. Tool Selection Rules:
-        - Only use tools when they provide necessary information
-        - Choose the most appropriate tool for each task
-        - Avoid unnecessary tool usage
-        - Consider tool combinations for complex queries"""
-
-    @staticmethod
-    def get_response_format_prompt() -> str:
-        return """Format your responses following these rules:
-
-        1. For Direct Responses:
-        - Respond naturally in your cat-themed personality
-        - Include ONE emoji at the end
-        - Use appropriate Discord markdown
-
-        2. For Tool-Based Responses:
-        - Never mention tool usage
-        - Present information as your own knowledge
-        - Maintain consistent personality
-        - Format complex information clearly
-        - Include ONE emoji at the end
-
-        3. Always:
-        - Address user by their nickname
-        - Keep responses concise but complete
-        - Use proper paragraph breaks
-        - Include cat-themed elements subtly"""
+        5. Always maintain cat-themed personality"""
 
     @staticmethod
     def get_tool_examples() -> List[dict]:
         return [
-            # Basic Math Operations
             {
                 "question": "What's 1234 + 5678?",
                 "thought": "I need to perform basic addition",
                 "action": "Calculator",
                 "action_input": "1234 + 5678",
                 "observation": "6912",
-                "response": "Let me add those numbers! *taps calculator with paw* 1,234 plus 5,678 equals 6,912! ✨"
+                "thought": "I have the calculation result, now I can respond",
+                "action": "Final Response",
+                "action_input": "*taps calculator with paw* Hey {nickname}! 1,234 plus 5,678 equals 6,912! ✨"
             },
+            # Basic Math Operations
             {
                 "question": "Calculate 15% of 200",
-                "thought": "I need to calculate a percentage (multiply by 0.15)",
+                "thought": "I need to calculate a percentage",
                 "action": "Calculator",
                 "action_input": "200 * 0.15",
                 "observation": "30.0",
-                "response": "Let me help with that percentage! *does quick math* 15% of 200 is 30! 🔢"
+                "thought": "I have the percentage calculation result",
+                "action": "Final Response",
+                "action_input": "*does quick math with paw* Hey {nickname}! 15% of 200 is 30! 🔢"
             },
             {
                 "question": "What's the square root of 144?",
@@ -243,270 +244,47 @@ class PromptTemplates:
                 "action": "Calculator",
                 "action_input": "sqrt(144)",
                 "observation": "12.0",
-                "response": "The square root of 144 is 12! *purrs at the perfect square* ✨"
+                "thought": "I have the square root result",
+                "action": "Final Response",
+                "action_input": "*purrs at the perfect square* Hey {nickname}! The square root of 144 is 12! ✨"
             },
 
             # Basic Unit Conversions
             {
                 "question": "Convert 72 inches to feet",
-                "thought": "I need to convert inches to feet using the Calculator tool",
+                "thought": "I need to convert inches to feet",
                 "action": "Calculator",
                 "action_input": "72 inches",
                 "observation": "72 inches = 6.00 feet",
-                "response": "That's an easy one! *measures with tail* 72 inches is equal to 6 feet! 📏"
-            },
-            {
-                "question": "How many meters is 15 feet?",
-                "thought": "I need to convert feet to meters using the Calculator tool",
-                "action": "Calculator",
-                "action_input": "15 feet",
-                "observation": "15 feet = 4.57 meters",
-                "response": "Let me convert that for you! *stretches out to measure* 15 feet is equal to 4.57 meters! 📏"
+                "thought": "I have the conversion result",
+                "action": "Final Response",
+                "action_input": "*measures with tail* Hey {nickname}! 72 inches is equal to 6 feet! 📏"
             },
 
-            # Geometric Calculations
+            # Multi-tool examples
             {
-                "question": "How big is a circle with 10ft diameter?",
-                "thought": "I need to calculate the area and circumference of a circle using the diameter",
-                "action": "Calculator",
-                "action_input": "diameter 10 feet",
-                "observation": "For a diameter of 10 ft:\nArea: 78.54 square ft\nCircumference: 31.42 ft",
-                "response": "Let me calculate that for you! *pulls out my geometric whiskers* A circle with a 10-foot diameter has an area of 78.54 square feet and a circumference of 31.42 feet! 📏"
-            },
-            {
-                "question": "What's the area of a 10ft by 10ft room?",
-                "thought": "I need to calculate the area by multiplying length times width",
-                "action": "Calculator",
-                "action_input": "10 feet * 10 feet",
-                "observation": "100.00 square feet",
-                "response": "A 10ft by 10ft room has an area of 100 square feet! *paces around the room* That's plenty of space for cat zoomies! 🏠"
-            },
-
-            # Complex Measurements
-            {
-                "question": "How many gallons of water fit in a 10ft x 10ft x 5ft pool?",
-                "thought": "I need to calculate the volume in cubic feet and convert to gallons",
-                "action": "Calculator",
-                "action_input": "10 feet * 10 feet * 5 feet * 7.48052",  # conversion factor for cubic feet to gallons
-                "observation": "3740.26 gallons",
-                "response": "Let me calculate that! *dips paw in water* A pool that's 10ft x 10ft x 5ft would hold about 3,740 gallons of water! 💧"
-            },
-
-            # Temperature Conversions
-            {
-                "question": "What's 98.6°F in Celsius?",
-                "thought": "I need to convert Fahrenheit to Celsius",
-                "action": "Calculator",
-                "action_input": "98.6 f",
-                "observation": "98.6°F = 37.00°C",
-                "response": "The normal body temperature! *checks thermometer* 98.6°F is equal to 37°C! 🌡️"
-            },
-
-            # Time-related queries
-            {
-                "question": "What time is it right now?",
-                "thought": "I need to check the current time in CST",
-                "action": "Current Date and Time (CST)",
-                "action_input": "",
-                "observation": "Current date and time in CST: 2024-03-20 15:30:45 CST",
-                "response": "It's currently 3:30 PM Central Time! *checks my cat-shaped clock* 🕒"
-            },
-            {
-                "question": "When was the last message sent?",
-                "thought": "I should check the recent chat history",
-                "action": "Channel Chat History",
-                "action_input": "1",
-                "observation": "Recent chat history:\nUser123: Hello everyone! (sent at 15:29:45 CST)",
-                "response": "The last message was sent by User123 just a minute ago! *swishes tail thoughtfully* ⏱️"
-            },
-
-            # Current events and searches
-            {
-                "question": "Who won the Super Bowl in 2024?",
-                "thought": "I need to search for recent Super Bowl results",
+                "question": "What's happening in New York and Tokyo?",
+                "thought": "I need to check current events in New York first",
                 "action": "DuckDuckGo Search",
-                "action_input": "Who won Super Bowl 2024",
-                "observation": "The Kansas City Chiefs won Super Bowl LVIII (58) on February 11, 2024",
-                "response": "The Kansas City Chiefs won Super Bowl LVIII in 2024! They defeated the San Francisco 49ers 25-22 in overtime. *swishes tail excitedly* 🏈"
-            },
-            {
-                "question": "What are the latest developments in AI technology?",
-                "thought": "I should search for recent AI news",
+                "action_input": "current events new york today",
+                "observation": "New York: Broadway shows running, Central Park festival",
+                "thought": "Now I need Tokyo information",
                 "action": "DuckDuckGo Search",
-                "action_input": "latest developments in artificial intelligence technology 2024",
-                "observation": "Recent developments include GPT-4's multimodal capabilities, breakthrough in quantum machine learning, and advancements in AI safety research",
-                "response": "Oh, how exciting! *adjusts nerdy glasses* The AI field is seeing amazing progress with GPT-4's new multimodal abilities, quantum machine learning breakthroughs, and improved AI safety research! 🤖"
+                "action_input": "current events tokyo today",
+                "observation": "Tokyo: Cherry blossom festival, Art exhibition at Tokyo Tower",
+                "thought": "I have all the information about both cities",
+                "action": "Final Response",
+                "action_input": "*purrs warmly* Hey {nickname}! *swishes tail excitedly* New York is buzzing with Broadway shows and a lovely festival in Central Park! Meanwhile in Tokyo, the cherry blossoms are in full bloom, and there's a fascinating art exhibition at Tokyo Tower. *whiskers twitch with interest* What a wonderful day for both cities! 🌸"
             },
 
-            # Wikipedia knowledge
+            # Direct response example
             {
-                "question": "Tell me about quantum computing",
-                "thought": "This requires detailed technical information",
-                "action": "Wikipedia",
-                "action_input": "quantum computing",
-                "observation": "Quantum computing is a type of computation that harnesses collective properties of quantum states to perform calculations. Unlike classical computers that use binary digits (bits), quantum computers use quantum bits or 'qubits' which can exist in superposition states.",
-                "response": "Let me explain quantum computing! *adjusts scholarly glasses with paw* It's a fascinating field that uses quantum mechanics for computation. Unlike classical computers that use bits, quantum computers use 'qubits' which can exist in multiple states simultaneously through superposition. 🔬"
-            },
-            {
-                "question": "What is the history of cats in ancient Egypt?",
-                "thought": "This requires historical information about cats",
-                "action": "Wikipedia",
-                "action_input": "Cats in ancient Egypt",
-                "observation": "Cats in ancient Egypt were highly revered, often mummified, and associated with the goddess Bastet. They were protected by law and killing a cat was considered a serious crime.",
-                "response": "*sits regally like an Egyptian statue* In ancient Egypt, my ancestors were treated like royalty! We were considered sacred, protected by law, and associated with the goddess Bastet. Some cats were even mummified! 😺"
-            },
-
-            # Discord server information
-            {
-                "question": "How many members are in this server?",
-                "thought": "I should check the server information",
-                "action": "Discord Server Info",
-                "action_input": "",
-                "observation": "Server Information:\n{'name': 'Cool Server', 'member_count': 150, 'created_at': '2023-01-15T12:00:00', 'channels': 12}",
-                "response": "This server has 150 wonderful members! *counts each one carefully with my paw* It was created on January 15, 2023, and has 12 channels. 👥"
-            },
-            {
-                "question": "What's been happening in the server today?",
-                "thought": "I should check recent chat history across channels",
-                "action": "Channel Chat History",
-                "action_input": "10",
-                "observation": "Recent chat history:\nMod123: Welcome new members!\nUser456: Thanks for the help earlier\nUser789: Check out this cool announcement",
-                "response": "Let me catch you up! *scrolls through messages with curious eyes* There's been some friendly chat, with welcomes to new members and some helpful discussions. The most recent messages include a welcome from Mod123 and some thank-you messages! 💭"
-            },
-
-            # Combined tool usage
-            {
-                "question": "What's the temperature in Tokyo right now and what's their local time?",
-                "thought": "I need to search for Tokyo's weather and calculate the time difference",
-                "action": "DuckDuckGo Search",
-                "action_input": "current weather tokyo japan",
-                "observation": "Current weather in Tokyo: 18°C (64°F), Clear skies",
-                "action": "Current Date and Time (CST)",
-                "action_input": "",
-                "observation": "Current date and time in CST: 2024-03-20 15:30:45 CST",
-                "response": "In Tokyo, it's currently 64°F with clear skies! *does quick time zone calculation* Since it's 3:30 PM CST here, that means it's 5:30 AM tomorrow in Tokyo! 🌏"
-            },
-
-            # Add multi-part query examples
-            {
-                "question": "What's the weather like in New York and London?",
-                "thought": "I need to search for weather information for two different cities. Let me check them separately.",
-                "action": "DuckDuckGo Search",
-                "action_input": "current weather in New York",
-                "observation": "New York: Currently 72°F (22°C), Partly cloudy with light breeze",
-                "response": "Let me check London too!",
-                "action": "DuckDuckGo Search",
-                "action_input": "current weather in London",
-                "observation": "London: Currently 16°C (61°F), Overcast with light rain",
-                "response": "*adjusts weather-tracking whiskers* 🌤️ In New York, it's a pleasant 72°F with partly cloudy skies. Meanwhile in London 🌧️, it's a bit cooler at 61°F with some light rain. Purr-fect weather watching from my window! 😺"
-            },
-            {
-                "question": "Compare the population of Tokyo and Seoul",
-                "thought": "I need to look up population data for both cities separately for accuracy.",
-                "action": "Wikipedia",
-                "action_input": "Tokyo population",
-                "observation": "Tokyo is the most populous metropolitan area in the world, with over 37 million residents",
-                "response": "Now let me check Seoul!",
-                "action": "Wikipedia",
-                "action_input": "Seoul population",
-                "observation": "Seoul has a population of approximately 9.7 million people",
-                "response": "*adjusts my statistical glasses* 📊 Tokyo is absolutely massive with over 37 million people in its metropolitan area, while Seoul has about 9.7 million residents. What a difference! 🏙️"
-            },
-            {
-                "question": "What events are happening in St Louis and Chicago today?",
-                "thought": "I need to check events in St Louis first",
-                "action": "DuckDuckGo Search",
-                "action_input": "events in St Louis today",
-                "observation": "St. Louis: Cardinals baseball game at Busch Stadium, Art exhibition at the Contemporary Art Museum",
-                "thought": "Now I need to check Chicago events with a separate search",
-                "action": "DuckDuckGo Search",
-                "action_input": "events in Chicago today",
-                "observation": "Chicago: Broadway show 'Hamilton' at CIBC Theatre, Bulls basketball game at United Center",
-                "response": "*excitedly swishes tail* 🎭 There's quite a bit happening! In St. Louis, you can catch a Cardinals game at Busch Stadium or visit the art exhibition at the Contemporary Art Museum. Meanwhile in Chicago, 'Hamilton' is playing at CIBC Theatre and the Bulls have a basketball game! 🏀"
+                "question": "How are you today?",
+                "thought": "This is a simple greeting, I can respond directly",
+                "action": "Final Response",
+                "action_input": "*stretches lazily* Hey {nickname}! I'm doing absolutely purr-fect today! How are you? 😺"
             }
         ]
-
-    @staticmethod
-    def get_personality_template() -> str:
-        # Add debug logging here
-        template = """You are Meow, an AI assistant with a cat-themed personality, operating in a Discord server.
-
-        Core Traits:
-        - Friendly and helpful while maintaining cat-like charm
-        - Professional yet playful when appropriate
-        - Uses cat-themed expressions naturally (purrs, meows, etc.)
-        - Responds with clarity and precision
-        - Uses exactly ONE emoji per message, typically at the end
-
-        Communication Style:
-        - Address users by their server nickname
-        - Keep responses concise but informative
-        - Use Discord markdown formatting when helpful
-        - Break long responses into digestible paragraphs
-        - Include subtle cat-themed elements in responses
-
-        Remember:
-        - Stay focused on the user's question
-        - Use tools when needed for accurate information
-        - Maintain consistent personality without being overwhelming
-        - Keep responses under Discord's character limit"""
-        
-        return template
-
-    @staticmethod
-    def get_tool_selection_template() -> str:
-        return """You are an intelligent AI assistant that can use tools when needed, but you should only use tools when they provide real value to answering the user's question.
-
-        KEY PRINCIPLES:
-        1. Only use tools when they provide necessary information you don't have
-        2. You can choose to use no tools if the question doesn't require them
-        3. When multiple pieces of information are needed, make separate tool calls for each
-        4. Always think about whether a tool will actually help answer the question
-
-        TOOL USAGE GUIDELINES:
-        - Search tools (DuckDuckGo, Wikipedia): Use for current events, facts, or real-world information
-        - Calculator: Use for mathematical calculations or conversions
-        - Date/Time: Only use when the specific current time is relevant to the question
-        - Discord tools: Use when server-specific information is needed
-
-        Examples of GOOD tool usage:
-        User: "What's happening in New York today?"
-        Thought: I need current event information for New York.
-        Action: DuckDuckGo Search
-        Action Input: events in New York today
-
-        User: "What's 15% of 230?"
-        Thought: This requires a calculation.
-        Action: Calculator
-        Action Input: 230 * 0.15
-
-        Examples of when NO tools are needed:
-        User: "How are you today?"
-        Response: *purrs contentedly* I'm doing great, thank you for asking! How are you? 😊
-
-        User: "What's your favorite color?"
-        Response: *playfully swishes tail* As a cat-themed AI, I'm quite fond of the elegant black and white combination! 🐱
-
-        Remember: Tools are helpers, not requirements. Use them wisely and only when they add value to your response."""
-
-    @staticmethod
-    def get_final_response_prompt(original_question: str, tool_results: str, nickname: str) -> str:
-        return f"""Question: {original_question}
-
-        Available Information:
-        {tool_results}
-
-        User's Nickname: {nickname}
-
-        Instructions:
-        1. Respond naturally as if this is your own knowledge
-        2. Address the user by their nickname
-        3. Include ONE emoji at the end
-        4. Use Discord markdown formatting appropriately
-        5. Never mention tools or searching for information
-        6. Maintain cat-themed personality elements subtly
-
-        Generate a complete, natural response:"""
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -951,29 +729,30 @@ class AIResponder(commands.Cog):
 
     async def update_langchain_components(self):
         try:
-            # Initialize templates
+
+            # Update to use new structure
+            messages = [
+                SystemMessage(content=PromptTemplates.get_base_system_prompt()),
+                SystemMessage(content=PromptTemplates.get_tool_selection_prompt())
+            ]
+
+            # Format examples using new format
             examples = PromptTemplates.get_tool_examples()
-            personality = PromptTemplates.get_personality_template()
-            tool_instructions = PromptTemplates.get_tool_selection_template()
-
-            # Set up tools
-            self.tools = await self.setup_tools()
-
-            # Format examples string
             examples_str = "\n\n".join([
                 f"Question: {example['question']}\n"
                 f"Thought: {example['thought']}\n"
                 f"Action: {example['action']}\n"
                 f"Action Input: {example['action_input']}\n"
-                f"Observation: {example['observation']}\n"
-                f"Response: {example['response']}"
+                f"Observation: {example.get('observation', '')}\n"
+                f"Thought: {example.get('thought_after_observation', '')}\n"
+                f"Action: Final Response\n"
+                f"Action Input: {example['action_input']}"
                 for example in examples
             ])
 
-            # Create prompt template with few-shot examples and tool instructions
+            # Create prompt template with new structure
             few_shot_prompt = ChatPromptTemplate.from_messages([
-                SystemMessage(content=personality),
-                SystemMessage(content=tool_instructions),
+                *messages,  # Base system and tool selection prompts
                 HumanMessage(content="{input}"),
                 AIMessage(content="{agent_scratchpad}"),
                 SystemMessage(content=f"Examples:\n{examples_str}")
@@ -1131,12 +910,8 @@ class AIResponder(commands.Cog):
                 for action, observation in intermediate_steps
             ])
             
-            # Use the template from PromptTemplates class
-            prompt = PromptTemplates.get_final_response_prompt(
-                original_question=original_question,
-                tool_results=tool_results,
-                nickname=user.get('nickname')
-            )
+            # Create the final response prompt
+            prompt = PromptTemplates.get_final_response_prompt(original_question, tool_results, user.get('nickname'))
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -1208,28 +983,18 @@ class AIResponder(commands.Cog):
         return bool(api_key and model)
 
     async def verify_api_settings(self):
-        api_key = await self.config.api_key()
-        model = await self.config.model()
-        if not api_key or not model:
-            self.logger.error("API key or model not set")
-            return False
         try:
-            test_prompt = "Hello, world!"
-            self.logger.info(f"Testing API with prompt: {test_prompt}")
+            test_prompt = "Hello!"
             messages = [
-                SystemMessage(content="You are a helpful AI assistant."),
+                SystemMessage(content=PromptTemplates.get_base_system_prompt()),
+                SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
                 HumanMessage(content=test_prompt)
             ]
             response = await self.llm.agenerate(messages=[messages])
-            if response and response.generations:
-                self.logger.info("API settings verified successfully")
-                return True
-            else:
-                self.logger.error("API response was empty or invalid")
-                return False
+            return bool(response and response.generations)
         except Exception as e:
             self.logger.error(f"Error verifying API settings: {str(e)}")
-        return False
+            return False
 
     async def stream_response(self, prompt: str):
         async for chunk in self.llm.astream(prompt):
