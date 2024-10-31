@@ -88,6 +88,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     async def aplan(self, intermediate_steps: List[AgentStep], **kwargs) -> Union[AgentAction, AgentFinish]:
         try:
             messages = []
+            current_response = ""
             
             # Add system messages in specific order
             messages.extend([
@@ -95,61 +96,63 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 SystemMessage(content=PromptTemplates.get_tool_selection_prompt())
             ])
             
-            # Add user input
+            # Add user input and chat history
             messages.append(HumanMessage(content=kwargs["input"]))
-            
-            # Add chat history if available
             if "chat_history" in kwargs and kwargs["chat_history"]:
                 messages.extend(kwargs["chat_history"][-5:])
             
-            # Add intermediate steps in the new format
+            # Add intermediate steps
             for action, observation in intermediate_steps:
                 messages.append(
                     AIMessage(content=f"Thought: Used {action.tool}\nObservation: {observation}")
                 )
             
-            # Get response from LLM
-            response = await self.llm.agenerate(messages=[messages])
-            response_text = response.generations[0][0].text
-            self.logger.info(f"LLM RESPONSE: {response_text}")
-            
-            # Process the response based on new format
-            # First, check if there's a tool action before any Final Response
-            action_parts = response_text.split("Action:")
-            for part in action_parts[1:]:  # Skip the first split as it's before any Action
-                part = part.strip()
-                if part.startswith("Final Response"):
-                    continue
+            # Stream the response and process it in real-time
+            async for chunk in self.llm.astream(messages=[messages]):
+                token = chunk.content
+                current_response += token
+                self.logger.debug(f"Streaming token: {token}")
+
+                # Check for complete action blocks in real-time
+                if "Action:" in current_response and "Action Input:" in current_response:
+                    action_parts = current_response.split("Action:")
+                    latest_action = action_parts[-1].strip()
                     
-                # Extract tool name and input
-                lines = part.split("\n")
-                if len(lines) >= 2:
-                    tool_name = lines[0].strip()
-                    input_text = ""
-                    for line in lines[1:]:
-                        if line.strip().startswith("Action Input:"):
-                            input_text = line.replace("Action Input:", "").strip()
-                            break
-                    
-                    if tool_name and input_text:
-                        return AgentAction(
-                            tool=tool_name,
-                            tool_input=input_text,
-                            log=response_text
-                        )
-            
-            # If we get here, either there were no tool actions or only Final Response
-            if "Action: Final Response" in response_text:
-                action_input = response_text.split("Action Input:", 1)[1].strip()
+                    if "Action Input:" in latest_action:
+                        action_lines = latest_action.split("\n")
+                        tool_name = action_lines[0].strip()
+                        
+                        # Extract action input
+                        input_text = ""
+                        for line in action_lines:
+                            if line.strip().startswith("Action Input:"):
+                                input_text = line.replace("Action Input:", "").strip()
+                                break
+                        
+                        if tool_name and input_text:
+                            if tool_name == "Final Response":
+                                return AgentFinish(
+                                    return_values={"output": input_text},
+                                    log=current_response
+                                )
+                            else:
+                                return AgentAction(
+                                    tool=tool_name,
+                                    tool_input=input_text,
+                                    log=current_response
+                                )
+
+            # If we get here, process any remaining response
+            if "Action: Final Response" in current_response:
+                action_input = current_response.split("Action Input:", 1)[1].strip()
                 return AgentFinish(
                     return_values={"output": action_input},
-                    log=response_text,
+                    log=current_response
                 )
             
-            # Fallback response if no clear action is found
             return AgentFinish(
                 return_values={"output": "*tilts head* I need more information. Could you please clarify? 😺"},
-                log=response_text,
+                log=current_response
             )
 
         except Exception as e:
