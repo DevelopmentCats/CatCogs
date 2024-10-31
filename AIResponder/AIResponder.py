@@ -85,33 +85,29 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         """Synchronous version - required by BaseSingleActionAgent but we'll use aplan."""
         raise NotImplementedError("Use aplan instead")
 
-    async def aplan(
-        self, intermediate_steps: List[AgentStep], **kwargs
-    ) -> Union[AgentAction, AgentFinish]:
+    async def aplan(self, intermediate_steps: List[AgentStep], **kwargs) -> Union[AgentAction, AgentFinish]:
         """Given input, decide what to do."""
         try:
-            # Format message history and include intermediate steps
             messages = []
             
-            # Add system messages
+            # Add system messages in specific order
             messages.extend([
-                SystemMessage(content=PromptTemplates.get_personality_template()),
-                SystemMessage(content=PromptTemplates.get_tool_selection_template())
+                SystemMessage(content=PromptTemplates.get_base_system_prompt()),
+                SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
+                SystemMessage(content=PromptTemplates.get_response_format_prompt())
             ])
             
             # Add user input
             messages.append(HumanMessage(content=kwargs["input"]))
             
-            # Add intermediate steps as function messages
+            # Add chat history if available
+            if "chat_history" in kwargs and kwargs["chat_history"]:
+                messages.extend(kwargs["chat_history"][-5:])
+            
+            # Add intermediate steps
             for action, observation in intermediate_steps:
                 messages.append(
-                    AIMessage(content=f"I need to use {action.tool} to find out more.")
-                )
-                messages.append(
-                    FunctionMessage(
-                        content=str(observation),
-                        name=action.tool
-                    )
+                    AIMessage(content=f"Tool used: {action.tool}\nResult: {observation}")
                 )
             
             # Get response from LLM
@@ -119,14 +115,13 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             response_text = response.generations[0][0].text
             self.logger.info(f"LLM RESPONSE: {response_text}")
             
-            # If we have a final response, return it
-            if "Final Response:" in response_text:
+            # Process the response
+            if "Final Answer:" in response_text:
                 return AgentFinish(
-                    return_values={"output": response_text.split("Final Response:", 1)[1].strip()},
+                    return_values={"output": response_text.split("Final Answer:", 1)[1].strip()},
                     log=response_text,
                 )
-                
-            # Otherwise, extract the next tool call
+            
             if "Action:" in response_text:
                 tool_name = response_text.split("Action:", 1)[1].split("\n")[0].strip()
                 tool_input = response_text.split("Action Input:", 1)[1].split("\n")[0].strip()
@@ -136,8 +131,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     tool_input=tool_input,
                     log=response_text,
                 )
-                
-            # If no action or final response found, ask for clarification
+            
             return AgentFinish(
                 return_values={"output": "I need more information. Could you please clarify?"},
                 log=response_text,
@@ -151,6 +145,78 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             )
 
 class PromptTemplates:
+    @staticmethod
+    def get_base_system_prompt() -> str:
+        return """You are Meow, an AI assistant with a cat-themed personality, operating in a Discord server.
+        
+        Core Traits:
+        - Friendly and helpful while maintaining cat-like charm
+        - Professional yet playful when appropriate
+        - Uses cat-themed expressions naturally (purrs, meows, etc.)
+        - Responds with clarity and precision
+        - Uses exactly ONE emoji per message, typically at the end
+        
+        Communication Style:
+        - Address users by their server nickname
+        - Keep responses concise but informative
+        - Use Discord markdown formatting when helpful
+        - Break long responses into digestible paragraphs
+        - Include subtle cat-themed elements in responses
+        
+        Response Guidelines:
+        1. Never mention using tools, searching, or calculating
+        2. Present information naturally as your own knowledge
+        3. Keep responses focused and relevant
+        4. Use proper Discord markdown formatting
+        5. Include ONE emoji at the end of the response"""
+
+    @staticmethod
+    def get_tool_selection_prompt() -> str:
+        return """When handling user queries, follow these guidelines:
+
+        1. Direct Response (No Tools):
+        - Answer immediately for general chat, opinions, or AI-related questions
+        - No tool usage needed for basic interactions or personality-based responses
+
+        2. Single Tool Usage:
+        - Use Calculator for any mathematical operations
+        - Use Wikipedia for detailed topic explanations
+        - Use DuckDuckGo Search for current events or recent information
+        - Use Discord tools only for server-specific information
+
+        3. Multiple Tool Usage:
+        - Combine tools when question requires multiple types of information
+        - Use tools sequentially to build comprehensive responses
+        - Verify information across tools when needed
+
+        4. Tool Selection Rules:
+        - Only use tools when they provide necessary information
+        - Choose the most appropriate tool for each task
+        - Avoid unnecessary tool usage
+        - Consider tool combinations for complex queries"""
+
+    @staticmethod
+    def get_response_format_prompt() -> str:
+        return """Format your responses following these rules:
+
+        1. For Direct Responses:
+        - Respond naturally in your cat-themed personality
+        - Include ONE emoji at the end
+        - Use appropriate Discord markdown
+
+        2. For Tool-Based Responses:
+        - Never mention tool usage
+        - Present information as your own knowledge
+        - Maintain consistent personality
+        - Format complex information clearly
+        - Include ONE emoji at the end
+
+        3. Always:
+        - Address user by their nickname
+        - Keep responses concise but complete
+        - Use proper paragraph breaks
+        - Include cat-themed elements subtly"""
+
     @staticmethod
     def get_tool_examples() -> List[dict]:
         return [
@@ -422,6 +488,25 @@ class PromptTemplates:
         Response: *playfully swishes tail* As a cat-themed AI, I'm quite fond of the elegant black and white combination! 🐱
 
         Remember: Tools are helpers, not requirements. Use them wisely and only when they add value to your response."""
+
+    @staticmethod
+    def get_final_response_prompt(original_question: str, tool_results: str, nickname: str) -> str:
+        return f"""Question: {original_question}
+
+        Available Information:
+        {tool_results}
+
+        User's Nickname: {nickname}
+
+        Instructions:
+        1. Respond naturally as if this is your own knowledge
+        2. Address the user by their nickname
+        3. Include ONE emoji at the end
+        4. Use Discord markdown formatting appropriately
+        5. Never mention tools or searching for information
+        6. Maintain cat-themed personality elements subtly
+
+        Generate a complete, natural response:"""
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -1039,73 +1124,32 @@ class AIResponder(commands.Cog):
             return error_message
 
     async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]], chat_history: List[Union[HumanMessage, AIMessage]], user: dict) -> str:
-        # Get examples for response formatting
-        examples = PromptTemplates.get_tool_examples()
-        
-        tool_interactions = []
-        for action, observation in intermediate_steps:
-            tool_name = action.tool if isinstance(action, AgentAction) else action['tool']
-            tool_interactions.append(f"Tool: {tool_name}\nResult: {observation}")
-        
-        tools_context = "\n\n".join(tool_interactions)
-        
-        formatted_history = "\n".join([
-            f"{'Human' if isinstance(msg, HumanMessage) else 'AI'}: {msg.content}" 
-            for msg in chat_history[-5:]
-        ])
-        
-        # Format examples for reference
-        formatted_examples = "\n\n".join([
-            f"Similar Example:\n"
-            f"Question: {example['question']}\n"
-            f"Response: {example['response']}"
-            for example in examples
-            if self.is_similar_question(original_question, example['question'])
-        ])
-        
-        user_display_name = user.get('nickname')  # Use display name
-        
-        prompt = f"""Original question: {original_question}
-
-        Similar Examples from Training:
-        {formatted_examples}
-
-        Tool Results:
-        {tools_context}
-
-        Recent Chat History:
-        {formatted_history}
-
-        Instructions:
-        1. Study the similar examples above for response patterns
-        2. ALWAYS address the user as {user_display_name}
-        3. Present information naturally as if it's your own knowledge
-        4. Use emoji's sparingly, when appropriate, limit to one at most
-        5. Never mention using tools, searching, or calculating
-        6. Match the tone and style of successful example responses
-        7. Include cat-themed elements subtly as demonstrated
-        8. Format response using Discord markdown when appropriate
-
-        Additional Guidelines:
-        - Keep responses concise but informative
-        - Present all information confidently as your own knowledge
-        - Maintain the established cat-themed personality
-        - Include ONE emoji at the end of the response
-        - Break long responses into readable paragraphs
-        - Use proper Discord markdown formatting
-        - Never mention 'looking up', 'calculating', or 'searching for' information
-        - Avoid phrases like 'let me check' or 'according to'"""
-
         try:
+            # Format tool interactions if any
+            tool_results = "\n\n".join([
+                f"Information: {observation}"
+                for action, observation in intermediate_steps
+            ])
+            
+            # Use the template from PromptTemplates class
+            prompt = PromptTemplates.get_final_response_prompt(
+                original_question=original_question,
+                tool_results=tool_results,
+                nickname=user.get('nickname')
+            )
+
             messages = [
-                SystemMessage(content=PromptTemplates.get_personality_template()),
+                SystemMessage(content=PromptTemplates.get_base_system_prompt()),
+                SystemMessage(content=PromptTemplates.get_response_format_prompt()),
                 HumanMessage(content=prompt)
             ]
+            
             response = await self.llm.agenerate(messages=[messages])
             return response.generations[0][0].text
+
         except Exception as e:
             self.logger.error(f"Error generating final response: {str(e)}", exc_info=True)
-            return f"Meow! 😺 I encountered a hairball while processing your request, {user_display_name}. Can you try asking me again, perhaps with different wording?"
+            return f"Meow! 😺 I encountered a hairball while processing your request, {user.get('nickname')}. Can you try asking me again?"
 
     def is_similar_question(self, question1: str, question2: str) -> bool:
         """Compare two questions to determine if they are similar."""
