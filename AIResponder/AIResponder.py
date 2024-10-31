@@ -121,23 +121,31 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     action_parts = current_response.split("Action:")
                     latest_action = action_parts[-1].strip()
                     
-                    if "Action Input:" in latest_action:
+                    # Only process if we have a complete action block
+                    if "Action Input:" in latest_action and "\n" in latest_action.split("Action Input:", 1)[1]:
                         action_lines = latest_action.split("\n")
                         tool_name = action_lines[0].strip()
                         
-                        # Extract action input
+                        # Extract complete action input
                         input_text = ""
+                        input_started = False
                         for line in action_lines:
                             if line.strip().startswith("Action Input:"):
+                                input_started = True
                                 input_text = line.replace("Action Input:", "").strip()
-                                break
+                            elif input_started and line.strip():
+                                input_text += " " + line.strip()
+                            elif input_started and not line.strip():
+                                break  # End of action input block
                         
                         if tool_name and input_text:
                             if tool_name == "Final Response":
-                                return AgentFinish(
-                                    return_values={"output": input_text},
-                                    log=current_response
-                                )
+                                # Only return final response if we have all tool results
+                                if not any(step[0].tool != "Final Response" for step in intermediate_steps):
+                                    return AgentFinish(
+                                        return_values={"output": input_text},
+                                        log=current_response
+                                    )
                             else:
                                 return AgentAction(
                                     tool=tool_name,
@@ -145,8 +153,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                                     log=current_response
                                 )
 
-            # If we get here, process any remaining response
-            if "Action: Final Response" in current_response:
+            # Process any remaining complete response
+            if "Action: Final Response" in current_response and "Action Input:" in current_response:
                 action_input = current_response.split("Action Input:", 1)[1].strip()
                 return AgentFinish(
                     return_values={"output": action_input},
