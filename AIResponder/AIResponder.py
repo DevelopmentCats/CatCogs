@@ -108,7 +108,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 )
             
             # Stream the response and process it in real-time
-            async for chunk in self.llm.astream(messages=[messages]):
+            async for chunk in self.llm.astream(input=messages):
+                if not hasattr(chunk, 'content'):
+                    continue
+                    
                 token = chunk.content
                 current_response += token
                 self.logger.debug(f"Streaming token: {token}")
