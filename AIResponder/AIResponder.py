@@ -88,7 +88,6 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     async def aplan(self, intermediate_steps: List[AgentStep], **kwargs) -> Union[AgentAction, AgentFinish]:
         try:
             messages = []
-            current_response = ""
             
             # Add system messages in specific order
             messages.extend([
@@ -96,74 +95,60 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 SystemMessage(content=PromptTemplates.get_tool_selection_prompt())
             ])
             
-            # Add user input and chat history
+            # Add user input
             messages.append(HumanMessage(content=kwargs["input"]))
+            
+            # Add chat history if available
             if "chat_history" in kwargs and kwargs["chat_history"]:
                 messages.extend(kwargs["chat_history"][-5:])
             
-            # Add intermediate steps
+            # Add previous steps and their results
             for action, observation in intermediate_steps:
-                messages.append(
-                    AIMessage(content=f"Thought: Used {action.tool}\nObservation: {observation}")
-                )
+                messages.extend([
+                    AIMessage(content=f"Thought: I need to use {action.tool}\nAction: {action.tool}\nAction Input: {action.tool_input}"),
+                    SystemMessage(content=f"Tool Result: {observation}")
+                ])
+                
+            # Get the next action from LLM
+            response = await self.llm.agenerate(messages=[messages])
+            response_text = response.generations[0][0].text
+            self.logger.info(f"LLM RESPONSE: {response_text}")
             
-            # Stream the response and process it in real-time
-            async for chunk in self.llm.astream(input=messages):
-                if not hasattr(chunk, 'content'):
-                    continue
-                    
-                token = chunk.content
-                current_response += token
-                self.logger.debug(f"Streaming token: {token}")
-
-                # Check for complete action blocks in real-time
-                if "Action:" in current_response and "Action Input:" in current_response:
-                    action_parts = current_response.split("Action:")
-                    latest_action = action_parts[-1].strip()
-                    
-                    # Only process if we have a complete action block
-                    if "Action Input:" in latest_action and "\n" in latest_action.split("Action Input:", 1)[1]:
-                        action_lines = latest_action.split("\n")
-                        tool_name = action_lines[0].strip()
-                        
-                        # Extract complete action input
-                        input_text = ""
-                        input_started = False
-                        for line in action_lines:
-                            if line.strip().startswith("Action Input:"):
-                                input_started = True
-                                input_text = line.replace("Action Input:", "").strip()
-                            elif input_started and line.strip():
-                                input_text += " " + line.strip()
-                            elif input_started and not line.strip():
-                                break  # End of action input block
-                        
-                        if tool_name and input_text:
-                            if tool_name == "Final Response":
-                                # Only return final response if we have all tool results
-                                if not any(step[0].tool != "Final Response" for step in intermediate_steps):
-                                    return AgentFinish(
-                                        return_values={"output": input_text},
-                                        log=current_response
-                                    )
-                            else:
-                                return AgentAction(
-                                    tool=tool_name,
-                                    tool_input=input_text,
-                                    log=current_response
-                                )
-
-            # Process any remaining complete response
-            if "Action: Final Response" in current_response and "Action Input:" in current_response:
-                action_input = current_response.split("Action Input:", 1)[1].strip()
-                return AgentFinish(
-                    return_values={"output": action_input},
-                    log=current_response
-                )
+            # Parse the response
+            if "Action:" in response_text and "Action Input:" in response_text:
+                # Split into thought and action parts
+                parts = response_text.split("Action:")
+                thought = parts[0].replace("Thought:", "").strip()
+                action_part = parts[1].strip()
+                
+                # Extract tool name and input
+                action_lines = action_part.split("\n")
+                tool_name = action_lines[0].strip()
+                
+                # Get complete action input
+                input_text = ""
+                for line in action_lines[1:]:
+                    if line.strip().startswith("Action Input:"):
+                        input_text = line.replace("Action Input:", "").strip()
+                        break
+                
+                if tool_name and input_text:
+                    if tool_name == "Final Response":
+                        return AgentFinish(
+                            return_values={"output": input_text},
+                            log=response_text
+                        )
+                    else:
+                        return AgentAction(
+                            tool=tool_name,
+                            tool_input=input_text,
+                            log=response_text
+                        )
             
+            # If no clear action/response found
             return AgentFinish(
                 return_values={"output": "*tilts head* I need more information. Could you please clarify? 😺"},
-                log=current_response
+                log=response_text
             )
 
         except Exception as e:
