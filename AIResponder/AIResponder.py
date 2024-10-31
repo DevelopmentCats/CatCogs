@@ -105,7 +105,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Add intermediate steps in the new format
             for action, observation in intermediate_steps:
                 messages.append(
-                    AIMessage(content=f"Thought: Used {action.tool} to get information\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}")
+                    AIMessage(content=f"Thought: Used {action.tool}\nObservation: {observation}")
                 )
             
             # Get response from LLM
@@ -114,6 +114,31 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             self.logger.info(f"LLM RESPONSE: {response_text}")
             
             # Process the response based on new format
+            # First, check if there's a tool action before any Final Response
+            action_parts = response_text.split("Action:")
+            for part in action_parts[1:]:  # Skip the first split as it's before any Action
+                part = part.strip()
+                if part.startswith("Final Response"):
+                    continue
+                    
+                # Extract tool name and input
+                lines = part.split("\n")
+                if len(lines) >= 2:
+                    tool_name = lines[0].strip()
+                    input_text = ""
+                    for line in lines[1:]:
+                        if line.strip().startswith("Action Input:"):
+                            input_text = line.replace("Action Input:", "").strip()
+                            break
+                    
+                    if tool_name and input_text:
+                        return AgentAction(
+                            tool=tool_name,
+                            tool_input=input_text,
+                            log=response_text
+                        )
+            
+            # If we get here, either there were no tool actions or only Final Response
             if "Action: Final Response" in response_text:
                 action_input = response_text.split("Action Input:", 1)[1].strip()
                 return AgentFinish(
@@ -121,21 +146,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     log=response_text,
                 )
             
-            if "Action:" in response_text:
-                # Extract tool name and input using new format
-                action_match = re.search(r"Action: (.*?)\n", response_text)
-                input_match = re.search(r"Action Input: (.*?)(?:\n|$)", response_text)
-                
-                if action_match and input_match:
-                    tool_name = action_match.group(1).strip()
-                    tool_input = input_match.group(1).strip()
-                    
-                    return AgentAction(
-                        tool=tool_name,
-                        tool_input=tool_input,
-                        log=response_text,
-                    )
-            
+            # Fallback response if no clear action is found
             return AgentFinish(
                 return_values={"output": "*tilts head* I need more information. Could you please clarify? 😺"},
                 log=response_text,
