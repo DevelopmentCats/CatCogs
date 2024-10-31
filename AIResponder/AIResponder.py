@@ -910,21 +910,37 @@ class AIResponder(commands.Cog):
                 for action, observation in intermediate_steps
             ])
             
-            # Create the final response prompt
-            prompt = PromptTemplates.get_final_response_prompt(original_question, tool_results, user.get('nickname'))
+            # Create prompt that follows our standardized format
+            prompt = f"""Question: {original_question}
+
+            Available Information:
+            {tool_results}
+
+            User's Nickname: {user.get('nickname')}
+
+            Remember to follow the standard response format:
+            Thought: [Your reasoning about the response]
+            Action: Final Response
+            Action Input: [Your complete response following personality guidelines]"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
-                SystemMessage(content=PromptTemplates.get_response_format_prompt()),
+                SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
                 HumanMessage(content=prompt)
             ]
             
             response = await self.llm.agenerate(messages=[messages])
-            return response.generations[0][0].text
+            response_text = response.generations[0][0].text
+
+            # Extract the final response from the Action Input
+            if "Action Input:" in response_text:
+                return response_text.split("Action Input:", 1)[1].strip()
+            else:
+                return response_text  # Fallback if format isn't followed
 
         except Exception as e:
             self.logger.error(f"Error generating final response: {str(e)}", exc_info=True)
-            return f"Meow! 😺 I encountered a hairball while processing your request, {user.get('nickname')}. Can you try asking me again?"
+            return f"*looks apologetic* Meow! I encountered a hairball while processing your request, {user.get('nickname')}. Could you try asking again? 😿"
 
     def is_similar_question(self, question1: str, question2: str) -> bool:
         """Compare two questions to determine if they are similar."""
