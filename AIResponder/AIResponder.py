@@ -71,6 +71,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     tools: List[Tool] = Field(description="The tools available to the agent")
     logger: logging.Logger = Field(description="Logger for error handling")
 
+    model_config = {
+        "arbitrary_types_allowed": True  # Allow arbitrary types like logging.Logger
+    }
+
     @property
     def input_keys(self):
         return ["input", "chat_history", "agent_scratchpad"]
