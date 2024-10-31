@@ -133,20 +133,20 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                         # Only append if we're in the input section and line isn't empty
                         input_text += " " + line.strip()
                 
-                if tool_name and input_text:
+                if tool_name:
                     if tool_name == "Final Response":
                         return AgentFinish(
                             return_values={"output": input_text},
                             log=response_text
                         )
                     else:
-                        # For tools that don't need input, use None or empty string
+                        # For tools that don't need input, use empty string instead of None
                         if tool_name == "Current Date and Time (CST)":
-                            input_text = None
+                            input_text = ""  # Changed from None to empty string
                         
                         return AgentAction(
                             tool=tool_name,
-                            tool_input=input_text,
+                            tool_input=input_text,  # Will always be a string now
                             log=response_text
                         )
             
