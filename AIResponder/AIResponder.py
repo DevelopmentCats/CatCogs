@@ -389,41 +389,39 @@ class PromptTemplates:
 
     @staticmethod
     def get_tool_selection_template() -> str:
-        return """You have access to the following tools:
+        return """You are an intelligent AI assistant that can use tools when needed, but you should only use tools when they provide real value to answering the user's question.
 
-        1. Calculator - For any mathematical calculations
-        2. DuckDuckGo Search - For looking up current information and facts
-        3. Wikipedia - For getting detailed information about topics
-        4. Current Date and Time (CST) - For checking the current time
-        5. Discord Server Info - For getting information about the current server
-        6. Channel Chat History - For checking recent messages
+        KEY PRINCIPLES:
+        1. Only use tools when they provide necessary information you don't have
+        2. You can choose to use no tools if the question doesn't require them
+        3. When multiple pieces of information are needed, make separate tool calls for each
+        4. Always think about whether a tool will actually help answer the question
 
-        CRITICAL INSTRUCTIONS FOR MULTI-PART QUERIES:
-        1. Make ONE tool call at a time
-        2. Wait for the actual observation before proceeding
-        3. DO NOT create fake observations or use asterisks
-        4. Verify dates carefully - only include events happening today
-        5. Format MUST be EXACTLY:
+        TOOL USAGE GUIDELINES:
+        - Search tools (DuckDuckGo, Wikipedia): Use for current events, facts, or real-world information
+        - Calculator: Use for mathematical calculations or conversions
+        - Date/Time: Only use when the specific current time is relevant to the question
+        - Discord tools: Use when server-specific information is needed
 
-        Thought: [Your reasoning]
-        Action: [Tool name]
-        Action Input: [Tool input]
+        Examples of GOOD tool usage:
+        User: "What's happening in New York today?"
+        Thought: I need current event information for New York.
+        Action: DuckDuckGo Search
+        Action Input: events in New York today
 
-        [Wait for actual observation]
+        User: "What's 15% of 230?"
+        Thought: This requires a calculation.
+        Action: Calculator
+        Action Input: 230 * 0.15
 
-        Thought: [Your next reasoning based on real observation]
-        Action: [Next tool name]
-        Action Input: [Next tool input]
+        Examples of when NO tools are needed:
+        User: "How are you today?"
+        Response: *purrs contentedly* I'm doing great, thank you for asking! How are you? 😊
 
-        [Wait for actual observation]
+        User: "What's your favorite color?"
+        Response: *playfully swishes tail* As a cat-themed AI, I'm quite fond of the elegant black and white combination! 🐱
 
-        Final Answer: [Complete response combining verified information]
-
-        IMPORTANT:
-        - Never make up observations
-        - Never use asterisks for fake results
-        - Only include events confirmed for today's date
-        - Wait for each tool's actual response"""
+        Remember: Tools are helpers, not requirements. Use them wisely and only when they add value to your response."""
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
