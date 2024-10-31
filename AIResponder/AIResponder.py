@@ -95,18 +95,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 SystemMessage(content=PromptTemplates.get_tool_selection_prompt())
             ])
             
-            # Add user input
+            # Add user input and chat history
             messages.append(HumanMessage(content=kwargs["input"]))
-            
-            # Add chat history if available
             if "chat_history" in kwargs and kwargs["chat_history"]:
                 messages.extend(kwargs["chat_history"][-5:])
             
             # Add previous steps and their results
             for action, observation in intermediate_steps:
                 messages.extend([
-                    AIMessage(content=f"Thought: I need to use {action.tool}\nAction: {action.tool}\nAction Input: {action.tool_input}"),
-                    SystemMessage(content=f"Tool Result: {observation}")
+                    AIMessage(content=f"Thought: Used {action.tool}\nObservation: {observation}")
                 ])
                 
             # Get the next action from LLM
@@ -127,10 +124,14 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 
                 # Get complete action input
                 input_text = ""
+                input_started = False
                 for line in action_lines[1:]:
                     if line.strip().startswith("Action Input:"):
+                        input_started = True
                         input_text = line.replace("Action Input:", "").strip()
-                        break
+                    elif input_started and line.strip():
+                        # Only append if we're in the input section and line isn't empty
+                        input_text += " " + line.strip()
                 
                 if tool_name and input_text:
                     if tool_name == "Final Response":
@@ -139,6 +140,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                             log=response_text
                         )
                     else:
+                        # For tools that don't need input, use None or empty string
+                        if tool_name == "Current Date and Time (CST)":
+                            input_text = None
+                        
                         return AgentAction(
                             tool=tool_name,
                             tool_input=input_text,
