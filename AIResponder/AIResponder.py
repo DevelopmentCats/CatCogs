@@ -97,7 +97,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Get available tools first
             available_tools = [tool.name for tool in self.tools]
 
-            # Build the prompt based on current state - split into multiple strings to avoid f-string issues
+            # Build the prompt based on current state
             base_prompt = f"""Question: {kwargs['input']}
 
             Available tools: {', '.join(available_tools)}"""
@@ -107,20 +107,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
             base_prompt += """
 
-            Based on the information you have, decide if you:
-            1. Need more information (use a tool)
-            2. Have enough information to respond (use Final Response)
-
-            Important:
-            - Only use Final Response when you have ALL needed information
-            - Format Final Response for Discord with emojis and personality
-            - Continue using tools until you have everything needed
-            - Tool names must be EXACTLY as listed above
-
-            Format your response like this:
+            You MUST respond using EXACTLY this format:
             Thought: [your reasoning]
-            Action: [tool name EXACTLY as listed above, or Final Response]
-            Action Input: [your input or final response formatted for Discord]"""
+            Action: [tool name or Final Response]
+            Action Input: [your input]
+
+            CRITICAL RULES:
+            - Tool names must be EXACTLY as listed above
+            - Use Final Response when you have enough information
+            - Format Final Response for Discord with emojis"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -133,48 +128,52 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             response_text = response.generations[0][0].text.strip()
             self.logger.info(f"LLM RESPONSE: {response_text}")
 
-            # Parse the response
-            if "Action:" in response_text and "Action Input:" in response_text:
-                thought_match = re.search(r"Thought:(.*?)(?=Action:|$)", response_text, re.DOTALL)
-                action_match = re.search(r"Action:(.*?)(?=Action Input:|$)", response_text, re.DOTALL)
-                input_match = re.search(r"Action Input:(.*?)(?=Thought:|Action:|$)", response_text, re.DOTALL)
+            # Strict format checking
+            if not all(x in response_text for x in ["Thought:", "Action:", "Action Input:"]):
+                self.logger.warning("Response missing required format elements")
+                return AgentFinish(
+                    return_values={"output": "*looks confused* I need to format my response properly. Could you ask again? 😿"},
+                    log=response_text
+                )
 
-                if action_match and input_match:
-                    tool_name = action_match.group(1).strip()
-                    input_text = input_match.group(1).strip()
+            # Parse the response with strict ordering
+            thought_match = re.search(r"Thought:(.*?)Action:", response_text, re.DOTALL)
+            action_match = re.search(r"Action:(.*?)Action Input:", response_text, re.DOTALL)
+            input_match = re.search(r"Action Input:(.*?)(?:$|Thought:)", response_text, re.DOTALL)
 
-                    # Handle Final Response first
-                    if tool_name.lower() == "final response":
-                        # Clean up the response text and ensure it's properly formatted
-                        final_response = input_text.strip('"').strip()
-                        if not any(emoji in final_response for emoji in ['😺', '😸', '😻', '🐱', '😽']):
-                            final_response += ' 😺'
-                        return AgentFinish(
-                            return_values={"output": final_response},
-                            log=response_text
-                        )
+            if not (thought_match and action_match and input_match):
+                self.logger.warning("Could not parse response format")
+                return AgentFinish(
+                    return_values={"output": "*tilts head* I need to structure my thoughts better. Could you repeat that? 😺"},
+                    log=response_text
+                )
 
-                    # Validate tool name
-                    if tool_name not in available_tools:
-                        self.logger.warning(f"Invalid tool name: {tool_name}")
-                        # Log available tools for debugging
-                        self.logger.info(f"Available tools: {available_tools}")
-                        return AgentAction(
-                            tool="DuckDuckGo Search",
-                            tool_input=kwargs["input"],
-                            log=f"Invalid tool '{tool_name}', defaulting to search"
-                        )
-                    
-                    # Valid tool action
-                    return AgentAction(
-                        tool=tool_name,
-                        tool_input=input_text,
-                        log=response_text
-                    )
+            tool_name = action_match.group(1).strip()
+            input_text = input_match.group(1).strip()
 
-            # If no valid action or final response, ask for clarification
-            return AgentFinish(
-                return_values={"output": "*tilts head* I need more information. Could you please clarify? 😺"},
+            # Handle Final Response
+            if tool_name.lower() == "final response":
+                final_response = input_text.strip('"').strip()
+                if not any(emoji in final_response for emoji in ['😺', '😸', '😻', '🐱', '😽']):
+                    final_response += ' 😺'
+                return AgentFinish(
+                    return_values={"output": final_response},
+                    log=response_text
+                )
+
+            # Validate tool name
+            if tool_name not in available_tools:
+                self.logger.warning(f"Invalid tool name: {tool_name}")
+                return AgentAction(
+                    tool="DuckDuckGo Search",
+                    tool_input=kwargs["input"],
+                    log=f"Invalid tool '{tool_name}', defaulting to search"
+                )
+            
+            # Valid tool action
+            return AgentAction(
+                tool=tool_name,
+                tool_input=input_text,
                 log=response_text
             )
 
