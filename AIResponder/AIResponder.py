@@ -95,10 +95,14 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {clean_observation}\n"
 
             # Build the prompt based on current state
-            prompt = f"""Question: {kwargs['input']}
+            base_prompt = f"""Question: {kwargs['input']}
 
-            Available tools: {', '.join(tool.name for tool in self.tools)}
-            {f'Previous steps and results:\n{steps_content}' if steps_content else ''}
+            Available tools: {', '.join(tool.name for tool in self.tools)}"""
+
+            if steps_content:
+                base_prompt += f"\n\nPrevious steps and results:\n{steps_content}"
+
+            base_prompt += """
 
             Based on the information you have, decide if you:
             1. Need more information (use a tool)
@@ -112,7 +116,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
                 SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
-                HumanMessage(content=prompt)
+                HumanMessage(content=base_prompt)
             ]
 
             # Get next action from LLM
