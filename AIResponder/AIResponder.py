@@ -92,74 +92,77 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             steps_content = ""
             for action, observation in intermediate_steps:
                 # Clean up the observation text
-                clean_observation = observation.split("Here are the latest results:")[-1].strip() if "Here are the latest results:" in observation else observation
+                clean_observation = observation.split("Search Results:")[-1].strip() if "Search Results:" in observation else observation
                 steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {clean_observation}\n"
 
             # Prepare messages with proper context
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
                 SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
-                HumanMessage(content=kwargs["input"]),
             ]
 
-            # Add chat history if available
-            if "chat_history" in kwargs and kwargs["chat_history"]:
-                messages.extend(kwargs["chat_history"][-5:])
-
-            # Add intermediate steps if any
+            # If we have intermediate steps, ask for next step
             if steps_content:
-                messages.append(AIMessage(content=f"Previous steps:{steps_content}\nBased on these results, what's the next step in your plan?"))
+                messages.append(HumanMessage(content=f"""Previous steps:{steps_content}
+
+                Based on these results, what's the next step in your plan? Remember:
+                1. ONE action at a time
+                2. Wait for each result
+                3. Only use Final Response after ALL steps complete"""))
+            else:
+                # Initial query - include full context
+                messages.append(HumanMessage(content=kwargs["input"]))
 
             # Get next action from LLM
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text
             self.logger.info(f"LLM RESPONSE: {response_text}")
 
-            # Parse the response with better handling
+            # Parse the response
             if "Action:" in response_text and "Action Input:" in response_text:
-                # Split into thought and action parts
                 parts = response_text.split("Action:")
                 thought = parts[0].replace("Thought:", "").strip()
                 action_part = parts[1].strip()
                 
-                # Extract tool name and input (only up to the next Thought/Action)
-                action_lines = []
+                # Get just the current action (stop at next Thought/Action)
+                current_action = ""
                 for line in action_part.split('\n'):
-                    if line.strip().startswith(("Thought:", "Action:")):
+                    if line.strip().startswith(("Thought:", "Action:")) and current_action:
                         break
-                    action_lines.append(line)
+                    current_action += line + "\n"
                 
+                # Extract tool name and input
+                action_lines = current_action.strip().split('\n')
                 tool_name = action_lines[0].strip()
                 
-                # Get complete action input
+                # Get action input
                 input_text = ""
-                input_started = False
                 for line in action_lines[1:]:
                     if line.strip().startswith("Action Input:"):
-                        input_started = True
                         input_text = line.replace("Action Input:", "").strip()
-                    elif input_started and line.strip():
-                        input_text += "\n" + line.strip()
+                        break
 
-                # Only finish if explicitly marked as Final Response and we've completed planned steps
-                if tool_name.lower() == "final response" and len(intermediate_steps) > 0:
-                    return AgentFinish(
-                        return_values={"output": input_text},
-                        log=response_text
-                    )
+                # Only allow Final Response after at least one tool use
+                if tool_name.lower() == "final response":
+                    if len(intermediate_steps) > 0:
+                        return AgentFinish(
+                            return_values={"output": input_text},
+                            log=response_text
+                        )
+                    else:
+                        # Force tool use if trying to finish too early
+                        return AgentAction(
+                            tool="DuckDuckGo Search",
+                            tool_input=kwargs["input"],
+                            log="Requiring search before final response"
+                        )
                 
                 # Return the next action
                 return AgentAction(
                     tool=tool_name,
                     tool_input=input_text,
-                    log=response_text
+                    log=thought
                 )
-
-            # If no clear action/response found
-            return AgentFinish(
-                return_values={"output": "*tilts head* I need more information. Could you please clarify? 😺"},
-                log=response_text
-            )
 
         except Exception as e:
             self.logger.error(f"ERROR IN APLAN: {str(e)}", exc_info=True)
