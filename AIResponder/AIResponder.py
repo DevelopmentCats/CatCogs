@@ -834,7 +834,7 @@ class AIResponder(commands.Cog):
                 handle_parsing_errors=True,
                 max_iterations=5,
                 return_intermediate_steps=True,
-                early_stopping_method="generate",  # Changed to allow chain to continue
+                early_stopping_method="force",  # Changed to force
                 max_execution_time=None,
                 output_parser=None
             )
@@ -898,9 +898,10 @@ class AIResponder(commands.Cog):
             # Initialize chain state
             max_iterations = 5
             iteration = 0
+            intermediate_steps = []
             
             while iteration < max_iterations:
-                # Get next action from agent - remove intermediate_steps from input
+                # Get next action from agent
                 result = await self.agent_executor.ainvoke(
                     {
                         "input": content,
@@ -919,18 +920,33 @@ class AIResponder(commands.Cog):
                     {"callbacks": [callback_handler]}
                 )
 
-                # Check if we got a final response
-                if isinstance(result, dict) and "output" in result:
-                    return result["output"]
-
-                # Continue chain if we have intermediate steps
+                # Update intermediate steps
                 if isinstance(result, dict) and "intermediate_steps" in result:
                     if result["intermediate_steps"]:
+                        intermediate_steps.extend(result["intermediate_steps"])
+                        
+                        # Check if the last action was Final Response
+                        last_action = result["intermediate_steps"][-1][0]
+                        if isinstance(last_action, AgentAction) and last_action.tool.lower() == "final response":
+                            return await self.generate_final_response(
+                                original_question=content,
+                                intermediate_steps=intermediate_steps,
+                                chat_history=chat_history,
+                                user={
+                                    "name": str(message.author.name),
+                                    "nickname": str(message.author.display_name),
+                                    "id": str(message.author.id)
+                                }
+                            )
+                        
                         iteration += 1
                         continue
-                    
-                # If we get here, something went wrong
-                return f"{message.author.mention} *looks confused* I'm not sure how to process that. Could you try again? 😿"
+                
+                # If we get here without a Final Response, continue the chain
+                iteration += 1
+                
+            # If we hit max iterations without a Final Response
+            return f"{message.author.mention} *looks overwhelmed* I've been thinking too long about this. Could you try asking in a different way? 😿"
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}")
