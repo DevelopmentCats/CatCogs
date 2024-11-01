@@ -100,23 +100,27 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Build the prompt based on current state
             base_prompt = f"""Question: {kwargs['input']}
 
-            Available tools: {', '.join(available_tools)}
-
             Previous steps and results:
             {steps_content if steps_content else 'No previous steps.'}
+
+            Available tools: {', '.join(available_tools)}
+
+            You MUST analyze the previous steps and results before deciding what to do next.
+            If you have the information you need, you MUST use Final Response.
 
             You MUST respond with EXACTLY ONE action using this format:
             Thought: [your reasoning about what to do next]
             Action: [EXACTLY ONE tool name or Final Response]
             Action Input: [your input]
 
-            IMPORTANT:
-            - After getting tool results, you MUST either:
-              a) Use another tool if you need more information
-              b) Use Final Response to give your answer
-            - Never repeat the same tool without using its results
-            - Include all relevant information from tool results in your Final Response
-            - Tool names must be EXACTLY as listed above"""
+            CRITICAL RULES:
+            1. After getting tool results, you MUST either:
+               a) Use another tool if you need more information
+               b) Use Final Response to give your answer
+            2. NEVER repeat a tool without using its previous result
+            3. If you have the information needed, use Final Response
+            4. Tool names must be EXACTLY as listed above
+            5. Include all relevant information from tool results in your Final Response"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -897,10 +901,10 @@ class AIResponder(commands.Cog):
             # Initialize chain state
             max_iterations = 5
             iteration = 0
-            accumulated_steps = []  # Just for tracking, not for passing back
+            accumulated_steps = []
             
             while iteration < max_iterations:
-                # Get next action from agent - NO intermediate_steps here
+                # Get next action from agent
                 result = await self.agent_executor.ainvoke(
                     {
                         "input": content,
@@ -919,14 +923,14 @@ class AIResponder(commands.Cog):
                     {"callbacks": [callback_handler]}
                 )
 
-                # Track steps for final response generation
+                # Track steps and check for completion
                 if isinstance(result, dict) and "intermediate_steps" in result:
                     if result["intermediate_steps"]:
-                        latest_action, latest_observation = result["intermediate_steps"][-1]
-                        accumulated_steps.append((latest_action, latest_observation))
+                        latest_step = result["intermediate_steps"][-1]
+                        accumulated_steps.extend(result["intermediate_steps"])
                         
-                        # If this was Final Response, generate the response
-                        if isinstance(latest_action, AgentAction) and latest_action.tool.lower() == "final response":
+                        # Check if this was a Final Response
+                        if isinstance(latest_step[0], AgentAction) and latest_step[0].tool.lower() == "final response":
                             return await self.generate_final_response(
                                 original_question=content,
                                 intermediate_steps=accumulated_steps,
@@ -937,6 +941,12 @@ class AIResponder(commands.Cog):
                                     "id": str(message.author.id)
                                 }
                             )
+                        
+                        # Check if we're repeating tools without using results
+                        if len(accumulated_steps) > 1:
+                            last_two_tools = [step[0].tool for step in accumulated_steps[-2:]]
+                            if last_two_tools[0] == last_two_tools[1]:
+                                return f"{message.author.mention} *looks confused* I seem to be stuck in a loop. Could you try asking in a different way? 😿"
                 
                 iteration += 1
                 
