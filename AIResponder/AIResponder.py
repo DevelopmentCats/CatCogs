@@ -161,8 +161,23 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     log=response_text
                 )
 
-            # Validate tool name
+            # Validate tool name with more flexible matching
             if tool_name not in available_tools:
+                # Special handling for Current Date and Time tool
+                if "current date and time" in tool_name.lower():
+                    # Find the correct tool name from available tools
+                    date_time_tool = next(
+                        (tool for tool in available_tools if "current date and time" in tool.lower()),
+                        None
+                    )
+                    if date_time_tool:
+                        return AgentAction(
+                            tool=date_time_tool,
+                            tool_input=input_text,
+                            log=f"Normalized tool name from '{tool_name}' to '{date_time_tool}'"
+                        )
+                
+                # Default to search if no match
                 self.logger.warning(f"Invalid tool name: {tool_name}")
                 return AgentAction(
                     tool="DuckDuckGo Search",
