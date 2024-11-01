@@ -108,7 +108,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
             # Add intermediate steps if any
             if steps_content:
-                messages.append(AIMessage(content=f"Previous steps:{steps_content}\nWhat should I do next?"))
+                messages.append(AIMessage(content=f"Previous steps:{steps_content}\nBased on these results, what's the next step in your plan?"))
 
             # Get next action from LLM
             response = await self.llm.agenerate(messages=[messages])
@@ -141,8 +141,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     elif input_started and line.strip():
                         input_text += "\n" + line.strip()
 
-                # Check if this is the final response
-                if tool_name.lower() == "final response":
+                # Only finish if explicitly marked as Final Response and we've completed planned steps
+                if tool_name.lower() == "final response" and len(intermediate_steps) > 0:
                     return AgentFinish(
                         return_values={"output": input_text},
                         log=response_text
