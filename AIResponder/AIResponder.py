@@ -898,16 +898,14 @@ class AIResponder(commands.Cog):
             # Initialize chain state
             max_iterations = 5
             iteration = 0
-            intermediate_steps = []
-            last_result = None
+            accumulated_steps = []  # Just for tracking, not for passing back
             
             while iteration < max_iterations:
-                # Get next action from agent
+                # Get next action from agent - NO intermediate_steps here
                 result = await self.agent_executor.ainvoke(
                     {
                         "input": content,
                         "chat_history": chat_history[-5:],
-                        "intermediate_steps": intermediate_steps,  # Pass the accumulated steps
                         "context": {
                             "message": message,
                             "channel": message.channel,
@@ -922,21 +920,17 @@ class AIResponder(commands.Cog):
                     {"callbacks": [callback_handler]}
                 )
 
-                # Extract the latest step
+                # Track steps for final response generation
                 if isinstance(result, dict) and "intermediate_steps" in result:
                     if result["intermediate_steps"]:
-                        # Get the latest action and observation
                         latest_action, latest_observation = result["intermediate_steps"][-1]
+                        accumulated_steps.append((latest_action, latest_observation))
                         
-                        # Add to our accumulated steps
-                        if latest_action not in [step[0] for step in intermediate_steps]:
-                            intermediate_steps.append((latest_action, latest_observation))
-                        
-                        # Check if this was a Final Response
+                        # If this was Final Response, generate the response
                         if isinstance(latest_action, AgentAction) and latest_action.tool.lower() == "final response":
                             return await self.generate_final_response(
                                 original_question=content,
-                                intermediate_steps=intermediate_steps,
+                                intermediate_steps=accumulated_steps,
                                 chat_history=chat_history,
                                 user={
                                     "name": str(message.author.name),
