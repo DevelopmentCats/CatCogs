@@ -111,10 +111,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             1. Need more information (use a tool)
             2. Have enough information to respond (use Final Response)
 
+            Important:
+            - Only use Final Response when you have ALL needed information
+            - Format Final Response for Discord with emojis and personality
+            - Continue using tools until you have everything needed
+
             Format your response exactly like this:
             Thought: [your reasoning]
             Action: [tool name exactly as listed above, or Final Response]
-            Action Input: [your input or final response]"""
+            Action Input: [your input or final response formatted for Discord]"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -137,20 +142,22 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     tool_name = action_match.group(1).strip()
                     input_text = input_match.group(1).strip()
 
-                    # Validate tool name first
-                    if tool_name not in available_tools and tool_name.lower() != "final response":
+                    # Handle Final Response first
+                    if tool_name.lower() == "final response":
+                        # Clean up the response text
+                        final_response = input_text.strip('"').strip()
+                        return AgentFinish(
+                            return_values={"output": final_response},
+                            log=response_text
+                        )
+
+                    # Validate tool name
+                    if tool_name not in available_tools:
                         self.logger.warning(f"Invalid tool name: {tool_name}")
                         return AgentAction(
                             tool="DuckDuckGo Search",
                             tool_input=kwargs["input"],
                             log=f"Invalid tool '{tool_name}', defaulting to search"
-                        )
-
-                    # Handle Final Response
-                    if tool_name.lower() == "final response":
-                        return AgentFinish(
-                            return_values={"output": input_text},
-                            log=response_text
                         )
                     
                     # Valid tool action
@@ -160,6 +167,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                         log=response_text
                     )
 
+            # If no valid action or final response, ask for clarification
             return AgentFinish(
                 return_values={"output": "*tilts head* I need more information. Could you please clarify? 😺"},
                 log=response_text
