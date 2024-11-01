@@ -94,10 +94,13 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 clean_observation = observation.split("Search Results:")[-1].strip() if "Search Results:" in observation else observation
                 steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {clean_observation}\n"
 
+            # Get available tools first
+            available_tools = [tool.name for tool in self.tools]
+
             # Build the prompt based on current state
             base_prompt = f"""Question: {kwargs['input']}
 
-            Available tools: {', '.join(tool.name for tool in self.tools)}"""
+            Available tools: {', '.join(available_tools)}"""
 
             if steps_content:
                 base_prompt += f"\n\nPrevious steps and results:\n{steps_content}"
@@ -110,7 +113,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
             Format your response exactly like this:
             Thought: [your reasoning]
-            Action: [tool name or Final Response]
+            Action: [tool name exactly as listed above, or Final Response]
             Action Input: [your input or final response]"""
 
             messages = [
@@ -134,6 +137,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     tool_name = action_match.group(1).strip()
                     input_text = input_match.group(1).strip()
 
+                    # Validate tool name first
+                    if tool_name not in available_tools and tool_name.lower() != "final response":
+                        self.logger.warning(f"Invalid tool name: {tool_name}")
+                        return AgentAction(
+                            tool="DuckDuckGo Search",
+                            tool_input=kwargs["input"],
+                            log=f"Invalid tool '{tool_name}', defaulting to search"
+                        )
+
                     # Handle Final Response
                     if tool_name.lower() == "final response":
                         return AgentFinish(
@@ -141,15 +153,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                             log=response_text
                         )
                     
-                    # Validate tool name
-                    available_tools = [tool.name for tool in self.tools]
-                    if tool_name not in available_tools:
-                        return AgentAction(
-                            tool="DuckDuckGo Search",
-                            tool_input=kwargs["input"],
-                            log=f"Invalid tool '{tool_name}', defaulting to search"
-                        )
-                    
+                    # Valid tool action
                     return AgentAction(
                         tool=tool_name,
                         tool_input=input_text,
