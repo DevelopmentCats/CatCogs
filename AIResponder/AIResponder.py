@@ -100,10 +100,13 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             if "chat_history" in kwargs and kwargs["chat_history"]:
                 messages.extend(kwargs["chat_history"][-5:])
             
-            # Add previous steps and their results
+            # Add previous steps and their results more explicitly
             for action, observation in intermediate_steps:
                 messages.extend([
-                    AIMessage(content=f"Thought: Used {action.tool}\nObservation: {observation}")
+                    AIMessage(content=f"""Thought: Used {action.tool}
+                    Observation: {observation}
+
+                    Thought: Analyzing the result and determining next step in the plan""")
                 ])
                 
             # Get the next action from LLM
@@ -111,7 +114,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             response_text = response.generations[0][0].text
             self.logger.info(f"LLM RESPONSE: {response_text}")
             
-            # Parse the response
+            # Parse the response with better handling of planned steps
             if "Action:" in response_text and "Action Input:" in response_text:
                 # Split into thought and action parts
                 parts = response_text.split("Action:")
@@ -133,7 +136,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                         input_text += " " + line.strip()
                 
                 if tool_name:
-                    if tool_name == "Final Response":
+                    # Only finish if explicitly marked as Final Response and we've completed planned steps
+                    if tool_name == "Final Response" and len(intermediate_steps) > 0:
                         return AgentFinish(
                             return_values={"output": input_text},
                             log=response_text
