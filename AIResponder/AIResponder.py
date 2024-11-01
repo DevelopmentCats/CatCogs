@@ -894,67 +894,58 @@ class AIResponder(commands.Cog):
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: commands.Context) -> str:
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
-
-            if self.agent_executor is None:
-                self.logger.error("Agent executor is not initialized")
-                await self.update_langchain_components()
-                if self.agent_executor is None:
-                    return f"{message.author.mention} I'm having trouble accessing my knowledge. Please try again later or contact the bot owner."
-
-            self.logger.info(f"Processing query from {message.author}: {content}")
-        
-            # Updated user info dictionary with safer attribute access
-            user_info = {
-                "name": str(getattr(message.author, 'name', 'User')),
-                "nickname": str(getattr(message.author, 'display_name', 'User')),
-                "id": str(getattr(message.author, 'id', '0'))
-            }
-
-            # Create context dictionary
-            context = {
-                "message": message,
-                "channel": message.channel,
-                "guild": message.guild,
-                "user": user_info
-            }
-
-            # Stream the agent execution to handle intermediate steps
-            final_output = None
-            async for chunk in self.agent_executor.astream(
-                {
-                    "input": content,
-                    "chat_history": chat_history[-5:],
-                    "agent_scratchpad": "",
-                    "context": context
-                },
-                {"callbacks": [callback_handler]}
-            ):
-                if "output" in chunk:
-                    final_output = chunk["output"]
-                # Continue processing intermediate steps
-
-            if not final_output:
-                final_output = await self.generate_final_response(
-                    original_question=content,
-                    intermediate_steps=result.get('intermediate_steps', []),
-                    chat_history=chat_history,
-                    user=user_info
-                )
-
-            # Format and send response
-            formatted_response = f"{message.author.mention}\n\n{final_output}"
-            chunks = [formatted_response[i:i+1900] for i in range(0, len(formatted_response), 1900)]
             
-            await response_message.edit(content=chunks[0])
-            for chunk in chunks[1:]:
-                await message.channel.send(chunk)
-
-            chat_history.append(AIMessage(content=final_output))
-            return final_output
+            # Initialize chain state
+            intermediate_steps = []
+            max_iterations = 5
+            iteration = 0
+            
+            while iteration < max_iterations:
+                # Get next action from agent
+                result = await self.agent_executor.ainvoke(
+                    {
+                        "input": content,
+                        "chat_history": chat_history[-5:],
+                        "intermediate_steps": intermediate_steps,  # Pass current steps
+                        "context": {
+                            "message": message,
+                            "channel": message.channel,
+                            "guild": message.guild,
+                            "user": {
+                                "name": str(message.author.name),
+                                "nickname": str(message.author.display_name),
+                                "id": str(message.author.id)
+                            }
+                        }
+                    },
+                    {"callbacks": [callback_handler]}
+                )
+                
+                # Check if we got a final response
+                if isinstance(result, AgentFinish):
+                    return result.return_values["output"]
+                
+                # Add step to intermediate_steps and continue
+                if "intermediate_steps" in result:
+                    intermediate_steps.extend(result["intermediate_steps"])
+                
+                iteration += 1
+                
+            # If we hit max iterations, generate a final response
+            return await self.generate_final_response(
+                original_question=content,
+                intermediate_steps=intermediate_steps,
+                chat_history=chat_history,
+                user={
+                    "name": str(message.author.name),
+                    "nickname": str(message.author.display_name),
+                    "id": str(message.author.id)
+                }
+            )
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
-            return f"{message.author.mention} *looks confused* Something went wrong while processing your request. Could you try again? 😿"
+            return f"{message.author.mention} *looks confused* Something went wrong. Could you try again? 😿"
 
     async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]], chat_history: List[Union[HumanMessage, AIMessage]], user: dict) -> str:
         try:
