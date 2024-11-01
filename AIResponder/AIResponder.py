@@ -896,17 +896,15 @@ class AIResponder(commands.Cog):
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
             # Initialize chain state
-            intermediate_steps = []
             max_iterations = 5
             iteration = 0
             
             while iteration < max_iterations:
-                # Get next action from agent
+                # Get next action from agent - remove intermediate_steps from input
                 result = await self.agent_executor.ainvoke(
                     {
                         "input": content,
                         "chat_history": chat_history[-5:],
-                        "intermediate_steps": intermediate_steps,  # Pass current steps
                         "context": {
                             "message": message,
                             "channel": message.channel,
@@ -925,10 +923,9 @@ class AIResponder(commands.Cog):
                 if isinstance(result, dict) and "output" in result:
                     return result["output"]
 
-                # Add step to intermediate_steps and continue chain
+                # Continue chain if we have intermediate steps
                 if isinstance(result, dict) and "intermediate_steps" in result:
                     if result["intermediate_steps"]:
-                        intermediate_steps.extend(result["intermediate_steps"])
                         iteration += 1
                         continue
                     
@@ -936,7 +933,7 @@ class AIResponder(commands.Cog):
                 return f"{message.author.mention} *looks confused* I'm not sure how to process that. Could you try again? 😿"
 
         except Exception as e:
-            self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
+            self.logger.error(f"Error in process_query: {str(e)}")
             return f"{message.author.mention} *looks confused* Something went wrong. Could you try again? 😿"
 
     async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]], chat_history: List[Union[HumanMessage, AIMessage]], user: dict) -> str:
