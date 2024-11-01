@@ -105,13 +105,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
             Available tools: {', '.join(available_tools)}
 
-            You MUST analyze the previous steps and results before deciding what to do next.
-            If you have the information you need, you MUST use Final Response.
-
-            You MUST respond with EXACTLY ONE action using this format:
-            Thought: [your reasoning about what to do next]
-            Action: [EXACTLY ONE tool name or Final Response]
-            Action Input: [your input]"""
+            You MUST respond using EXACTLY this format:
+            Thought: [your reasoning]
+            Action: [tool name]
+            Action Input: [input]"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -122,18 +119,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Get next action from LLM
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text.strip()
-            
-            # Take only the last occurrence of each section to avoid duplicates
-            sections = response_text.split("\n\n")
-            last_section = sections[-1]  # Take only the last section
-            
-            # Parse from the last section
-            thought_match = re.search(r"Thought:(.*?)(?=Action:|$)", last_section, re.DOTALL)
-            action_match = re.search(r"Action:(.*?)(?=Action Input:|$)", last_section, re.DOTALL)
-            input_match = re.search(r"Action Input:(.*?)(?=Thought:|Action:|$)", last_section, re.DOTALL)
+            self.logger.info(f"LLM RESPONSE: {response_text}")
+
+            # Updated regex patterns to be more flexible with whitespace and newlines
+            thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|$)", response_text, re.DOTALL | re.IGNORECASE)
+            action_match = re.search(r"Action:\s*(.*?)(?=Action Input:|$)", response_text, re.DOTALL | re.IGNORECASE)
+            input_match = re.search(r"Action Input:\s*(.*?)(?=$)", response_text, re.DOTALL | re.IGNORECASE)
 
             if not (thought_match and action_match and input_match):
-                self.logger.warning("Could not parse response format")
+                self.logger.warning(f"Could not parse response format\n{response_text}")
                 return AgentFinish(
                     return_values={"output": "*tilts head* I need to structure my thoughts better. Could you repeat that? 😺"},
                     log=response_text
