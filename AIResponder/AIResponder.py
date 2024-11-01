@@ -98,12 +98,19 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             if steps_content:
                 prompt = f"""Previous steps:{steps_content}
 
-                Based on these results, what single next step should you take? Choose ONE of:
-                1. Search for more information if needed
-                2. Provide a Final Response if you have enough information
+                Current question: {kwargs['input']}
+
+                Based on the previous steps and current question, determine if you need more information or can provide a final response.
+
+                Available tools: {', '.join(tool.name for tool in self.tools)}
+
+                Important:
+                1. If you need more information, use ONE tool and wait for its result
+                2. Only use Final Response when you have ALL needed information
+                3. Each step should build on previous results
 
                 Format your response exactly like this:
-                Thought: [your reasoning]
+                Thought: [your reasoning about what information you have and what you still need]
                 Action: [tool name exactly as listed]
                 Action Input: [your input]"""
             else:
@@ -813,17 +820,17 @@ class AIResponder(commands.Cog):
                 logger=self.logger
             )
 
-            # Create agent executor with tools
+            # Create agent executor with modified settings
             self.agent_executor = AgentExecutor(
                 agent=self.agent,
                 tools=self.tools,
                 memory=memory,
                 verbose=True,
                 handle_parsing_errors=True,
-                max_iterations=5,
+                max_iterations=5,  # Ensure this is high enough for multi-step plans
                 return_intermediate_steps=True,
-                early_stopping_method="force",
-                max_execution_time=None,  # Add timeout if needed
+                early_stopping_method="generate",  # Change from "force" to "generate"
+                max_execution_time=None,
             )
 
             self.logger.info("LangChain components updated successfully")
