@@ -111,16 +111,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             You MUST respond with EXACTLY ONE action using this format:
             Thought: [your reasoning about what to do next]
             Action: [EXACTLY ONE tool name or Final Response]
-            Action Input: [your input]
-
-            CRITICAL RULES:
-            1. After getting tool results, you MUST either:
-               a) Use another tool if you need more information
-               b) Use Final Response to give your answer
-            2. NEVER repeat a tool without using its previous result
-            3. If you have the information needed, use Final Response
-            4. Tool names must be EXACTLY as listed above
-            5. Include all relevant information from tool results in your Final Response"""
+            Action Input: [your input]"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -131,12 +122,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Get next action from LLM
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text.strip()
-            self.logger.info(f"LLM RESPONSE: {response_text}")
-
-            # Parse the response - take only the first occurrence of each section
-            thought_match = re.search(r"Thought:(.*?)(?=Action:|$)", response_text, re.DOTALL)
-            action_match = re.search(r"Action:(.*?)(?=Action Input:|$)", response_text, re.DOTALL)
-            input_match = re.search(r"Action Input:(.*?)(?=Thought:|Action:|$)", response_text, re.DOTALL)
+            
+            # Take only the last occurrence of each section to avoid duplicates
+            sections = response_text.split("\n\n")
+            last_section = sections[-1]  # Take only the last section
+            
+            # Parse from the last section
+            thought_match = re.search(r"Thought:(.*?)(?=Action:|$)", last_section, re.DOTALL)
+            action_match = re.search(r"Action:(.*?)(?=Action Input:|$)", last_section, re.DOTALL)
+            input_match = re.search(r"Action Input:(.*?)(?=Thought:|Action:|$)", last_section, re.DOTALL)
 
             if not (thought_match and action_match and input_match):
                 self.logger.warning("Could not parse response format")
