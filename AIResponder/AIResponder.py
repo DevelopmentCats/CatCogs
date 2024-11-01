@@ -192,30 +192,30 @@ class PromptTemplates:
         Then EITHER:
         1. If you need information:
         Action: [Tool Name]
-        Action Input: [Tool Input]
+        Action Input: [Tool Input - See requirements below]
 
         OR:
         2. If you have all needed information:
         Action: Final Response
         Action Input: [Your complete response following personality guidelines]
 
-        Available Tools:
-        - Calculator: For mathematical operations and conversions
-        - Wikipedia: For detailed topic explanations
-        - DuckDuckGo Search: For current events or recent information
-        - Discord Server Info: For server-specific information
-        - Channel Chat History: For recent messages
-        - Current Date and Time (CST): For time-related queries
+        Available Tools and Required Inputs:
+        - Current Date and Time (CST): No input needed, use empty string ""
+        - Calculator: Mathematical expression (e.g., "2 + 2" or "sqrt(144)")
+        - DuckDuckGo Search: Search terms without quotes
+        - Wikipedia: Topic or query
+        - Discord Server Info: No input needed, use empty string ""
+        - Channel Chat History: Number of messages (or empty for default 10)
 
         Multi-Tool Usage:
         Thought: [Initial reasoning]
         Action: [First Tool]
-        Action Input: [First Input]
+        Action Input: [First Input per requirements above]
 
         After receiving results:
         Thought: [Reasoning about next step based on results]
         Action: [Second Tool]
-        Action Input: [Second Input]
+        Action Input: [Second Input per requirements above]
 
         Only after ALL tool results are received:
         Thought: [Final reasoning incorporating all results]
