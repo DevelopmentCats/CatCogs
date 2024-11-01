@@ -103,7 +103,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             Available tools: {', '.join(available_tools)}"""
 
             if steps_content:
-                base_prompt += f"\n\nPrevious steps and results:\n{steps_content}"
+                base_prompt += f"\n\nPrevious steps and results:\n{steps_content}\n\nNow that you have this information, decide if you need more information or can provide a Final Response."
 
             base_prompt += """
 
@@ -115,7 +115,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             CRITICAL RULES:
             - Tool names must be EXACTLY as listed above
             - Use Final Response when you have enough information
-            - Format Final Response for Discord with emojis"""
+            - Format Final Response for Discord with emojis
+            - After getting tool results, you MUST decide to either:
+               1. Use another tool if you need more information
+               2. Provide a Final Response if you have enough information"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -840,7 +843,9 @@ class AIResponder(commands.Cog):
                 handle_parsing_errors=True,
                 max_iterations=5,
                 return_intermediate_steps=True,
-                early_stopping_method="generate"  # Changed from "force" to "generate"
+                early_stopping_method="force",  # Changed back to "force"
+                max_execution_time=None,  # Remove time limit
+                output_parser=None  # Let agent handle parsing
             )
 
             self.logger.info("LangChain components updated successfully")
