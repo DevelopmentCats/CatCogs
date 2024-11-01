@@ -97,11 +97,15 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Get available tools first
             available_tools = [tool.name for tool in self.tools]
 
-            # Build the prompt based on current state
+            # Build the prompt based on current state - split into multiple strings to avoid f-string issues
             base_prompt = f"""Question: {kwargs['input']}
 
-            Available tools: {', '.join(available_tools)}
-            {f'Previous steps and results:\n{steps_content}' if steps_content else ''}
+            Available tools: {', '.join(available_tools)}"""
+
+            if steps_content:
+                base_prompt += f"\n\nPrevious steps and results:\n{steps_content}"
+
+            base_prompt += """
 
             Based on the information you have, decide if you:
             1. Need more information (use a tool)
@@ -113,7 +117,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             - Continue using tools until you have everything needed
             - Tool names must be EXACTLY as listed above
 
-            Format your response exactly like this:
+            Format your response like this:
             Thought: [your reasoning]
             Action: [tool name EXACTLY as listed above, or Final Response]
             Action Input: [your input or final response formatted for Discord]"""
