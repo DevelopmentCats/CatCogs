@@ -904,11 +904,12 @@ class AIResponder(commands.Cog):
             accumulated_steps = []
             
             while iteration < max_iterations:
-                # Get next action from agent
+                # Pass accumulated steps in the input
                 result = await self.agent_executor.ainvoke(
                     {
                         "input": content,
                         "chat_history": chat_history[-5:],
+                        "intermediate_steps": accumulated_steps,  # Pass our accumulated steps
                         "context": {
                             "message": message,
                             "channel": message.channel,
@@ -923,11 +924,15 @@ class AIResponder(commands.Cog):
                     {"callbacks": [callback_handler]}
                 )
 
-                # Track steps and check for completion
-                if isinstance(result, dict) and "intermediate_steps" in result:
-                    if result["intermediate_steps"]:
+                # Extract and accumulate steps
+                if isinstance(result, dict):
+                    # Get the latest step
+                    if "intermediate_steps" in result and result["intermediate_steps"]:
                         latest_step = result["intermediate_steps"][-1]
-                        accumulated_steps.extend(result["intermediate_steps"])
+                        
+                        # Only add if it's a new step
+                        if latest_step not in accumulated_steps:
+                            accumulated_steps.append(latest_step)
                         
                         # Check if this was a Final Response
                         if isinstance(latest_step[0], AgentAction) and latest_step[0].tool.lower() == "final response":
@@ -942,15 +947,18 @@ class AIResponder(commands.Cog):
                                 }
                             )
                         
-                        # Check if we're repeating tools without using results
+                        # Check for tool loops
                         if len(accumulated_steps) > 1:
                             last_two_tools = [step[0].tool for step in accumulated_steps[-2:]]
                             if last_two_tools[0] == last_two_tools[1]:
                                 return f"{message.author.mention} *looks confused* I seem to be stuck in a loop. Could you try asking in a different way? 😿"
                 
-                iteration += 1
+                    # If we got an output directly
+                    elif "output" in result:
+                        return result["output"]
                 
-            # If we hit max iterations without a Final Response
+                iteration += 1
+            
             return f"{message.author.mention} *looks overwhelmed* I've been thinking too long about this. Could you try asking in a different way? 😿"
 
         except Exception as e:
