@@ -95,34 +95,19 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {clean_observation}\n"
 
             # Build the prompt based on current state
-            if steps_content:
-                prompt = f"""Previous steps:{steps_content}
+            prompt = f"""Question: {kwargs['input']}
 
-                Current question: {kwargs['input']}
+            Available tools: {', '.join(tool.name for tool in self.tools)}
+            {f'Previous steps and results:\n{steps_content}' if steps_content else ''}
 
-                Based on the previous steps and current question, determine if you need more information or can provide a final response.
+            Based on the information you have, decide if you:
+            1. Need more information (use a tool)
+            2. Have enough information to respond (use Final Response)
 
-                Available tools: {', '.join(tool.name for tool in self.tools)}
-
-                Important:
-                1. If you need more information, use ONE tool and wait for its result
-                2. Only use Final Response when you have ALL needed information
-                3. Each step should build on previous results
-
-                Format your response exactly like this:
-                Thought: [your reasoning about what information you have and what you still need]
-                Action: [tool name exactly as listed]
-                Action Input: [your input]"""
-            else:
-                prompt = f"""Question: {kwargs['input']}
-
-                Available tools: {', '.join(tool.name for tool in self.tools)}
-
-                What is the first step you should take to answer this question?
-                Format your response exactly like this:
-                Thought: [your reasoning]
-                Action: [tool name exactly as listed]
-                Action Input: [your input]"""
+            Format your response exactly like this:
+            Thought: [your reasoning]
+            Action: [tool name or Final Response]
+            Action Input: [your input or final response]"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -135,9 +120,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             response_text = response.generations[0][0].text.strip()
             self.logger.info(f"LLM RESPONSE: {response_text}")
 
-            # Parse the response (focusing on the immediate next action only)
+            # Parse the response
             if "Action:" in response_text and "Action Input:" in response_text:
-                # Extract thought, action, and input using regex for more precise matching
                 thought_match = re.search(r"Thought:(.*?)(?=Action:|$)", response_text, re.DOTALL)
                 action_match = re.search(r"Action:(.*?)(?=Action Input:|$)", response_text, re.DOTALL)
                 input_match = re.search(r"Action Input:(.*?)(?=Thought:|Action:|$)", response_text, re.DOTALL)
@@ -146,19 +130,20 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     tool_name = action_match.group(1).strip()
                     input_text = input_match.group(1).strip()
 
-                    # Validate tool name against available tools
-                    available_tools = [tool.name for tool in self.tools]
-                    if tool_name not in available_tools:
-                        return AgentAction(
-                            tool="DuckDuckGo Search",  # Default to search if tool not found
-                            tool_input=kwargs["input"],
-                            log=f"Invalid tool '{tool_name}', defaulting to search"
-                        )
-
-                    if tool_name.lower() == "final response" and len(intermediate_steps) > 0:
+                    # Handle Final Response
+                    if tool_name.lower() == "final response":
                         return AgentFinish(
                             return_values={"output": input_text},
                             log=response_text
+                        )
+                    
+                    # Validate tool name
+                    available_tools = [tool.name for tool in self.tools]
+                    if tool_name not in available_tools:
+                        return AgentAction(
+                            tool="DuckDuckGo Search",
+                            tool_input=kwargs["input"],
+                            log=f"Invalid tool '{tool_name}', defaulting to search"
                         )
                     
                     return AgentAction(
@@ -821,16 +806,21 @@ class AIResponder(commands.Cog):
             )
 
             # Create agent executor with modified settings
-            self.agent_executor = AgentExecutor(
+            self.agent_executor = AgentExecutor.from_agent_and_tools(
                 agent=self.agent,
                 tools=self.tools,
                 memory=memory,
                 verbose=True,
                 handle_parsing_errors=True,
-                max_iterations=5,  # Ensure this is high enough for multi-step plans
+                max_iterations=5,
                 return_intermediate_steps=True,
-                early_stopping_method="generate",  # Change from "force" to "generate"
-                max_execution_time=None,
+                early_stopping_method="force",  # Changed to force to ensure completion of steps
+            )
+
+            # Add custom stopping conditions
+            self.agent_executor.should_continue = lambda intermediate_steps: (
+                len(intermediate_steps) < 5 and  # Max steps
+                not any(isinstance(step, AgentFinish) for _, step in intermediate_steps)  # No finish action yet
             )
 
             self.logger.info("LangChain components updated successfully")
