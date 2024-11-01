@@ -67,54 +67,38 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         self.logger.error(f"❌ Tool Error: {str(error)}")
 
 class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
-    llm: BaseChatModel = Field(description="The LLM to use for generating responses")
-    tools: List[Tool] = Field(description="The tools available to the agent")
-    logger: logging.Logger = Field(description="Logger for error handling")
-
-    model_config = {
-        "arbitrary_types_allowed": True  # Allow arbitrary types like logging.Logger
-    }
-
-    @property
-    def input_keys(self):
-        return ["input", "chat_history", "agent_scratchpad"]
-
-    def plan(
-        self, intermediate_steps: List[AgentStep], **kwargs
-    ) -> Union[AgentAction, AgentFinish]:
-        """Synchronous version - required by BaseSingleActionAgent but we'll use aplan."""
-        raise NotImplementedError("Use aplan instead")
+    llm: BaseChatModel
+    tools: List[BaseTool]
+    logger: logging.Logger
 
     async def aplan(self, intermediate_steps: List[AgentStep], **kwargs) -> Union[AgentAction, AgentFinish]:
         try:
-            messages = []
-            
-            # Add system messages in specific order
-            messages.extend([
+            # Format intermediate steps for context
+            steps_content = ""
+            for action, observation in intermediate_steps:
+                steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}\n"
+
+            # Prepare messages with proper context
+            messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
-                SystemMessage(content=PromptTemplates.get_tool_selection_prompt())
-            ])
-            
-            # Add user input and chat history
-            messages.append(HumanMessage(content=kwargs["input"]))
+                SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
+                HumanMessage(content=kwargs["input"]),
+            ]
+
+            # Add chat history if available
             if "chat_history" in kwargs and kwargs["chat_history"]:
                 messages.extend(kwargs["chat_history"][-5:])
-            
-            # Add previous steps and their results more explicitly
-            for action, observation in intermediate_steps:
-                messages.extend([
-                    AIMessage(content=f"""Thought: Used {action.tool}
-                    Observation: {observation}
 
-                    Thought: Analyzing the result and determining next step in the plan""")
-                ])
-                
-            # Get the next action from LLM
+            # Add intermediate steps if any
+            if steps_content:
+                messages.append(AIMessage(content=f"Previous steps:{steps_content}\nWhat should I do next?"))
+
+            # Get next action from LLM
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text
             self.logger.info(f"LLM RESPONSE: {response_text}")
-            
-            # Parse the response with better handling of planned steps
+
+            # Parse the response
             if "Action:" in response_text and "Action Input:" in response_text:
                 # Split into thought and action parts
                 parts = response_text.split("Action:")
@@ -133,26 +117,22 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                         input_started = True
                         input_text = line.replace("Action Input:", "").strip()
                     elif input_started and line.strip():
-                        input_text += " " + line.strip()
+                        input_text += "\n" + line.strip()
+
+                # Check if this is the final response
+                if tool_name.lower() == "final response":
+                    return AgentFinish(
+                        return_values={"output": input_text},
+                        log=response_text
+                    )
                 
-                if tool_name:
-                    # Only finish if explicitly marked as Final Response and we've completed planned steps
-                    if tool_name == "Final Response" and len(intermediate_steps) > 0:
-                        return AgentFinish(
-                            return_values={"output": input_text},
-                            log=response_text
-                        )
-                    else:
-                        # For tools that don't need input, use empty string
-                        if tool_name in ["Current Date and Time (CST)", "Discord Server Info"]:
-                            input_text = ""
-                        
-                        return AgentAction(
-                            tool=tool_name,
-                            tool_input=input_text,
-                            log=response_text
-                        )
-            
+                # Return the next action
+                return AgentAction(
+                    tool=tool_name,
+                    tool_input=input_text,
+                    log=response_text
+                )
+
             # If no clear action/response found
             return AgentFinish(
                 return_values={"output": "*tilts head* I need more information. Could you please clarify? 😺"},
@@ -228,6 +208,8 @@ class PromptTemplates:
         4. WAIT for each result before next action
         5. Use Final Response ONLY after all info gathered
         6. Cat personality ONLY in Final Response
+        7. MUST include reasoning in EVERY Thought step
+        8. NEVER skip steps or combine actions
 
         Example Multi-Step Flow:
         Thought: I need to check events in two cities, so I'll need two searches and then combine results
@@ -816,6 +798,7 @@ class AIResponder(commands.Cog):
                 max_iterations=5,
                 return_intermediate_steps=True,
                 early_stopping_method="force",
+                max_execution_time=None,  # Add timeout if needed
             )
 
             self.logger.info("LangChain components updated successfully")
