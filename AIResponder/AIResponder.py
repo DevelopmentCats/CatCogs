@@ -96,25 +96,26 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
             # Build the prompt based on current state
             if steps_content:
-                # For subsequent steps, focus on the next action only
                 prompt = f"""Previous steps:{steps_content}
 
                 Based on these results, what single next step should you take? Choose ONE of:
                 1. Search for more information if needed
                 2. Provide a Final Response if you have enough information
 
-                Remember:
-                - Only ONE action at a time
-                - Wait for results before planning next step
-                - Only use Final Response when you have all needed information"""
+                Format your response exactly like this:
+                Thought: [your reasoning]
+                Action: [tool name exactly as listed]
+                Action Input: [your input]"""
             else:
-                # For initial step, focus on the first action
                 prompt = f"""Question: {kwargs['input']}
 
+                Available tools: {', '.join(tool.name for tool in self.tools)}
+
                 What is the first step you should take to answer this question?
-                - Choose ONE action
-                - Don't plan multiple steps ahead
-                - Wait for results before deciding next step"""
+                Format your response exactly like this:
+                Thought: [your reasoning]
+                Action: [tool name exactly as listed]
+                Action Input: [your input]"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -129,29 +130,35 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
             # Parse the response (focusing on the immediate next action only)
             if "Action:" in response_text and "Action Input:" in response_text:
-                # Get just the first action block
-                action_block = response_text.split("Action:", 1)[1].split("Action:", 1)[0].strip()
-                
-                # Extract tool name and input
-                tool_name = action_block.split("\n")[0].strip()
-                input_text = ""
-                
-                for line in action_block.split("\n")[1:]:
-                    if line.strip().startswith("Action Input:"):
-                        input_text = line.replace("Action Input:", "").strip()
-                        break
+                # Extract thought, action, and input using regex for more precise matching
+                thought_match = re.search(r"Thought:(.*?)(?=Action:|$)", response_text, re.DOTALL)
+                action_match = re.search(r"Action:(.*?)(?=Action Input:|$)", response_text, re.DOTALL)
+                input_match = re.search(r"Action Input:(.*?)(?=Thought:|Action:|$)", response_text, re.DOTALL)
 
-                if tool_name.lower() == "final response" and len(intermediate_steps) > 0:
-                    return AgentFinish(
-                        return_values={"output": input_text},
+                if action_match and input_match:
+                    tool_name = action_match.group(1).strip()
+                    input_text = input_match.group(1).strip()
+
+                    # Validate tool name against available tools
+                    available_tools = [tool.name for tool in self.tools]
+                    if tool_name not in available_tools:
+                        return AgentAction(
+                            tool="DuckDuckGo Search",  # Default to search if tool not found
+                            tool_input=kwargs["input"],
+                            log=f"Invalid tool '{tool_name}', defaulting to search"
+                        )
+
+                    if tool_name.lower() == "final response" and len(intermediate_steps) > 0:
+                        return AgentFinish(
+                            return_values={"output": input_text},
+                            log=response_text
+                        )
+                    
+                    return AgentAction(
+                        tool=tool_name,
+                        tool_input=input_text,
                         log=response_text
                     )
-                
-                return AgentAction(
-                    tool=tool_name,
-                    tool_input=input_text,
-                    log=response_text
-                )
 
             return AgentFinish(
                 return_values={"output": "*tilts head* I need more information. Could you please clarify? 😺"},
