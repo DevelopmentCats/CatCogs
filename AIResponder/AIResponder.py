@@ -100,12 +100,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Build the prompt based on current state
             base_prompt = f"""Question: {kwargs['input']}
 
-            Available tools: {', '.join(available_tools)}"""
-
-            if steps_content:
-                base_prompt += f"\n\nPrevious steps and results:\n{steps_content}"
-
-            base_prompt += """
+            Available tools: {', '.join(available_tools)}
+            {f'Previous steps and results:\n{steps_content}' if steps_content else ''}
 
             Based on the information you have, decide if you:
             1. Need more information (use a tool)
@@ -115,10 +111,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             - Only use Final Response when you have ALL needed information
             - Format Final Response for Discord with emojis and personality
             - Continue using tools until you have everything needed
+            - Tool names must be EXACTLY as listed above
 
             Format your response exactly like this:
             Thought: [your reasoning]
-            Action: [tool name exactly as listed above, or Final Response]
+            Action: [tool name EXACTLY as listed above, or Final Response]
             Action Input: [your input or final response formatted for Discord]"""
 
             messages = [
@@ -144,8 +141,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
                     # Handle Final Response first
                     if tool_name.lower() == "final response":
-                        # Clean up the response text
+                        # Clean up the response text and ensure it's properly formatted
                         final_response = input_text.strip('"').strip()
+                        if not any(emoji in final_response for emoji in ['😺', '😸', '😻', '🐱', '😽']):
+                            final_response += ' 😺'
                         return AgentFinish(
                             return_values={"output": final_response},
                             log=response_text
@@ -154,6 +153,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                     # Validate tool name
                     if tool_name not in available_tools:
                         self.logger.warning(f"Invalid tool name: {tool_name}")
+                        # Log available tools for debugging
+                        self.logger.info(f"Available tools: {available_tools}")
                         return AgentAction(
                             tool="DuckDuckGo Search",
                             tool_input=kwargs["input"],
