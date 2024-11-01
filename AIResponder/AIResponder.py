@@ -834,9 +834,9 @@ class AIResponder(commands.Cog):
                 handle_parsing_errors=True,
                 max_iterations=5,
                 return_intermediate_steps=True,
-                early_stopping_method="force",  # Changed back to "force"
-                max_execution_time=None,  # Remove time limit
-                output_parser=None  # Let agent handle parsing
+                early_stopping_method="generate",  # Changed to allow chain to continue
+                max_execution_time=None,
+                output_parser=None
             )
 
             self.logger.info("LangChain components updated successfully")
