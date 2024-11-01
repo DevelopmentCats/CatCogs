@@ -764,7 +764,6 @@ class AIResponder(commands.Cog):
 
     async def update_langchain_components(self):
         try:
-
             # Update to use new structure
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -783,14 +782,6 @@ class AIResponder(commands.Cog):
                 f"Action: Final Response\n"
                 f"Action Input: {example['action_input']}"
                 for example in examples
-            ])
-
-            # Create prompt template with new structure
-            few_shot_prompt = ChatPromptTemplate.from_messages([
-                *messages,  # Base system and tool selection prompts
-                HumanMessage(content="{input}"),
-                AIMessage(content="{agent_scratchpad}"),
-                SystemMessage(content=f"Examples:\n{examples_str}")
             ])
 
             # Initialize memory with specific input/output keys
@@ -818,13 +809,7 @@ class AIResponder(commands.Cog):
                 handle_parsing_errors=True,
                 max_iterations=5,
                 return_intermediate_steps=True,
-                early_stopping_method="force",  # Changed to force to ensure completion of steps
-            )
-
-            # Add custom stopping conditions
-            self.agent_executor.should_continue = lambda intermediate_steps: (
-                len(intermediate_steps) < 5 and  # Max steps
-                not any(isinstance(step, AgentFinish) for _, step in intermediate_steps)  # No finish action yet
+                early_stopping_method="generate"  # Changed from "force" to "generate"
             )
 
             self.logger.info("LangChain components updated successfully")
