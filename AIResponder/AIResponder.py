@@ -899,6 +899,7 @@ class AIResponder(commands.Cog):
             max_iterations = 5
             iteration = 0
             intermediate_steps = []
+            last_result = None
             
             while iteration < max_iterations:
                 # Get next action from agent
@@ -906,6 +907,7 @@ class AIResponder(commands.Cog):
                     {
                         "input": content,
                         "chat_history": chat_history[-5:],
+                        "intermediate_steps": intermediate_steps,  # Pass the accumulated steps
                         "context": {
                             "message": message,
                             "channel": message.channel,
@@ -920,14 +922,18 @@ class AIResponder(commands.Cog):
                     {"callbacks": [callback_handler]}
                 )
 
-                # Update intermediate steps
+                # Extract the latest step
                 if isinstance(result, dict) and "intermediate_steps" in result:
                     if result["intermediate_steps"]:
-                        intermediate_steps.extend(result["intermediate_steps"])
+                        # Get the latest action and observation
+                        latest_action, latest_observation = result["intermediate_steps"][-1]
                         
-                        # Check if the last action was Final Response
-                        last_action = result["intermediate_steps"][-1][0]
-                        if isinstance(last_action, AgentAction) and last_action.tool.lower() == "final response":
+                        # Add to our accumulated steps
+                        if latest_action not in [step[0] for step in intermediate_steps]:
+                            intermediate_steps.append((latest_action, latest_observation))
+                        
+                        # Check if this was a Final Response
+                        if isinstance(latest_action, AgentAction) and latest_action.tool.lower() == "final response":
                             return await self.generate_final_response(
                                 original_question=content,
                                 intermediate_steps=intermediate_steps,
@@ -938,11 +944,7 @@ class AIResponder(commands.Cog):
                                     "id": str(message.author.id)
                                 }
                             )
-                        
-                        iteration += 1
-                        continue
                 
-                # If we get here without a Final Response, continue the chain
                 iteration += 1
                 
             # If we hit max iterations without a Final Response
