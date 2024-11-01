@@ -73,6 +73,19 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    @property
+    def input_keys(self) -> List[str]:
+        """Return the input keys this agent expects."""
+        return ["input", "chat_history"]
+
+    async def plan(
+        self, 
+        intermediate_steps: List[AgentStep], 
+        **kwargs: Any
+    ) -> Union[AgentAction, AgentFinish]:
+        """Plan the next action or finish the sequence."""
+        return await self.aplan(intermediate_steps, **kwargs)
+
     async def aplan(self, intermediate_steps: List[AgentStep], **kwargs) -> Union[AgentAction, AgentFinish]:
         try:
             # Format intermediate steps for context
