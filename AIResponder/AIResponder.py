@@ -895,53 +895,44 @@ class AIResponder(commands.Cog):
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
-            # Initialize chain state
-            intermediate_steps = []
-            max_iterations = 5
-            iteration = 0
-            
-            while iteration < max_iterations:
-                # Get next action from agent
-                result = await self.agent_executor.ainvoke(
-                    {
-                        "input": content,
-                        "chat_history": chat_history[-5:],
-                        "intermediate_steps": intermediate_steps,  # Pass current steps
-                        "context": {
-                            "message": message,
-                            "channel": message.channel,
-                            "guild": message.guild,
-                            "user": {
-                                "name": str(message.author.name),
-                                "nickname": str(message.author.display_name),
-                                "id": str(message.author.id)
-                            }
+            result = await self.agent_executor.ainvoke(
+                {
+                    "input": content,
+                    "chat_history": chat_history[-5:],
+                    "agent_scratchpad": "",  # Remove intermediate_steps from here
+                    "context": {
+                        "message": message,
+                        "channel": message.channel,
+                        "guild": message.guild,
+                        "user": {
+                            "name": str(message.author.name),
+                            "nickname": str(message.author.display_name),
+                            "id": str(message.author.id)
                         }
-                    },
-                    {"callbacks": [callback_handler]}
-                )
-                
-                # Check if we got a final response
-                if isinstance(result, AgentFinish):
-                    return result.return_values["output"]
-                
-                # Add step to intermediate_steps and continue
-                if "intermediate_steps" in result:
-                    intermediate_steps.extend(result["intermediate_steps"])
-                
-                iteration += 1
-                
-            # If we hit max iterations, generate a final response
-            return await self.generate_final_response(
-                original_question=content,
-                intermediate_steps=intermediate_steps,
-                chat_history=chat_history,
-                user={
-                    "name": str(message.author.name),
-                    "nickname": str(message.author.display_name),
-                    "id": str(message.author.id)
-                }
+                    }
+                },
+                {"callbacks": [callback_handler]}
             )
+
+            # If we got a final response directly
+            if isinstance(result, dict) and "output" in result:
+                return result["output"]
+            
+            # If we have intermediate steps, process them
+            if isinstance(result, dict) and "intermediate_steps" in result:
+                return await self.generate_final_response(
+                    original_question=content,
+                    intermediate_steps=result["intermediate_steps"],
+                    chat_history=chat_history,
+                    user={
+                        "name": str(message.author.name),
+                        "nickname": str(message.author.display_name),
+                        "id": str(message.author.id)
+                    }
+                )
+            
+            # Fallback response if something went wrong
+            return f"{message.author.mention} *looks confused* I'm not sure how to process that. Could you try again? 😿"
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
