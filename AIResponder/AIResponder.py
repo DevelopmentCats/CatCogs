@@ -130,7 +130,6 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                         input_started = True
                         input_text = line.replace("Action Input:", "").strip()
                     elif input_started and line.strip():
-                        # Only append if we're in the input section and line isn't empty
                         input_text += " " + line.strip()
                 
                 if tool_name:
@@ -140,13 +139,13 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                             log=response_text
                         )
                     else:
-                        # For tools that don't need input, use empty string instead of None
-                        if tool_name == "Current Date and Time (CST)":
-                            input_text = ""  # Changed from None to empty string
+                        # For tools that don't need input, use empty string
+                        if tool_name in ["Current Date and Time (CST)", "Discord Server Info"]:
+                            input_text = ""
                         
                         return AgentAction(
                             tool=tool_name,
-                            tool_input=input_text,  # Will always be a string now
+                            tool_input=input_text,
                             log=response_text
                         )
             
@@ -184,45 +183,54 @@ class PromptTemplates:
 
     @staticmethod
     def get_tool_selection_prompt() -> str:
-        return """You must ALWAYS respond using this EXACT format and NEVER include a response in the Action Input:
+        return """You MUST follow this EXACT format for EVERY response:
 
-        For ALL interactions, start with:
-        Thought: [Your reasoning about what to do]
+        Step 1: ALWAYS begin with
+        Thought: [Your step-by-step reasoning about what information you need and which tool to use]
 
-        Then EITHER:
-        1. If you need information, ONLY include:
-        Action: [Exact Tool Name]
-        Action Input: [Tool Input - See requirements below]
+        Step 2: THEN use EXACTLY one of these two formats:
 
-        OR:
-        2. If you have all needed information:
+        Format A - When you need information:
+        Action: [EXACT tool name from list]
+        Action Input: [ONLY the required input - nothing else]
+
+        Format B - When you have all needed information:
         Action: Final Response
-        Action Input: [Your complete response following personality guidelines]
+        Action Input: [Your complete response with cat personality]
 
-        Available Tools and Required Inputs:
-        - Current Date and Time (CST): Use EXACTLY this name, with empty string input ""
-        - Calculator: Mathematical expression (e.g., "2 + 2" or "sqrt(144)")
-        - DuckDuckGo Search: Search terms without quotes
-        - Wikipedia: Topic or query
-        - Discord Server Info: Use empty string ""
-        - Channel Chat History: Number of messages (or empty for default 10)
+        Available Tools:
+        1. Current Date and Time (CST)
+           - Input: MUST be empty string ""
+           - Use for: Getting current time
+           
+        2. DuckDuckGo Search
+           - Input: ONLY search terms, no quotes
+           - Use for: Current events, news, real-time info
+           
+        3. Wikipedia
+           - Input: ONLY the topic/query
+           - Use for: Historical facts, general knowledge
+           
+        4. Calculator
+           - Input: ONLY the math expression
+           - Use for: Math calculations
+           
+        5. Discord Server Info
+           - Input: MUST be empty string ""
+           - Use for: Server details
+           
+        6. Channel Chat History
+           - Input: Number or empty for default
+           - Use for: Recent messages
 
-        Multi-Tool Usage Example:
-        Thought: I need to check the current time
-        Action: Current Date and Time (CST)
-        Action Input: ""
-
-        After receiving tool result:
-        Thought: Now I can provide the time
-        Action: Final Response
-        Action Input: [Your response here]
-
-        Response Rules:
-        1. Never include responses in Action Input for tools
-        2. Only include response in Action Input for Final Response
-        3. Use EXACT tool names as listed above
-        4. Keep tool inputs simple and matching requirements
-        5. Always maintain cat-themed personality in Final Response only"""
+        CRITICAL RULES:
+        1. NEVER skip the Thought step
+        2. NEVER include explanations in Action Input
+        3. NEVER generate responses until Final Response
+        4. ALWAYS use EXACT tool names
+        5. Cat personality ONLY in Final Response
+        6. MUST get information before responding
+        7. ONE action at a time, wait for result"""
 
     @staticmethod
     def get_tool_examples() -> List[dict]:
