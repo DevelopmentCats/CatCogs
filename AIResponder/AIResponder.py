@@ -918,42 +918,43 @@ class AIResponder(commands.Cog):
                 "user": user_info
             }
 
-            result = await self.agent_executor.ainvoke(
+            # Stream the agent execution to handle intermediate steps
+            final_output = None
+            async for chunk in self.agent_executor.astream(
                 {
                     "input": content,
                     "chat_history": chat_history[-5:],
                     "agent_scratchpad": "",
-                    "context": context  # Pass the context
+                    "context": context
                 },
                 {"callbacks": [callback_handler]}
-            )
+            ):
+                if "output" in chunk:
+                    final_output = chunk["output"]
+                # Continue processing intermediate steps
 
-            if not result or 'output' not in result:
-                raise ValueError("Invalid result from agent executor")
-
-            final_response = await self.generate_final_response(
-                original_question=content,
-                intermediate_steps=result.get('intermediate_steps', []),
-                chat_history=chat_history,
-                user=user_info
-            )
+            if not final_output:
+                final_output = await self.generate_final_response(
+                    original_question=content,
+                    intermediate_steps=result.get('intermediate_steps', []),
+                    chat_history=chat_history,
+                    user=user_info
+                )
 
             # Format and send response
-            formatted_response = f"{message.author.mention}\n\n{final_response}"
+            formatted_response = f"{message.author.mention}\n\n{final_output}"
             chunks = [formatted_response[i:i+1900] for i in range(0, len(formatted_response), 1900)]
             
             await response_message.edit(content=chunks[0])
             for chunk in chunks[1:]:
                 await message.channel.send(chunk)
 
-            chat_history.append(AIMessage(content=final_response))
-            return final_response
+            chat_history.append(AIMessage(content=final_output))
+            return final_output
 
         except Exception as e:
-            self.logger.error(f"Unexpected error in process_query: {str(e)}", exc_info=True)
-            error_message = f"{message.author.mention} I encountered an unexpected error. Please try again or contact the bot owner if the issue persists."
-            await response_message.edit(content=error_message)
-            return error_message
+            self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
+            return f"{message.author.mention} *looks confused* Something went wrong while processing your request. Could you try again? 😿"
 
     async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]], chat_history: List[Union[HumanMessage, AIMessage]], user: dict) -> str:
         try:
