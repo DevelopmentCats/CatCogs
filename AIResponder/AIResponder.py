@@ -91,7 +91,9 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Format intermediate steps for context
             steps_content = ""
             for action, observation in intermediate_steps:
-                steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}\n"
+                # Clean up the observation text
+                clean_observation = observation.split("Here are the latest results:")[-1].strip() if "Here are the latest results:" in observation else observation
+                steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {clean_observation}\n"
 
             # Prepare messages with proper context
             messages = [
@@ -113,15 +115,20 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             response_text = response.generations[0][0].text
             self.logger.info(f"LLM RESPONSE: {response_text}")
 
-            # Parse the response
+            # Parse the response with better handling
             if "Action:" in response_text and "Action Input:" in response_text:
                 # Split into thought and action parts
                 parts = response_text.split("Action:")
                 thought = parts[0].replace("Thought:", "").strip()
                 action_part = parts[1].strip()
                 
-                # Extract tool name and input
-                action_lines = action_part.split("\n")
+                # Extract tool name and input (only up to the next Thought/Action)
+                action_lines = []
+                for line in action_part.split('\n'):
+                    if line.strip().startswith(("Thought:", "Action:")):
+                        break
+                    action_lines.append(line)
+                
                 tool_name = action_lines[0].strip()
                 
                 # Get complete action input
@@ -400,8 +407,9 @@ class AIResponder(commands.Cog):
         # Modify the DuckDuckGo Search tool
         async def duckduckgo_search(query: str) -> str:
             try:
-                # Remove quotes and clean the query
-                clean_query = query.replace('"', '').strip()
+                # Remove any extra text after the actual query
+                clean_query = query.split('\n')[0].strip()
+                clean_query = clean_query.replace('"', '').strip()
                 
                 # Use DuckDuckGoSearchResults for better result handling
                 search = DuckDuckGoSearchResults()
@@ -413,20 +421,18 @@ class AIResponder(commands.Cog):
                 if not results:
                     return "No results found for the search query."
                 
-                # Parse the results string into individual results
+                # Parse and format results
+                formatted_results = []
                 result_entries = results.split('snippet:')
                 
-                # Format the results, skipping the first empty entry
-                formatted_results = "Here are the latest results:\n"
                 for entry in result_entries[1:4]:  # Get up to 3 results
-                    # Extract title and snippet
                     parts = entry.split('title:')
                     if len(parts) >= 2:
                         snippet = parts[0].strip()
                         title = parts[1].split('link:')[0].strip()
-                        formatted_results += f"- {title}: {snippet}\n"
+                        formatted_results.append(f"- {title}: {snippet}")
                 
-                return formatted_results
+                return "\n".join(formatted_results)
                     
             except Exception as e:
                 self.logger.error(f"Error in DuckDuckGo search: {str(e)}", exc_info=True)
