@@ -70,6 +70,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
     llm: BaseChatModel
     tools: List[BaseTool]
     logger: logging.Logger
+    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     async def aplan(self, intermediate_steps: List[AgentStep], **kwargs) -> Union[AgentAction, AgentFinish]:
         try:
