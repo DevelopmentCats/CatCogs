@@ -100,12 +100,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Build the prompt based on current state
             base_prompt = f"""Question: {kwargs['input']}
 
-            Available tools: {', '.join(available_tools)}"""
+            Available tools: {', '.join(available_tools)}
 
-            if steps_content:
-                base_prompt += f"\n\nPrevious steps and results:\n{steps_content}"
-
-            base_prompt += """
+            Previous steps and results:
+            {steps_content if steps_content else 'No previous steps.'}
 
             You MUST respond with EXACTLY ONE action using this format:
             Thought: [your reasoning about what to do next]
@@ -113,11 +111,12 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             Action Input: [your input]
 
             IMPORTANT:
-            - Provide only ONE action per response
-            - If you need more information, use a tool
-            - Only use Final Response when you have ALL needed information
-            - Tool names must be EXACTLY as listed above
-            - After using a tool, wait for its response before deciding next action"""
+            - After getting tool results, you MUST either:
+              a) Use another tool if you need more information
+              b) Use Final Response to give your answer
+            - Never repeat the same tool without using its results
+            - Include all relevant information from tool results in your Final Response
+            - Tool names must be EXACTLY as listed above"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
