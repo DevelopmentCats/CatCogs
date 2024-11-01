@@ -103,22 +103,21 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             Available tools: {', '.join(available_tools)}"""
 
             if steps_content:
-                base_prompt += f"\n\nPrevious steps and results:\n{steps_content}\n\nNow that you have this information, decide if you need more information or can provide a Final Response."
+                base_prompt += f"\n\nPrevious steps and results:\n{steps_content}"
 
             base_prompt += """
 
-            You MUST respond using EXACTLY this format:
-            Thought: [your reasoning]
-            Action: [tool name or Final Response]
+            You MUST respond with EXACTLY ONE action using this format:
+            Thought: [your reasoning about what to do next]
+            Action: [EXACTLY ONE tool name or Final Response]
             Action Input: [your input]
 
-            CRITICAL RULES:
+            IMPORTANT:
+            - Provide only ONE action per response
+            - If you need more information, use a tool
+            - Only use Final Response when you have ALL needed information
             - Tool names must be EXACTLY as listed above
-            - Use Final Response when you have enough information
-            - Format Final Response for Discord with emojis
-            - After getting tool results, you MUST decide to either:
-               1. Use another tool if you need more information
-               2. Provide a Final Response if you have enough information"""
+            - After using a tool, wait for its response before deciding next action"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -131,18 +130,10 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             response_text = response.generations[0][0].text.strip()
             self.logger.info(f"LLM RESPONSE: {response_text}")
 
-            # Strict format checking
-            if not all(x in response_text for x in ["Thought:", "Action:", "Action Input:"]):
-                self.logger.warning("Response missing required format elements")
-                return AgentFinish(
-                    return_values={"output": "*looks confused* I need to format my response properly. Could you ask again? 😿"},
-                    log=response_text
-                )
-
-            # Parse the response with strict ordering
-            thought_match = re.search(r"Thought:(.*?)Action:", response_text, re.DOTALL)
-            action_match = re.search(r"Action:(.*?)Action Input:", response_text, re.DOTALL)
-            input_match = re.search(r"Action Input:(.*?)(?:$|Thought:)", response_text, re.DOTALL)
+            # Parse the response - take only the first occurrence of each section
+            thought_match = re.search(r"Thought:(.*?)(?=Action:|$)", response_text, re.DOTALL)
+            action_match = re.search(r"Action:(.*?)(?=Action Input:|$)", response_text, re.DOTALL)
+            input_match = re.search(r"Action Input:(.*?)(?=Thought:|Action:|$)", response_text, re.DOTALL)
 
             if not (thought_match and action_match and input_match):
                 self.logger.warning("Could not parse response format")
