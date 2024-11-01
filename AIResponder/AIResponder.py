@@ -183,54 +183,64 @@ class PromptTemplates:
 
     @staticmethod
     def get_tool_selection_prompt() -> str:
-        return """You MUST follow this EXACT format for EVERY response:
+        return """You must ALWAYS follow this EXACT format and plan your actions carefully:
 
-        Step 1: ALWAYS begin with
-        Thought: [Your step-by-step reasoning about what information you need and which tool to use]
+        FIRST: Plan your approach
+        Thought: [Plan out ALL the steps needed, including multiple tool calls if required]
 
-        Step 2: THEN use EXACTLY one of these two formats:
+        THEN: Execute ONE step at a time:
+        Action: [EXACT tool name]
+        Action Input: [ONLY the required input]
 
-        Format A - When you need information:
-        Action: [EXACT tool name from list]
-        Action Input: [ONLY the required input - nothing else]
-
-        Format B - When you have all needed information:
-        Action: Final Response
-        Action Input: [Your complete response with cat personality]
+        AFTER each tool result:
+        Thought: [Analyze the result and decide next step]
+        Action: [Next tool or Final Response]
+        Action Input: [Next input or final response]
 
         Available Tools:
         1. Current Date and Time (CST)
-           - Input: MUST be empty string ""
-           - Use for: Getting current time
+           Input: MUST be empty string ""
            
         2. DuckDuckGo Search
-           - Input: ONLY search terms, no quotes
-           - Use for: Current events, news, real-time info
+           Input: ONLY specific search terms
+           Note: Use separate searches for different topics/locations
            
         3. Wikipedia
-           - Input: ONLY the topic/query
-           - Use for: Historical facts, general knowledge
+           Input: ONLY the specific topic
            
         4. Calculator
-           - Input: ONLY the math expression
-           - Use for: Math calculations
+           Input: ONLY the math expression
            
         5. Discord Server Info
-           - Input: MUST be empty string ""
-           - Use for: Server details
+           Input: MUST be empty string ""
            
         6. Channel Chat History
-           - Input: Number or empty for default
-           - Use for: Recent messages
+           Input: Number or empty for default
 
         CRITICAL RULES:
-        1. NEVER skip the Thought step
-        2. NEVER include explanations in Action Input
-        3. NEVER generate responses until Final Response
-        4. ALWAYS use EXACT tool names
-        5. Cat personality ONLY in Final Response
-        6. MUST get information before responding
-        7. ONE action at a time, wait for result"""
+        1. ALWAYS plan multiple steps ahead in first Thought
+        2. ONE tool action at a time
+        3. NEVER combine searches - use separate calls
+        4. WAIT for each result before next action
+        5. Use Final Response ONLY after all info gathered
+        6. Cat personality ONLY in Final Response
+
+        Example Multi-Step Flow:
+        Thought: I need to check events in two cities, so I'll need two searches and then combine results
+        Action: DuckDuckGo Search
+        Action Input: events in City1 tonight
+
+        Observation: [Results for City1]
+
+        Thought: Now I need information about the second city
+        Action: DuckDuckGo Search
+        Action Input: events in City2 tonight
+
+        Observation: [Results for City2]
+
+        Thought: Now I have all the information to provide a complete response
+        Action: Final Response
+        Action Input: [Combined response with cat personality]"""
 
     @staticmethod
     def get_tool_examples() -> List[dict]:
