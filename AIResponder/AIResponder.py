@@ -94,21 +94,22 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 clean_observation = observation.split("Search Results:")[-1].strip() if "Search Results:" in observation else observation
                 steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {clean_observation}\n"
 
-            # Get available tools first
-            available_tools = [tool.name for tool in self.tools]
-
             # Build the prompt based on current state
             base_prompt = f"""Question: {kwargs['input']}
 
             Previous steps and results:
             {steps_content if steps_content else 'No previous steps.'}
 
-            Available tools: {', '.join(available_tools)}
+            Available tools: {', '.join([tool.name for tool in self.tools])}
 
             You MUST respond using EXACTLY this format:
             Thought: [your reasoning]
-            Action: [tool name]
-            Action Input: [input]"""
+            Action: [tool name or "Final Response"]
+            Action Input: [tool input or final response]
+
+            If you have enough information to answer the question, use:
+            Action: Final Response
+            Action Input: [your complete response]"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -121,66 +122,38 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             response_text = response.generations[0][0].text.strip()
             self.logger.info(f"LLM RESPONSE: {response_text}")
 
-            # Updated regex patterns to be more flexible with whitespace and newlines
+            # Parse the response
             thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|$)", response_text, re.DOTALL | re.IGNORECASE)
             action_match = re.search(r"Action:\s*(.*?)(?=Action Input:|$)", response_text, re.DOTALL | re.IGNORECASE)
             input_match = re.search(r"Action Input:\s*(.*?)(?=$)", response_text, re.DOTALL | re.IGNORECASE)
 
-            if not (thought_match and action_match and input_match):
-                self.logger.warning(f"Could not parse response format\n{response_text}")
+            if not all([thought_match, action_match, input_match]):
                 return AgentFinish(
                     return_values={"output": "*tilts head* I need to structure my thoughts better. Could you repeat that? 😺"},
                     log=response_text
                 )
 
-            tool_name = action_match.group(1).strip()
-            input_text = input_match.group(1).strip()
+            action = action_match.group(1).strip()
+            action_input = input_match.group(1).strip()
 
-            # Handle Final Response
-            if tool_name.lower() == "final response":
-                final_response = input_text.strip('"').strip()
-                if not any(emoji in final_response for emoji in ['😺', '😸', '😻', '🐱', '😽']):
-                    final_response += ' 😺'
+            # Check if this should be a final response
+            if action.lower() == "final response":
                 return AgentFinish(
-                    return_values={"output": final_response},
+                    return_values={"output": action_input},
                     log=response_text
                 )
 
-            # Validate tool name with more flexible matching
-            if tool_name not in available_tools:
-                # Special handling for Current Date and Time tool
-                if "current date and time" in tool_name.lower():
-                    # Find the correct tool name from available tools
-                    date_time_tool = next(
-                        (tool for tool in available_tools if "current date and time" in tool.lower()),
-                        None
-                    )
-                    if date_time_tool:
-                        return AgentAction(
-                            tool=date_time_tool,
-                            tool_input=input_text,
-                            log=f"Normalized tool name from '{tool_name}' to '{date_time_tool}'"
-                        )
-                
-                # Default to search if no match
-                self.logger.warning(f"Invalid tool name: {tool_name}")
-                return AgentAction(
-                    tool="DuckDuckGo Search",
-                    tool_input=kwargs["input"],
-                    log=f"Invalid tool '{tool_name}', defaulting to search"
-                )
-            
-            # Valid tool action
+            # Return the next action
             return AgentAction(
-                tool=tool_name,
-                tool_input=input_text,
+                tool=action,
+                tool_input=action_input,
                 log=response_text
             )
 
         except Exception as e:
-            self.logger.error(f"ERROR IN APLAN: {str(e)}", exc_info=True)
+            self.logger.error(f"Error in aplan: {str(e)}", exc_info=True)
             return AgentFinish(
-                return_values={"output": "*looks confused* I encountered an error. Could you please rephrase your question? 😿"},
+                return_values={"output": "*looks confused* I encountered an error. Could you please try again? 😿"},
                 log=f"Error in aplan: {str(e)}"
             )
 
@@ -886,66 +859,47 @@ class AIResponder(commands.Cog):
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
-            # Initialize chain state
-            max_iterations = 5
-            iteration = 0
-            accumulated_steps = []
-            
-            while iteration < max_iterations:
-                # Remove intermediate_steps from input dict - let agent handle it internally
-                result = await self.agent_executor.ainvoke(
-                    {
-                        "input": content,
-                        "chat_history": chat_history[-5:],
-                        "context": {
-                            "message": message,
-                            "channel": message.channel,
-                            "guild": message.guild,
-                            "user": {
-                                "name": str(message.author.name),
-                                "nickname": str(message.author.display_name),
-                                "id": str(message.author.id)
-                            }
+            result = await self.agent_executor.ainvoke(
+                {
+                    "input": content,
+                    "chat_history": chat_history[-5:],
+                    "context": {
+                        "message": message,
+                        "channel": message.channel,
+                        "guild": message.guild,
+                        "user": {
+                            "name": str(message.author.name),
+                            "nickname": str(message.author.display_name),
+                            "id": str(message.author.id)
                         }
-                    },
-                    {"callbacks": [callback_handler]}
-                )
+                    }
+                },
+                {"callbacks": [callback_handler]}
+            )
 
-                # Track steps from result
-                if isinstance(result, dict):
-                    if "intermediate_steps" in result and result["intermediate_steps"]:
-                        latest_step = result["intermediate_steps"][-1]
-                        accumulated_steps.append(latest_step)
-                        
-                        # Check if this was a Final Response
-                        if isinstance(latest_step[0], AgentAction) and latest_step[0].tool.lower() == "final response":
-                            return await self.generate_final_response(
-                                original_question=content,
-                                intermediate_steps=accumulated_steps,
-                                chat_history=chat_history,
-                                user={
-                                    "name": str(message.author.name),
-                                    "nickname": str(message.author.display_name),
-                                    "id": str(message.author.id)
-                                }
-                            )
-                        
-                        # Check for tool loops
-                        if len(accumulated_steps) > 1:
-                            last_two_tools = [step[0].tool for step in accumulated_steps[-2:]]
-                            if last_two_tools[0] == last_two_tools[1]:
-                                return f"{message.author.mention} *looks confused* I seem to be stuck in a loop. Could you try asking in a different way? 😿"
-                
-                    elif "output" in result:
-                        return result["output"]
-                
-                iteration += 1
-            
-            return f"{message.author.mention} *looks overwhelmed* I've been thinking too long about this. Could you try asking in a different way? 😿"
+            # Extract the final response
+            if isinstance(result, dict):
+                if "output" in result:
+                    final_response = result["output"]
+                elif "intermediate_steps" in result:
+                    # Get the last observation from intermediate steps
+                    steps = result["intermediate_steps"]
+                    if steps:
+                        last_step = steps[-1]
+                        final_response = last_step[1] if isinstance(last_step, tuple) and len(last_step) > 1 else str(last_step)
+                else:
+                    final_response = str(result)
+                    
+                # Format the response with user mention
+                formatted_response = f"{message.author.mention} {final_response}"
+                await response_message.edit(content=formatted_response)
+                return formatted_response
+
+            return f"{message.author.mention} *looks confused* I couldn't process that properly. Could you try again? 😿"
 
         except Exception as e:
-            self.logger.error(f"Error in process_query: {str(e)}")
-            return f"{message.author.mention} *looks confused* Something went wrong. Could you try again? 😿"
+            self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
+            return f"{message.author.mention} *looks apologetic* Something went wrong. Could you try again? 😿"
 
     async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]], chat_history: List[Union[HumanMessage, AIMessage]], user: dict) -> str:
         try:
