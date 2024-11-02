@@ -94,7 +94,44 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 clean_observation = observation.split("Search Results:")[-1].strip() if "Search Results:" in observation else observation
                 steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {clean_observation}\n"
 
-            # Build the prompt based on current state
+            # Check if we have enough information to generate a final response
+            if intermediate_steps and all(isinstance(step, tuple) for step in intermediate_steps):
+                last_observation = intermediate_steps[-1][1]
+                
+                # Build the final response prompt
+                final_prompt = f"""Question: {kwargs['input']}
+
+                Previous steps and results:
+                {steps_content}
+
+                Based on the above information, please provide a final response.
+                You MUST use this EXACT format:
+                Thought: [your reasoning about the final response]
+                Action: Final Response
+                Action Input: [your complete response with cat personality]"""
+
+                messages = [
+                    SystemMessage(content=PromptTemplates.get_base_system_prompt()),
+                    HumanMessage(content=final_prompt)
+                ]
+
+                # Get final response from LLM
+                response = await self.llm.agenerate(messages=[messages])
+                response_text = response.generations[0][0].text.strip()
+                self.logger.info(f"FINAL RESPONSE: {response_text}")
+
+                # Parse the final response
+                thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|$)", response_text, re.DOTALL | re.IGNORECASE)
+                action_match = re.search(r"Action:\s*(.*?)(?=Action Input:|$)", response_text, re.DOTALL | re.IGNORECASE)
+                input_match = re.search(r"Action Input:\s*(.*?)(?=$)", response_text, re.DOTALL | re.IGNORECASE)
+
+                if action_match and input_match and "final response" in action_match.group(1).lower():
+                    return AgentFinish(
+                        return_values={"output": input_match.group(1).strip()},
+                        log=response_text
+                    )
+
+            # If we don't have enough information yet, continue with tool usage
             base_prompt = f"""Question: {kwargs['input']}
 
             Previous steps and results:
@@ -105,11 +142,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             You MUST respond using EXACTLY this format:
             Thought: [your reasoning]
             Action: [tool name or "Final Response"]
-            Action Input: [tool input or final response]
-
-            If you have enough information to answer the question, use:
-            Action: Final Response
-            Action Input: [your complete response]"""
+            Action Input: [tool input or final response]"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -135,13 +168,6 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
             action = action_match.group(1).strip()
             action_input = input_match.group(1).strip()
-
-            # Check if this should be a final response
-            if action.lower() == "final response":
-                return AgentFinish(
-                    return_values={"output": action_input},
-                    log=response_text
-                )
 
             # Return the next action
             return AgentAction(
