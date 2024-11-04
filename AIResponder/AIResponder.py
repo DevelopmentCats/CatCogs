@@ -32,6 +32,7 @@ from langchain_core.tools import Tool, BaseTool
 from langchain_experimental.tools import PythonAstREPLTool
 from langchain_openai import ChatOpenAI
 from openai import AsyncOpenAI
+from redbot.core import commands as red_commands
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
@@ -80,8 +81,9 @@ class DiscordConversationMemory(ConversationBufferWindowMemory):
         """Retrieve stored Discord context."""
         return self.discord_context
 
-class AIResponder(commands.Cog):
+class AIResponder(red_commands.Cog):
     def __init__(self, bot: Red):
+        super().__init__()
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
         default_global = {
