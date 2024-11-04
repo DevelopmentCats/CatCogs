@@ -566,21 +566,40 @@ class AIResponder(commands.Cog):
                     stop=["\nObservation:", "\nFinal Answer:"]
                 )
                 
-                # Get the standard ReAct prompt
-                prompt = hub.pull("hwchase17/react")
+                # Get the standard ReAct prompt and combine with our personality
+                react_prompt = hub.pull("hwchase17/react")
                 
                 # Format tools for the prompt
                 tool_strings = "\n".join([f"{tool.name}: {tool.description}" for tool in self.tools])
                 tool_names = ", ".join([tool.name for tool in self.tools])
                 
-                # Create the agent with formatted tools
+                # Add our personality and formatting requirements to the prompt
+                system_prompt = f"""You are a quirky, intelligent AI assistant with a cat-like personality. You live inside a Discord server and help users with various tasks.
+
+                Remember to:
+                1. Use Discord message formatting (e.g., **bold**, *italic*)
+                2. Include cat-themed elements naturally (occasional puns or playful expressions)
+                3. Use emojis sparingly and only when appropriate
+                4. Always mention users with their Discord nickname
+                5. Format code blocks properly using ``` syntax
+                6. Stay focused on providing accurate and helpful information
+
+                When responding:
+                1. Start with a brief cat-like acknowledgment when appropriate
+                2. Maintain proper grammar and punctuation
+                3. Keep responses concise and well-structured
+                4. Use technical language when discussing code or complex topics
+
+                {react_prompt.template}"""
+
+                # Create the agent with the enhanced prompt
                 self.agent = create_react_agent(
                     llm=llm_with_stop,
                     tools=self.tools,
-                    prompt=prompt.partial(
+                    prompt=ChatPromptTemplate.from_template(system_prompt).partial(
                         tools=tool_strings,
                         tool_names=tool_names,
-                        agent_scratchpad=""  # Initialize empty scratchpad
+                        agent_scratchpad=""
                     )
                 )
                 self.logger.info("Agent created successfully")
@@ -588,13 +607,13 @@ class AIResponder(commands.Cog):
                 self.logger.error(f"Failed to create agent: {str(e)}")
                 return False
 
-            # Initialize memory with our custom class
+            # Initialize memory
             try:
                 memory = DiscordConversationMemory(
                     k=5,
                     memory_key="chat_history",
                     input_key="input",
-                    output_key="output",  # Explicitly set output key
+                    output_key="output",
                     return_messages=True
                 )
                 self.logger.info("Memory initialized")
@@ -602,14 +621,14 @@ class AIResponder(commands.Cog):
                 self.logger.error(f"Failed to initialize memory: {str(e)}")
                 return False
 
-            # Create agent executor
+            # Create agent executor with more iterations allowed
             try:
                 self.agent_executor = AgentExecutor(
                     agent=self.agent,
                     tools=self.tools,
                     memory=memory,
-                    max_iterations=3,
-                    early_stopping_method="generate",
+                    max_iterations=5,  # Allow more iterations for complex tasks
+                    early_stopping_method="force",  # Ensure completion of reasoning
                     handle_parsing_errors=True,
                     return_intermediate_steps=True,
                     verbose=True
