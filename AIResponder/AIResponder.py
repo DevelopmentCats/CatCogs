@@ -741,59 +741,42 @@ class AIResponder(commands.Cog):
             await ctx.send("❌ Oops! Something went wrong while clearing my memory. Please check the logs.")
 
     async def update_langchain_components(self):
+        """Update LangChain components with current settings."""
         try:
-            # Update to use new structure
-            messages = [
-                SystemMessage(content=PromptTemplates.get_base_system_prompt()),
-                SystemMessage(content=PromptTemplates.get_tool_selection_prompt())
-            ]
-
-            # Format examples using new format
-            examples = PromptTemplates.get_tool_examples()
-            examples_str = "\n\n".join([
-                f"Question: {example['question']}\n"
-                f"Thought: {example['thought']}\n"
-                f"Action: {example['action']}\n"
-                f"Action Input: {example['action_input']}\n"
-                f"Observation: {example.get('observation', '')}\n"
-                f"Thought: {example.get('thought_after_observation', '')}\n"
-                f"Action: Final Response\n"
-                f"Action Input: {example['action_input']}"
-                for example in examples
-            ])
-
-            # Initialize memory with specific input/output keys
-            memory = ConversationBufferWindowMemory(
-                k=5,
-                memory_key="chat_history",
-                input_key="input",
-                output_key="output",
-                return_messages=True
+            # Initialize the LLM with streaming capability
+            api_key = await self.config.api_key()
+            model = await self.config.model()
+            
+            self.llm = ChatOpenAI(
+                model=model,
+                api_key=api_key,
+                base_url="https://api.deepinfra.com/v1/openai",
+                temperature=0.7,
+                streaming=True
             )
 
-            # Initialize the agent with the few-shot prompt and tools
-            self.agent = LlamaFunctionsAgent(
-                llm=self.llm,
-                tools=self.tools,
-                logger=self.logger
-            )
-
-            # Create agent executor with proper settings for multi-step execution
-            self.agent_executor = AgentExecutor.from_agent_and_tools(
+            # Get the ReAct prompt
+            prompt = hub.pull("hwchase17/react")
+            
+            # Create the agent with proper stop sequence
+            llm_with_stop = self.llm.bind(stop=["\nObservation:", "\nFinal Answer:"])
+            self.agent = create_react_agent(llm_with_stop, self.tools, prompt)
+            
+            # Initialize the agent executor with proper configuration
+            self.agent_executor = AgentExecutor(
                 agent=self.agent,
                 tools=self.tools,
-                memory=memory,
-                verbose=True,
-                handle_parsing_errors=True,
-                max_iterations=5,  # Ensure enough iterations for multiple tools
-                early_stopping_method="generate",  # Let the agent decide when to stop
-                return_intermediate_steps=True
+                max_iterations=3,  # Limit the number of iterations
+                early_stopping_method="generate",  # Stop when final answer is generated
+                handle_parsing_errors=True,  # Handle parsing errors gracefully
+                return_intermediate_steps=True,  # Return intermediate steps for logging
+                verbose=True
             )
-
-            self.logger.info("LangChain components updated successfully")
+            
+            return True
         except Exception as e:
             self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
-            self.agent_executor = None
+            return False
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -846,7 +829,7 @@ class AIResponder(commands.Cog):
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
-            # Create the agent executor for this specific query
+            # Execute the agent with proper input structure
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
@@ -865,61 +848,19 @@ class AIResponder(commands.Cog):
                 {"callbacks": [callback_handler]}
             )
 
-            # Log the intermediate steps for debugging
+            # Log intermediate steps
             if "intermediate_steps" in result:
                 self.logger.info("Intermediate steps:")
                 for step in result["intermediate_steps"]:
                     self.logger.info(f"Step: {step}")
 
-            # If we have a result but no final response, generate one
-            if "intermediate_steps" in result and result["intermediate_steps"]:
-                last_step = result["intermediate_steps"][-1]
-                if not isinstance(last_step[0], AgentFinish):
-                    # Generate final response using the accumulated information
-                    final_prompt = f"""Question: {content}
-
-                    Previous steps and results:
-                    {self.format_intermediate_steps(result['intermediate_steps'])}
-
-                    Based on the above information, provide a final response.
-                    You MUST use this EXACT format:
-                    Thought: [your reasoning about the final response]
-                    Action: Final Response
-                    Action Input: [your complete response with cat personality]"""
-
-                    messages = [
-                        SystemMessage(content=PromptTemplates.get_base_system_prompt()),
-                        SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
-                        HumanMessage(content=final_prompt)
-                    ]
-
-                    final_response = await self.llm.agenerate(messages=[messages])
-                    response_text = final_response.generations[0][0].text.strip()
-                    
-                    # Extract the final response from the Action Input
-                    input_match = re.search(r"Action Input:\s*(.*?)(?=$)", response_text, re.DOTALL | re.IGNORECASE)
-                    if input_match:
-                        final_output = input_match.group(1).strip()
-                    else:
-                        final_output = response_text
-
-                    # Format the response with user mention
-                    formatted_response = f"{message.author.mention} {final_output}"
-                    await response_message.edit(content=formatted_response)
-                    return formatted_response
-
-            # Extract the final response if it exists
-            if isinstance(result, dict):
-                if "output" in result:
-                    final_response = result["output"]
-                else:
-                    final_response = str(result)
-                    
-                # Format the response with user mention
-                formatted_response = f"{message.author.mention} {final_response}"
+            # Handle the final response
+            if "output" in result:
+                formatted_response = f"{message.author.mention} {result['output']}"
                 await response_message.edit(content=formatted_response)
                 return formatted_response
-
+            
+            # Fallback response if no output is found
             return f"{message.author.mention} *looks confused* I couldn't process that properly. Could you try again? 😿"
 
         except Exception as e:
