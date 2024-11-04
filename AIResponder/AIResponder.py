@@ -33,6 +33,7 @@ from langchain_experimental.tools import PythonAstREPLTool
 from langchain_openai import ChatOpenAI
 from openai import AsyncOpenAI
 from redbot.core import commands as red_commands
+from redbot.core.commands import Cog
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
@@ -81,7 +82,7 @@ class DiscordConversationMemory(ConversationBufferWindowMemory):
         """Retrieve stored Discord context."""
         return self.discord_context
 
-class AIResponder(red_commands.Cog):
+class AIResponder(Cog):
     def __init__(self, bot: Red):
         super().__init__()
         self.bot = bot
@@ -139,13 +140,13 @@ class AIResponder(red_commands.Cog):
                 self.bot.loop
             ).result()
 
-        def sync_get_discord_server_info(_input: str = None, ctx: commands.Context = None):
+        def sync_get_discord_server_info(_input: str = None, ctx: red_commands.Context = None):
             return asyncio.run_coroutine_threadsafe(
                 self.get_discord_server_info(_input, ctx),
                 self.bot.loop
             ).result()
 
-        def sync_get_channel_chat_history(_input: str = None, ctx: commands.Context = None):
+        def sync_get_channel_chat_history(_input: str = None, ctx: red_commands.Context = None):
             return asyncio.run_coroutine_threadsafe(
                 self.get_channel_chat_history(_input, ctx),
                 self.bot.loop
@@ -410,21 +411,21 @@ class AIResponder(red_commands.Cog):
         except Exception as e:
             return f"Error: Unable to fetch current date and time. ({str(e)})"
 
-    @commands.group(name="air")
+    @red_commands.group(name="air")
     @commands.guild_only()
     @check_any(
-        commands.has_permissions(manage_guild=True),
-        commands.is_owner(),
-        commands.has_permissions(administrator=True)
+        red_commands.has_permissions(manage_guild=True),
+        red_commands.is_owner(),
+        red_commands.has_permissions(administrator=True)
     )
-    async def air(self, ctx: commands.Context):
+    async def air(self, ctx: red_commands.Context):
         """Manage AIResponder settings."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
     @air.command(name="apikey")
-    @commands.is_owner()
-    async def set_api_key(self, ctx: commands.Context, api_key: str):
+    @red_commands.is_owner()
+    async def set_api_key(self, ctx: red_commands.Context, api_key: str):
         """Set the DeepInfra API key."""
         try:
             # Test the API key before saving
@@ -451,15 +452,15 @@ class AIResponder(red_commands.Cog):
             await ctx.send(f"❌ Error setting API key: {str(e)}")
 
     @air.command(name="model")
-    @commands.is_owner()
-    async def set_model(self, ctx: commands.Context, model: str):
+    @red_commands.is_owner()
+    async def set_model(self, ctx: red_commands.Context, model: str):
         """Set the model to use for AI responses."""
         await self.config.model.set(model)
         await ctx.send(f"Model has been set to {model}.")
 
-    @commands.command()
+    @red_commands.command()
     @commands.guild_only()
-    async def model_info(self, ctx: commands.Context):
+    async def model_info(self, ctx: red_commands.Context):
         """Display information about the current AI model."""
         if not await self.is_configured():
             await ctx.send("The AI responder is not configured yet.")
@@ -469,8 +470,8 @@ class AIResponder(red_commands.Cog):
         await ctx.send(f"```json\n{model_info}\n```")
 
     @air.command(name="personality")
-    @commands.is_owner()
-    async def set_personality(self, ctx: commands.Context, *, personality: str):
+    @red_commands.is_owner()
+    async def set_personality(self, ctx: red_commands.Context, *, personality: str):
         """Set the AI's personality."""
         await self.config.custom_personality.set(personality)
         await ctx.send("AI personality has been updated.")
@@ -478,12 +479,12 @@ class AIResponder(red_commands.Cog):
     @air.command(name="disable")
     @commands.guild_only()
     @check_any(
-        commands.has_permissions(manage_channels=True),
-        commands.has_permissions(manage_guild=True),
-        commands.has_permissions(administrator=True),
-        commands.is_owner()
+        red_commands.has_permissions(manage_channels=True),
+        red_commands.has_permissions(manage_guild=True),
+        red_commands.has_permissions(administrator=True),
+        red_commands.is_owner()
     )
-    async def disable_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+    async def disable_channel(self, ctx: red_commands.Context, channel: discord.TextChannel = None):
         """Disable AIResponder in a specific channel."""
         channel = channel or ctx.channel
         async with self.config.guild(ctx.guild).disabled_channels() as disabled:
@@ -496,12 +497,12 @@ class AIResponder(red_commands.Cog):
     @air.command(name="enable")
     @commands.guild_only()
     @check_any(
-        commands.has_permissions(manage_channels=True),
-        commands.has_permissions(manage_guild=True),
-        commands.has_permissions(administrator=True),
-        commands.is_owner()
+        red_commands.has_permissions(manage_channels=True),
+        red_commands.has_permissions(manage_guild=True),
+        red_commands.has_permissions(administrator=True),
+        red_commands.is_owner()
     )
-    async def enable_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
+    async def enable_channel(self, ctx: red_commands.Context, channel: discord.TextChannel = None):
         """Enable AIResponder in a specific channel."""
         channel = channel or ctx.channel
         async with self.config.guild(ctx.guild).disabled_channels() as disabled:
@@ -514,12 +515,12 @@ class AIResponder(red_commands.Cog):
     @air.command(name="list")
     @commands.guild_only()
     @check_any(
-        commands.has_permissions(manage_channels=True),
-        commands.has_permissions(manage_guild=True),
-        commands.has_permissions(administrator=True),
-        commands.is_owner()
+        red_commands.has_permissions(manage_channels=True),
+        red_commands.has_permissions(manage_guild=True),
+        red_commands.has_permissions(administrator=True),
+        red_commands.is_owner()
     )
-    async def list_channels(self, ctx: commands.Context):
+    async def list_channels(self, ctx: red_commands.Context):
         """List all channels where AIResponder is disabled."""
         disabled_channels = await self.config.guild(ctx.guild).disabled_channels()
         if not disabled_channels:
@@ -529,15 +530,15 @@ class AIResponder(red_commands.Cog):
             await ctx.send(f"AIResponder is disabled in: {', '.join(channel_mentions)}")
 
     @air.command(name="wolframalpha")
-    @commands.is_owner()
-    async def set_wolframalpha(self, ctx: commands.Context, app_id: str):
+    @red_commands.is_owner()
+    async def set_wolframalpha(self, ctx: red_commands.Context, app_id: str):
         """Set the Wolfram Alpha AppID."""
         await self.bot.set_shared_api_tokens("wolfram_alpha", app_id=app_id)
         await ctx.send("Wolfram Alpha AppID has been set.")
 
     @air.command(name="clearmemory")
-    @commands.is_owner()
-    async def clear_memory(self, ctx: commands.Context):
+    @red_commands.is_owner()
+    async def clear_memory(self, ctx: red_commands.Context):
         """Clear the AI's conversation history."""
         try:
             # Clear the user chat histories dictionary
@@ -734,7 +735,7 @@ class AIResponder(red_commands.Cog):
                 self.logger.error(f"Error processing query: {str(e)}", exc_info=True)
                 await response_message.edit(content=f"{message.author.mention} Oops! My circuits got a bit tangled there. Can you try again?")
 
-    async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: commands.Context) -> str:
+    async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: red_commands.Context) -> str:
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
@@ -907,7 +908,7 @@ class AIResponder(red_commands.Cog):
         model_kwargs = self.llm.model_kwargs
         return f"Current model: {model_id}\nModel parameters: {json.dumps(model_kwargs, indent=2)}"
 
-    async def get_discord_server_info(self, _input: str = None, ctx: commands.Context = None):
+    async def get_discord_server_info(self, _input: str = None, ctx: red_commands.Context = None):
         if not ctx or not ctx.guild:
             return "Error: This command can only be used in a server."
         
@@ -923,7 +924,7 @@ class AIResponder(red_commands.Cog):
         }
         return f"Server Information:\n{json.dumps(info, indent=2)}"
 
-    async def get_channel_chat_history(self, input_str: str = "10", ctx: commands.Context = None):
+    async def get_channel_chat_history(self, input_str: str = "10", ctx: red_commands.Context = None):
         if not ctx:
             self.logger.error("Context not provided to get_channel_chat_history")
             return "Error: Unable to access channel history. Context not provided."
@@ -1176,7 +1177,14 @@ Remember: Your cat personality should enhance your responses, not detract from t
 
 Remember to complete all necessary tool calls before providing a final response."""
 
-async def setup(bot: Red):
+async def setup(bot: Red) -> None:
+    """This function is called when the cog is loaded via load_extension"""
     cog = AIResponder(bot)
-    await bot.add_cog(cog)
-    await cog.initialize()
+    try:
+        await cog.initialize()  # Initialize first
+        await bot.add_cog(cog)  # Then add to bot if initialization succeeds
+    except Exception as e:
+        # Log any initialization errors
+        logger = logging.getLogger("red.airesponder")
+        logger.error(f"Failed to load AIResponder cog: {str(e)}", exc_info=True)
+        raise
