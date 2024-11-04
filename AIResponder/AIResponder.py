@@ -67,6 +67,18 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     async def on_tool_error(self, error, **kwargs):
         self.logger.error(f"❌ Tool Error: {str(error)}")
 
+class DiscordConversationMemory(ConversationBufferWindowMemory):
+    """Custom memory class that can store Discord context."""
+    discord_context: Dict = {}
+
+    def store_context(self, context: Dict):
+        """Store Discord context information."""
+        self.discord_context = context
+
+    def get_context(self) -> Dict:
+        """Retrieve stored Discord context."""
+        return self.discord_context
+
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
@@ -576,12 +588,13 @@ class AIResponder(commands.Cog):
                 self.logger.error(f"Failed to create agent: {str(e)}")
                 return False
 
-            # Initialize memory
+            # Initialize memory with our custom class
             try:
-                memory = ConversationBufferWindowMemory(
+                memory = DiscordConversationMemory(
                     k=5,
                     memory_key="chat_history",
-                    input_key="input",  # Specify the input key explicitly
+                    input_key="input",
+                    output_key="output",  # Explicitly set output key
                     return_messages=True
                 )
                 self.logger.info("Memory initialized")
@@ -664,18 +677,9 @@ class AIResponder(commands.Cog):
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
-            # Create the agent executor for this specific query
-            result = await self.agent_executor.ainvoke(
-                {
-                    "input": content,  # Only pass the input content
-                    "chat_history": chat_history[-5:]
-                },
-                {"callbacks": [callback_handler]}
-            )
-
-            # Store the context in the agent's memory without using it as an input
-            if hasattr(self.agent_executor, 'memory'):
-                self.agent_executor.memory.context = {
+            # Store context in our custom memory
+            if isinstance(self.agent_executor.memory, DiscordConversationMemory):
+                self.agent_executor.memory.store_context({
                     "message": message,
                     "channel": message.channel,
                     "guild": message.guild,
@@ -684,21 +688,22 @@ class AIResponder(commands.Cog):
                         "nickname": str(message.author.display_name),
                         "id": str(message.author.id)
                     }
-                }
+                })
+            
+            # Create the agent executor for this specific query
+            result = await self.agent_executor.ainvoke(
+                {
+                    "input": content,
+                    "chat_history": chat_history[-5:]
+                },
+                {"callbacks": [callback_handler]}
+            )
 
-            # Log intermediate steps
-            if "intermediate_steps" in result:
-                self.logger.info("Intermediate steps:")
-                for step in result["intermediate_steps"]:
-                    self.logger.info(f"Step: {step}")
-
-            # Handle the final response
             if "output" in result:
                 formatted_response = f"{message.author.mention} {result['output']}"
                 await response_message.edit(content=formatted_response)
                 return formatted_response
-            
-            # Fallback response if no output is found
+
             return f"{message.author.mention} *looks confused* I couldn't process that properly. Could you try again? 😿"
 
         except Exception as e:
