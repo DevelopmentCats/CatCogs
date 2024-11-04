@@ -407,9 +407,26 @@ class AIResponder(commands.Cog):
     @commands.is_owner()
     async def set_api_key(self, ctx: commands.Context, api_key: str):
         """Set the DeepInfra API key."""
-        await self.config.api_key.set(api_key)
-        await self.update_langchain_components()
-        await ctx.send("API key has been set and components updated.")
+        try:
+            # Test the API key before saving
+            test_llm = ChatOpenAI(
+                model="meta-llama/Llama-3.2-11B-Vision-Instruct",
+                api_key=api_key,
+                base_url="https://api.deepinfra.com/v1/openai",
+                temperature=0.7
+            )
+            
+            # Try a simple test completion
+            test_messages = [SystemMessage(content="Test message")]
+            await test_llm.agenerate(messages=[test_messages])
+            
+            # If we get here, the API key is valid
+            await self.config.api_key.set(api_key)
+            await self.update_langchain_components()
+            await ctx.send("✅ API key has been verified and set successfully!")
+            
+        except Exception as e:
+            await ctx.send(f"❌ Error setting API key: {str(e)}")
 
     @air.command(name="model")
     @commands.is_owner()
@@ -497,16 +514,16 @@ class AIResponder(commands.Cog):
     async def update_langchain_components(self):
         """Update LangChain components with current settings."""
         try:
+            if not await self.is_configured():
+                self.logger.error("Cog is not properly configured")
+                return False
+
             api_key = await self.config.api_key()
             model = await self.config.model()
             
             self.logger.info(f"Initializing DeepInfra LLM with model: {model}")
             
-            if not api_key:
-                self.logger.error("No API key configured")
-                return False
-
-            # Initialize LLM
+            # Initialize LLM with the stored API key
             try:
                 self.llm = ChatOpenAI(
                     model=model,
@@ -534,10 +551,18 @@ class AIResponder(commands.Cog):
                 system_prompt = PromptTemplates.get_base_system_prompt()
                 tool_prompt = PromptTemplates.get_tool_selection_prompt()
                 
+                # Convert the react prompt to a message format
+                react_messages = []
+                if hasattr(react_prompt, 'messages'):
+                    react_messages = react_prompt.messages
+                elif hasattr(react_prompt, 'template'):
+                    react_messages = [HumanMessage(content=react_prompt.template)]
+                
+                # Create the combined prompt
                 combined_prompt = ChatPromptTemplate.from_messages([
                     SystemMessage(content=system_prompt),
                     SystemMessage(content=tool_prompt),
-                    react_prompt
+                    *react_messages  # Unpack the react messages
                 ])
                 self.logger.info("Prompts combined successfully")
             except Exception as e:
@@ -779,9 +804,19 @@ class AIResponder(commands.Cog):
         return final_response if final_response else cleaned_response
 
     async def is_configured(self) -> bool:
+        """Check if the cog is properly configured."""
         api_key = await self.config.api_key()
         model = await self.config.model()
-        return bool(api_key and model)
+        
+        if not api_key:
+            self.logger.warning("No DeepInfra API key configured")
+            return False
+        
+        if not model:
+            self.logger.warning("No model configured")
+            return False
+        
+        return True
 
     async def verify_api_settings(self):
         try:
