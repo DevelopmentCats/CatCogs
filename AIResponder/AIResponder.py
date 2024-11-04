@@ -548,36 +548,29 @@ class AIResponder(commands.Cog):
                 self.logger.error(f"Failed to setup tools: {str(e)}")
                 return False
 
-            # Get the ReAct prompt and combine with our personality
-            try:
-                react_prompt = hub.pull("hwchase17/react")
-                system_prompt = PromptTemplates.get_base_system_prompt()
-                tool_prompt = PromptTemplates.get_tool_selection_prompt()
-                
-                # Convert the react prompt to a message format
-                react_messages = []
-                if hasattr(react_prompt, 'messages'):
-                    react_messages = react_prompt.messages
-                elif hasattr(react_prompt, 'template'):
-                    react_messages = [HumanMessage(content=react_prompt.template)]
-                
-                # Create the combined prompt
-                combined_prompt = ChatPromptTemplate.from_messages([
-                    SystemMessage(content=system_prompt),
-                    SystemMessage(content=tool_prompt),
-                    *react_messages  # Unpack the react messages
-                ])
-                self.logger.info("Prompts combined successfully")
-            except Exception as e:
-                self.logger.error(f"Failed to setup prompts: {str(e)}")
-                return False
-
-            # Create the agent
+            # Create the agent with ReAct
             try:
                 llm_with_stop = self.llm.bind(
                     stop=["\nObservation:", "\nFinal Answer:"]
                 )
-                self.agent = create_react_agent(llm_with_stop, self.tools, combined_prompt)
+                
+                # Get the standard ReAct prompt
+                prompt = hub.pull("hwchase17/react")
+                
+                # Format tools for the prompt
+                tool_strings = "\n".join([f"{tool.name}: {tool.description}" for tool in self.tools])
+                tool_names = ", ".join([tool.name for tool in self.tools])
+                
+                # Create the agent with formatted tools
+                self.agent = create_react_agent(
+                    llm=llm_with_stop,
+                    tools=self.tools,
+                    prompt=prompt.partial(
+                        tools=tool_strings,
+                        tool_names=tool_names,
+                        agent_scratchpad=""  # Initialize empty scratchpad
+                    )
+                )
                 self.logger.info("Agent created successfully")
             except Exception as e:
                 self.logger.error(f"Failed to create agent: {str(e)}")
