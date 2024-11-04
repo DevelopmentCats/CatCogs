@@ -89,7 +89,7 @@ class AIResponder(commands.Cog):
         try:
             self.config = Config.get_conf(
                 self,
-                identifier=YOUR_IDENTIFIER_HERE,
+                identifier=1234567890,
                 force_registration=True,
             )
             
