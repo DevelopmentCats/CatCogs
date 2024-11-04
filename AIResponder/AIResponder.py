@@ -108,11 +108,13 @@ class AIResponder(commands.Cog):
             success = await self.update_langchain_components()
             if not success:
                 self.logger.error("Failed to initialize LangChain components")
-            else:
-                self.logger.info("AIResponder initialized successfully")
+                raise RuntimeError("Failed to initialize LangChain components")
+            
+            self.logger.info("AIResponder initialized successfully")
                 
         except Exception as e:
             self.logger.error(f"Error in initialize: {str(e)}", exc_info=True)
+            raise
 
     async def setup_tools(self):
         # Create a sync wrapper for our async function
@@ -500,56 +502,89 @@ class AIResponder(commands.Cog):
             
             self.logger.info(f"Initializing DeepInfra LLM with model: {model}")
             
-            self.llm = ChatOpenAI(
-                model=model,
-                api_key=api_key,
-                base_url="https://api.deepinfra.com/v1/openai",
-                temperature=0.7,
-                streaming=True
-            )
+            if not api_key:
+                self.logger.error("No API key configured")
+                return False
+
+            # Initialize LLM
+            try:
+                self.llm = ChatOpenAI(
+                    model=model,
+                    api_key=api_key,
+                    base_url="https://api.deepinfra.com/v1/openai",
+                    temperature=0.7,
+                    streaming=True
+                )
+                self.logger.info("LLM initialized successfully")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize LLM: {str(e)}")
+                return False
 
             # Setup tools
-            self.tools = await self.setup_tools()
+            try:
+                self.tools = await self.setup_tools()
+                self.logger.info(f"Tools initialized: {[tool.name for tool in self.tools]}")
+            except Exception as e:
+                self.logger.error(f"Failed to setup tools: {str(e)}")
+                return False
 
             # Get the ReAct prompt and combine with our personality
-            react_prompt = hub.pull("hwchase17/react")
-            
-            # Modify the system message to include our personality
-            system_prompt = PromptTemplates.get_base_system_prompt()
-            tool_prompt = PromptTemplates.get_tool_selection_prompt()
-            
-            # Combine prompts
-            combined_prompt = ChatPromptTemplate.from_messages([
-                SystemMessage(content=system_prompt),
-                SystemMessage(content=tool_prompt),
-                react_prompt
-            ])
+            try:
+                react_prompt = hub.pull("hwchase17/react")
+                system_prompt = PromptTemplates.get_base_system_prompt()
+                tool_prompt = PromptTemplates.get_tool_selection_prompt()
+                
+                combined_prompt = ChatPromptTemplate.from_messages([
+                    SystemMessage(content=system_prompt),
+                    SystemMessage(content=tool_prompt),
+                    react_prompt
+                ])
+                self.logger.info("Prompts combined successfully")
+            except Exception as e:
+                self.logger.error(f"Failed to setup prompts: {str(e)}")
+                return False
 
-            # Create the agent with the combined prompt
-            llm_with_stop = self.llm.bind(
-                stop=["\nObservation:", "\nFinal Answer:"]
-            )
-            self.agent = create_react_agent(llm_with_stop, self.tools, combined_prompt)
+            # Create the agent
+            try:
+                llm_with_stop = self.llm.bind(
+                    stop=["\nObservation:", "\nFinal Answer:"]
+                )
+                self.agent = create_react_agent(llm_with_stop, self.tools, combined_prompt)
+                self.logger.info("Agent created successfully")
+            except Exception as e:
+                self.logger.error(f"Failed to create agent: {str(e)}")
+                return False
 
             # Initialize memory
-            memory = ConversationBufferWindowMemory(
-                k=5,
-                memory_key="chat_history",
-                return_messages=True
-            )
+            try:
+                memory = ConversationBufferWindowMemory(
+                    k=5,
+                    memory_key="chat_history",
+                    return_messages=True
+                )
+                self.logger.info("Memory initialized")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize memory: {str(e)}")
+                return False
 
             # Create agent executor
-            self.agent_executor = AgentExecutor(
-                agent=self.agent,
-                tools=self.tools,
-                memory=memory,
-                max_iterations=3,
-                early_stopping_method="generate",
-                handle_parsing_errors=True,
-                return_intermediate_steps=True,
-                verbose=True
-            )
+            try:
+                self.agent_executor = AgentExecutor(
+                    agent=self.agent,
+                    tools=self.tools,
+                    memory=memory,
+                    max_iterations=3,
+                    early_stopping_method="generate",
+                    handle_parsing_errors=True,
+                    return_intermediate_steps=True,
+                    verbose=True
+                )
+                self.logger.info("Agent executor created successfully")
+            except Exception as e:
+                self.logger.error(f"Failed to create agent executor: {str(e)}")
+                return False
 
+            self.logger.info("All LangChain components initialized successfully")
             return True
             
         except Exception as e:
