@@ -604,20 +604,16 @@ class AIResponder(commands.Cog):
 
                 Remember to maintain your cat personality throughout ALL responses!
 
-                {agent_scratchpad}"""
+                Thought: {agent_scratchpad}"""
 
                 # Create the agent with our prompt
-                prompt = ChatPromptTemplate.from_messages([
-                    ("system", react_template)
-                ]).partial(
-                    base_prompt=PromptTemplates.get_base_system_prompt(),
-                    tool_prompt=PromptTemplates.get_tool_selection_prompt()
-                )
-
                 self.agent = create_react_agent(
                     llm=llm_with_stop,
                     tools=self.tools,
-                    prompt=prompt
+                    prompt=ChatPromptTemplate.from_template(react_template).partial(
+                        base_prompt=PromptTemplates.get_base_system_prompt(),
+                        tool_prompt=PromptTemplates.get_tool_selection_prompt()
+                    )
                 )
                 
                 self.logger.info("Agent created successfully")
