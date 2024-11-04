@@ -1,35 +1,36 @@
+import asyncio
+import json
+import logging
+import math
+import os
+import re
+from datetime import datetime
+from typing import Dict, List, Tuple, Any, Optional, Union
+
+import aiohttp
 import discord
-from redbot.core import commands, Config
+from discord.ext import commands
+from pydantic import BaseModel, ConfigDict, Field
+from redbot.core import Config
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, pagify
-from typing import Dict, List, Tuple, Any, Optional, Union
-import asyncio
-import logging
-from datetime import datetime
-from openai import AsyncOpenAI
+from sympy import sympify, SympifyError, E, pi, oo, zoo
 
 from langchain import hub
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain.memory import ConversationBufferWindowMemory
+from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
+from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchRun
+from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
+from langchain_core.agents import AgentAction, AgentFinish, AgentStep
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import Tool, BaseTool
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_core.callbacks import BaseCallbackHandler
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain_core.agents import AgentAction, AgentFinish, AgentStep
-from langchain.memory import ConversationBufferWindowMemory
-from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
-from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_experimental.tools import PythonAstREPLTool
 from langchain_openai import ChatOpenAI
-from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchRun
-
-from sympy import sympify, SympifyError, E, pi, oo, zoo
-import os
-import json
-import aiohttp
-from pydantic import Field, BaseModel, ConfigDict
-from langchain_core.language_models.chat_models import BaseChatModel
-import re
-import math
+from openai import AsyncOpenAI
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
@@ -47,7 +48,6 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         current_time = datetime.now().timestamp()
         if current_time - self.last_update > 1:  # Update every second
             truncated_response = self.full_response[-1500:]  # Keep last 1500 chars
-            # Format the streaming response
             formatted_response = f"🤔 Thinking...\n\n{truncated_response}"
             await self.discord_message.edit(content=formatted_response)
             self.last_update = current_time
@@ -366,7 +366,7 @@ class AIResponder(commands.Cog):
                 'factorial': 'math.factorial'
             }
             
-            for word, symbol in word_to_symbol.items():
+            for word, symbol  in word_to_symbol.items():
                 cleaned_expression = cleaned_expression.replace(word, symbol)
             
             # Evaluate the expression
