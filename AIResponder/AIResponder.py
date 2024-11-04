@@ -75,8 +75,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
     @property
     def input_keys(self) -> List[str]:
-        """Return the input keys this agent expects."""
-        return ["input", "chat_history"]
+        return ["input", "chat_history", "intermediate_steps"]
 
     async def plan(
         self, 
@@ -88,51 +87,53 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
     async def aplan(self, intermediate_steps: List[AgentStep], **kwargs) -> Union[AgentAction, AgentFinish]:
         try:
-            # Format intermediate steps for context
-            steps_content = ""
-            for action, observation in intermediate_steps:
-                steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}\n"
-
-            # Build the prompt with emphasis on continuing planned steps
+            # Format intermediate steps
+            steps_content = self.format_steps(intermediate_steps)
+            
+            # Build prompt
             base_prompt = f"""Question: {kwargs['input']}
 
             Previous steps and results:
-            {steps_content if steps_content else 'No previous steps.'}
+            {steps_content}
 
             Available tools: {', '.join([tool.name for tool in self.tools])}
 
-            Remember to complete ALL planned steps before Final Response.
-            
+            Remember:
+            1. Complete ALL planned steps before Final Response
+            2. Use one tool at a time
+            3. Evaluate after each tool result
+            4. Only use Final Response when ALL information is gathered
+
             You MUST respond using EXACTLY this format:
             Thought: [your reasoning about next step needed]
             Action: [tool name or "Final Response" only if all information gathered]
             Action Input: [tool input or final response]"""
 
+            # Get next action
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
                 SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
                 HumanMessage(content=base_prompt)
             ]
 
-            # Get next action from LLM
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text.strip()
             
-            # Parse and validate the response
+            # Parse response
             thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|$)", response_text, re.DOTALL | re.IGNORECASE)
             action_match = re.search(r"Action:\s*(.*?)(?=Action Input:|$)", response_text, re.DOTALL | re.IGNORECASE)
             input_match = re.search(r"Action Input:\s*(.*?)(?=$)", response_text, re.DOTALL | re.IGNORECASE)
 
             if not all([thought_match, action_match, input_match]):
                 return AgentFinish(
-                    return_values={"output": "*tilts head* Meow! I need to structure my thoughts better. Could you repeat that? 😺"},
+                    return_values={"output": "*tilts head* I need to structure my thoughts better. Could you repeat that? 😺"},
                     log=response_text
                 )
 
             action = action_match.group(1).strip()
             action_input = input_match.group(1).strip()
 
-            # Return the next action or finish
+            # Continue chain unless explicitly finished
             if action.lower() == "final response":
                 return AgentFinish(
                     return_values={"output": action_input},
@@ -148,9 +149,18 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         except Exception as e:
             self.logger.error(f"Error in aplan: {str(e)}", exc_info=True)
             return AgentFinish(
-                return_values={"output": "*looks confused* Meow! I encountered an error. Could you try again? 😿"},
+                return_values={"output": "*looks confused* I encountered an error. Could you try again? 😿"},
                 log=f"Error in aplan: {str(e)}"
             )
+
+    def format_steps(self, steps: List[AgentStep]) -> str:
+        if not steps:
+            return "No previous steps."
+        
+        formatted_steps = []
+        for action, observation in steps:
+            formatted_steps.append(f"Action: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}")
+        return "\n\n".join(formatted_steps)
 
 class PromptTemplates:
     @staticmethod
@@ -1208,6 +1218,45 @@ class AIResponder(commands.Cog):
                 "type": "text",
                 "metadata": {"error": str(e)}
             }
+
+    async def continue_chain(self, previous_result: dict, content: str, message: discord.Message, response_message: discord.Message) -> str:
+        try:
+            # Format previous steps
+            steps = self.format_intermediate_steps(previous_result["intermediate_steps"])
+            
+            # Create continuation prompt
+            continuation_prompt = f"""Question: {content}
+
+            Previous steps and results:
+            {steps}
+
+            Continue with the next planned step. DO NOT generate a final response unless all required information has been gathered.
+            
+            You MUST respond using EXACTLY this format:
+            Thought: [your reasoning about next step needed]
+            Action: [tool name or "Final Response" only if all information gathered]
+            Action Input: [tool input or final response]"""
+
+            # Execute next step
+            next_result = await self.agent_executor.ainvoke(
+                {
+                    "input": continuation_prompt,
+                    "chat_history": previous_result.get("chat_history", []),
+                    "intermediate_steps": previous_result["intermediate_steps"]
+                }
+            )
+
+            # Format and return response
+            if isinstance(next_result, dict) and "output" in next_result:
+                formatted_response = f"{message.author.mention} {next_result['output']}"
+                await response_message.edit(content=formatted_response)
+                return formatted_response
+
+            return f"{message.author.mention} *looks confused* I lost my train of thought. Could you try again? 😿"
+
+        except Exception as e:
+            self.logger.error(f"Error in continue_chain: {str(e)}", exc_info=True)
+            return f"{message.author.mention} *looks apologetic* I got tangled up in my thoughts. Could you try again? 😿"
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
