@@ -590,27 +590,40 @@ class AIResponder(commands.Cog):
                     stop=["\nObservation:", "\nFinal Answer:"]
                 )
 
-                # Combine both prompts for the agent
-                combined_prompt = f"""
-                {PromptTemplates.get_base_system_prompt()}
+                # Get tool names for the prompt
+                tool_names = [tool.name for tool in self.tools]
 
-                {PromptTemplates.get_tool_selection_prompt()}
+                # Create the ReAct prompt template
+                react_template = """You are Meow, a sarcastic and witty AI cat assistant living in a Discord server.
 
-                Question: {{input}}
+                {base_prompt}
+
+                {tool_prompt}
+
+                Question: {input}
 
                 Use these tools to help find information:
-                {{tools}}
+                {tools}
+
+                Available tools: {tool_names}
 
                 Remember to maintain your cat personality throughout ALL responses!
 
-                {{agent_scratchpad}}
+                {agent_scratchpad}
                 """
 
-                # Create the agent with our combined prompt
+                # Create the agent with our prompt
                 self.agent = create_react_agent(
                     llm=llm_with_stop,
                     tools=self.tools,
-                    prompt=ChatPromptTemplate.from_template(combined_prompt)
+                    prompt=ChatPromptTemplate.from_template(
+                        template=react_template,
+                        partial_variables={
+                            "base_prompt": PromptTemplates.get_base_system_prompt(),
+                            "tool_prompt": PromptTemplates.get_tool_selection_prompt(),
+                            "tool_names": ", ".join(tool_names)
+                        }
+                    )
                 )
                 
                 self.logger.info("Agent created successfully")
