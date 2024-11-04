@@ -843,6 +843,7 @@ class AIResponder(commands.Cog):
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
+            # Create the agent executor for this specific query
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
@@ -861,16 +862,53 @@ class AIResponder(commands.Cog):
                 {"callbacks": [callback_handler]}
             )
 
-            # Extract the final response
+            # Log the intermediate steps for debugging
+            if "intermediate_steps" in result:
+                self.logger.info("Intermediate steps:")
+                for step in result["intermediate_steps"]:
+                    self.logger.info(f"Step: {step}")
+
+            # If we have a result but no final response, generate one
+            if "intermediate_steps" in result and result["intermediate_steps"]:
+                last_step = result["intermediate_steps"][-1]
+                if not isinstance(last_step[0], AgentFinish):
+                    # Generate final response using the accumulated information
+                    final_prompt = f"""Question: {content}
+
+                    Previous steps and results:
+                    {self.format_intermediate_steps(result['intermediate_steps'])}
+
+                    Based on the above information, provide a final response.
+                    You MUST use this EXACT format:
+                    Thought: [your reasoning about the final response]
+                    Action: Final Response
+                    Action Input: [your complete response with cat personality]"""
+
+                    messages = [
+                        SystemMessage(content=PromptTemplates.get_base_system_prompt()),
+                        SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
+                        HumanMessage(content=final_prompt)
+                    ]
+
+                    final_response = await self.llm.agenerate(messages=[messages])
+                    response_text = final_response.generations[0][0].text.strip()
+                    
+                    # Extract the final response from the Action Input
+                    input_match = re.search(r"Action Input:\s*(.*?)(?=$)", response_text, re.DOTALL | re.IGNORECASE)
+                    if input_match:
+                        final_output = input_match.group(1).strip()
+                    else:
+                        final_output = response_text
+
+                    # Format the response with user mention
+                    formatted_response = f"{message.author.mention} {final_output}"
+                    await response_message.edit(content=formatted_response)
+                    return formatted_response
+
+            # Extract the final response if it exists
             if isinstance(result, dict):
                 if "output" in result:
                     final_response = result["output"]
-                elif "intermediate_steps" in result:
-                    # Get the last observation from intermediate steps
-                    steps = result["intermediate_steps"]
-                    if steps:
-                        last_step = steps[-1]
-                        final_response = last_step[1] if isinstance(last_step, tuple) and len(last_step) > 1 else str(last_step)
                 else:
                     final_response = str(result)
                     
@@ -884,6 +922,13 @@ class AIResponder(commands.Cog):
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
             return f"{message.author.mention} *looks apologetic* Something went wrong. Could you try again? 😿"
+
+    def format_intermediate_steps(self, steps):
+        """Format intermediate steps for the prompt."""
+        formatted_steps = []
+        for action, observation in steps:
+            formatted_steps.append(f"Action: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}")
+        return "\n\n".join(formatted_steps)
 
     async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]], chat_history: List[Union[HumanMessage, AIMessage]], user: dict) -> str:
         try:
