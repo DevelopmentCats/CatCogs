@@ -409,7 +409,11 @@ class AIResponder(commands.Cog):
 
     @commands.group(name="air")
     @commands.guild_only()
-    @commands.admin_or_permissions(manage_guild=True)
+    @check_any(
+        commands.has_permissions(manage_guild=True),
+        commands.is_owner(),
+        commands.has_permissions(administrator=True)
+    )
     async def air(self, ctx: commands.Context):
         """Manage AIResponder settings."""
         if ctx.invoked_subcommand is None:
@@ -451,6 +455,7 @@ class AIResponder(commands.Cog):
         await ctx.send(f"Model has been set to {model}.")
 
     @commands.command()
+    @commands.guild_only()
     async def model_info(self, ctx: commands.Context):
         """Display information about the current AI model."""
         if not await self.is_configured():
@@ -468,6 +473,13 @@ class AIResponder(commands.Cog):
         await ctx.send("AI personality has been updated.")
 
     @air.command(name="disable")
+    @commands.guild_only()
+    @check_any(
+        commands.has_permissions(manage_channels=True),
+        commands.has_permissions(manage_guild=True),
+        commands.has_permissions(administrator=True),
+        commands.is_owner()
+    )
     async def disable_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
         """Disable AIResponder in a specific channel."""
         channel = channel or ctx.channel
@@ -479,6 +491,13 @@ class AIResponder(commands.Cog):
         await ctx.send(f"AIResponder disabled in {channel.mention}")
 
     @air.command(name="enable")
+    @commands.guild_only()
+    @check_any(
+        commands.has_permissions(manage_channels=True),
+        commands.has_permissions(manage_guild=True),
+        commands.has_permissions(administrator=True),
+        commands.is_owner()
+    )
     async def enable_channel(self, ctx: commands.Context, channel: discord.TextChannel = None):
         """Enable AIResponder in a specific channel."""
         channel = channel or ctx.channel
@@ -490,6 +509,13 @@ class AIResponder(commands.Cog):
         await ctx.send(f"AIResponder enabled in {channel.mention}")
 
     @air.command(name="list")
+    @commands.guild_only()
+    @check_any(
+        commands.has_permissions(manage_channels=True),
+        commands.has_permissions(manage_guild=True),
+        commands.has_permissions(administrator=True),
+        commands.is_owner()
+    )
     async def list_channels(self, ctx: commands.Context):
         """List all channels where AIResponder is disabled."""
         disabled_channels = await self.config.guild(ctx.guild).disabled_channels()
@@ -652,6 +678,14 @@ class AIResponder(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        if not message.guild:
+            return
+        
+        # Check if bot has required permissions in the channel
+        permissions = message.channel.permissions_for(message.guild.me)
+        if not permissions.send_messages or not permissions.read_messages:
+            return
+            
         if message.author.bot or not message.content.startswith(f"<@{self.bot.user.id}>"):
             return
 
