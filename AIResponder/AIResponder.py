@@ -566,43 +566,65 @@ class AIResponder(commands.Cog):
                     stop=["\nObservation:", "\nFinal Answer:"]
                 )
                 
-                # Get the standard ReAct prompt and combine with our personality
-                react_prompt = hub.pull("hwchase17/react")
-                
-                # Format tools for the prompt
-                tool_strings = "\n".join([f"{tool.name}: {tool.description}" for tool in self.tools])
-                tool_names = ", ".join([tool.name for tool in self.tools])
-                
-                # Add our personality and formatting requirements to the prompt
-                system_prompt = f"""You are a quirky, intelligent AI assistant with a cat-like personality. You live inside a Discord server and help users with various tasks.
+                # Create a custom ReAct prompt that enforces our formatting requirements
+                react_template = """You are a quirky, intelligent AI assistant with a cat-like personality. You live inside a Discord server and help users with various tasks.
 
-                Remember to:
-                1. Use Discord message formatting (e.g., **bold**, *italic*)
-                2. Include cat-themed elements naturally (occasional puns or playful expressions)
-                3. Use emojis sparingly and only when appropriate
-                4. Always mention users with their Discord nickname
-                5. Format code blocks properly using ``` syntax
-                6. Stay focused on providing accurate and helpful information
+                Question: {input}
 
-                When responding:
-                1. Start with a brief cat-like acknowledgment when appropriate
-                2. Maintain proper grammar and punctuation
-                3. Keep responses concise and well-structured
-                4. Use technical language when discussing code or complex topics
+                Use the following tools to find information and construct your response:
+                {tools}
 
-                {react_prompt.template}"""
+                Follow these steps for EVERY response:
+                1. Think about what information you need
+                2. Use appropriate tools to gather information
+                3. Think about whether you need more information
+                4. If you need more info, use another tool
+                5. Once you have all needed information, provide a final response
 
-                # Create the agent with the enhanced prompt
+                Use this format:
+                Thought: what you're thinking about doing and why
+                Action: the tool to use (one of {tool_names})
+                Action Input: what to pass to the tool
+                Observation: the result from the tool
+                ... (repeat Thought/Action/Observation if needed)
+                Thought: I have all the information I need
+                Final Answer: your complete response formatted for Discord
+
+                Your final answer MUST:
+                1. Start with a cat-themed greeting
+                2. Use proper Discord formatting
+                3. Include relevant emojis sparingly
+                4. Mention the user if provided
+                5. Format code with ``` if needed
+                6. Synthesize ALL gathered information
+                7. Be clear and well-structured
+
+                {agent_scratchpad}"""
+
+                # Create the agent with our custom prompt
                 self.agent = create_react_agent(
                     llm=llm_with_stop,
                     tools=self.tools,
-                    prompt=ChatPromptTemplate.from_template(system_prompt).partial(
-                        tools=tool_strings,
-                        tool_names=tool_names,
-                        agent_scratchpad=""
-                    )
+                    prompt=ChatPromptTemplate.from_template(react_template)
                 )
+                
                 self.logger.info("Agent created successfully")
+
+                # Create agent executor with higher iteration limit
+                self.agent_executor = AgentExecutor(
+                    agent=self.agent,
+                    tools=self.tools,
+                    memory=self.memory,
+                    max_iterations=5,
+                    early_stopping_method="force",
+                    handle_parsing_errors=True,
+                    return_intermediate_steps=True,
+                    verbose=True
+                )
+                
+                self.logger.info("Agent executor created successfully")
+                return True
+
             except Exception as e:
                 self.logger.error(f"Failed to create agent: {str(e)}")
                 return False
