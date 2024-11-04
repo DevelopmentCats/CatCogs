@@ -34,6 +34,7 @@ from langchain_openai import ChatOpenAI
 from openai import AsyncOpenAI
 from redbot.core import commands as red_commands
 from redbot.core.commands import Cog
+from redbot.core.utils.predicates import has_permissions
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
@@ -497,10 +498,10 @@ class AIResponder(Cog):
     @air.command(name="enable")
     @commands.guild_only()
     @check_any(
-        red_commands.has_permissions(manage_channels=True),
-        red_commands.has_permissions(manage_guild=True),
-        red_commands.has_permissions(administrator=True),
-        red_commands.is_owner()
+        check(lambda ctx: ctx.author.guild_permissions.manage_channels),
+        check(lambda ctx: ctx.author.guild_permissions.manage_guild),
+        check(lambda ctx: ctx.author.guild_permissions.administrator),
+        commands.is_owner()
     )
     async def enable_channel(self, ctx: red_commands.Context, channel: discord.TextChannel = None):
         """Enable AIResponder in a specific channel."""
@@ -515,10 +516,10 @@ class AIResponder(Cog):
     @air.command(name="list")
     @commands.guild_only()
     @check_any(
-        red_commands.has_permissions(manage_channels=True),
-        red_commands.has_permissions(manage_guild=True),
-        red_commands.has_permissions(administrator=True),
-        red_commands.is_owner()
+        check(lambda ctx: ctx.author.guild_permissions.manage_channels),
+        check(lambda ctx: ctx.author.guild_permissions.manage_guild),
+        check(lambda ctx: ctx.author.guild_permissions.administrator),
+        commands.is_owner()
     )
     async def list_channels(self, ctx: red_commands.Context):
         """List all channels where AIResponder is disabled."""
