@@ -94,44 +94,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
                 clean_observation = observation.split("Search Results:")[-1].strip() if "Search Results:" in observation else observation
                 steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {clean_observation}\n"
 
-            # Check if we have enough information to generate a final response
-            if intermediate_steps and all(isinstance(step, tuple) for step in intermediate_steps):
-                last_observation = intermediate_steps[-1][1]
-                
-                # Build the final response prompt
-                final_prompt = f"""Question: {kwargs['input']}
-
-                Previous steps and results:
-                {steps_content}
-
-                Based on the above information, please provide a final response.
-                You MUST use this EXACT format:
-                Thought: [your reasoning about the final response]
-                Action: Final Response
-                Action Input: [your complete response with cat personality]"""
-
-                messages = [
-                    SystemMessage(content=PromptTemplates.get_base_system_prompt()),
-                    HumanMessage(content=final_prompt)
-                ]
-
-                # Get final response from LLM
-                response = await self.llm.agenerate(messages=[messages])
-                response_text = response.generations[0][0].text.strip()
-                self.logger.info(f"FINAL RESPONSE: {response_text}")
-
-                # Parse the final response
-                thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|$)", response_text, re.DOTALL | re.IGNORECASE)
-                action_match = re.search(r"Action:\s*(.*?)(?=Action Input:|$)", response_text, re.DOTALL | re.IGNORECASE)
-                input_match = re.search(r"Action Input:\s*(.*?)(?=$)", response_text, re.DOTALL | re.IGNORECASE)
-
-                if action_match and input_match and "final response" in action_match.group(1).lower():
-                    return AgentFinish(
-                        return_values={"output": input_match.group(1).strip()},
-                        log=response_text
-                    )
-
-            # If we don't have enough information yet, continue with tool usage
+            # Build the prompt for next action
             base_prompt = f"""Question: {kwargs['input']}
 
             Previous steps and results:
@@ -140,9 +103,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             Available tools: {', '.join([tool.name for tool in self.tools])}
 
             You MUST respond using EXACTLY this format:
-            Thought: [your reasoning]
+            Thought: [your reasoning about whether you need more information or can provide final response]
             Action: [tool name or "Final Response"]
-            Action Input: [tool input or final response]"""
+            Action Input: [tool input or final response]
+
+            Remember: After getting tool results, ALWAYS evaluate if you need more information or can provide a Final Response."""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -170,6 +135,12 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             action_input = input_match.group(1).strip()
 
             # Return the next action
+            if action.lower() == "final response":
+                return AgentFinish(
+                    return_values={"output": action_input},
+                    log=response_text
+                )
+            
             return AgentAction(
                 tool=action,
                 tool_input=action_input,
@@ -811,7 +782,7 @@ class AIResponder(commands.Cog):
                 handle_parsing_errors=True,
                 max_iterations=5,
                 return_intermediate_steps=True,
-                early_stopping_method="force",  # Changed to force
+                early_stopping_method="generate",  # Changed from "force" to "generate"
                 max_execution_time=None,
                 output_parser=None
             )
