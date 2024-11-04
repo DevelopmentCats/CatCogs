@@ -846,6 +846,7 @@ class AIResponder(commands.Cog):
                 {
                     "input": content,
                     "chat_history": chat_history[-5:],
+                    "intermediate_steps": [],  # Add this line to provide required input key
                     "context": {
                         "message": message,
                         "channel": message.channel,
