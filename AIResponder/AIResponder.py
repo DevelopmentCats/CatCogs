@@ -593,37 +593,34 @@ class AIResponder(commands.Cog):
                 # Get tool names for the prompt
                 tool_names = [tool.name for tool in self.tools]
 
-                # Create the ReAct prompt template
+                # Create the ReAct prompt template with proper variable handling
                 react_template = """You are Meow, a sarcastic and witty AI cat assistant living in a Discord server.
 
-                {base_prompt}
+{base_prompt}
 
-                {tool_prompt}
+{tool_prompt}
 
-                Question: {input}
+Question: {input}
 
-                Use these tools to help find information:
-                {tools}
+Use these tools to help find information:
+{tools}
 
-                Available tools: {tool_names}
+Remember to maintain your cat personality throughout ALL responses!
 
-                Remember to maintain your cat personality throughout ALL responses!
-
-                {agent_scratchpad}
-                """
+{agent_scratchpad}"""
 
                 # Create the agent with our prompt
+                prompt = ChatPromptTemplate.from_messages([
+                    ("system", react_template)
+                ]).partial(
+                    base_prompt=PromptTemplates.get_base_system_prompt(),
+                    tool_prompt=PromptTemplates.get_tool_selection_prompt()
+                )
+
                 self.agent = create_react_agent(
                     llm=llm_with_stop,
                     tools=self.tools,
-                    prompt=ChatPromptTemplate.from_template(
-                        template=react_template,
-                        partial_variables={
-                            "base_prompt": PromptTemplates.get_base_system_prompt(),
-                            "tool_prompt": PromptTemplates.get_tool_selection_prompt(),
-                            "tool_names": ", ".join(tool_names)
-                        }
-                    )
+                    prompt=prompt
                 )
                 
                 self.logger.info("Agent created successfully")
