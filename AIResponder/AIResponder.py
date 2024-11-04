@@ -560,6 +560,20 @@ class AIResponder(commands.Cog):
                 self.logger.error(f"Failed to setup tools: {str(e)}")
                 return False
 
+            # Initialize memory first
+            try:
+                self.memory = DiscordConversationMemory(
+                    k=5,
+                    memory_key="chat_history",
+                    input_key="input",
+                    output_key="output",
+                    return_messages=True
+                )
+                self.logger.info("Memory initialized")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize memory: {str(e)}")
+                return False
+
             # Create the agent with ReAct
             try:
                 llm_with_stop = self.llm.bind(
@@ -627,37 +641,6 @@ class AIResponder(commands.Cog):
 
             except Exception as e:
                 self.logger.error(f"Failed to create agent: {str(e)}")
-                return False
-
-            # Initialize memory
-            try:
-                memory = DiscordConversationMemory(
-                    k=5,
-                    memory_key="chat_history",
-                    input_key="input",
-                    output_key="output",
-                    return_messages=True
-                )
-                self.logger.info("Memory initialized")
-            except Exception as e:
-                self.logger.error(f"Failed to initialize memory: {str(e)}")
-                return False
-
-            # Create agent executor with more iterations allowed
-            try:
-                self.agent_executor = AgentExecutor(
-                    agent=self.agent,
-                    tools=self.tools,
-                    memory=memory,
-                    max_iterations=5,  # Allow more iterations for complex tasks
-                    early_stopping_method="force",  # Ensure completion of reasoning
-                    handle_parsing_errors=True,
-                    return_intermediate_steps=True,
-                    verbose=True
-                )
-                self.logger.info("Agent executor created successfully")
-            except Exception as e:
-                self.logger.error(f"Failed to create agent executor: {str(e)}")
                 return False
 
             self.logger.info("All LangChain components initialized successfully")
