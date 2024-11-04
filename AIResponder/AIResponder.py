@@ -91,10 +91,9 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Format intermediate steps for context
             steps_content = ""
             for action, observation in intermediate_steps:
-                clean_observation = observation.split("Search Results:")[-1].strip() if "Search Results:" in observation else observation
-                steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {clean_observation}\n"
+                steps_content += f"\nAction: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}\n"
 
-            # Build the prompt for next action
+            # Build the prompt with emphasis on continuing planned steps
             base_prompt = f"""Question: {kwargs['input']}
 
             Previous steps and results:
@@ -102,12 +101,12 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
             Available tools: {', '.join([tool.name for tool in self.tools])}
 
+            Remember to complete ALL planned steps before Final Response.
+            
             You MUST respond using EXACTLY this format:
-            Thought: [your reasoning about whether you need more information or can provide final response]
-            Action: [tool name or "Final Response"]
-            Action Input: [tool input or final response]
-
-            Remember: After getting tool results, ALWAYS evaluate if you need more information or can provide a Final Response."""
+            Thought: [your reasoning about next step needed]
+            Action: [tool name or "Final Response" only if all information gathered]
+            Action Input: [tool input or final response]"""
 
             messages = [
                 SystemMessage(content=PromptTemplates.get_base_system_prompt()),
@@ -118,23 +117,22 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
             # Get next action from LLM
             response = await self.llm.agenerate(messages=[messages])
             response_text = response.generations[0][0].text.strip()
-            self.logger.info(f"LLM RESPONSE: {response_text}")
-
-            # Parse the response
+            
+            # Parse and validate the response
             thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|$)", response_text, re.DOTALL | re.IGNORECASE)
             action_match = re.search(r"Action:\s*(.*?)(?=Action Input:|$)", response_text, re.DOTALL | re.IGNORECASE)
             input_match = re.search(r"Action Input:\s*(.*?)(?=$)", response_text, re.DOTALL | re.IGNORECASE)
 
             if not all([thought_match, action_match, input_match]):
                 return AgentFinish(
-                    return_values={"output": "*tilts head* I need to structure my thoughts better. Could you repeat that? 😺"},
+                    return_values={"output": "*tilts head* Meow! I need to structure my thoughts better. Could you repeat that? 😺"},
                     log=response_text
                 )
 
             action = action_match.group(1).strip()
             action_input = input_match.group(1).strip()
 
-            # Return the next action
+            # Return the next action or finish
             if action.lower() == "final response":
                 return AgentFinish(
                     return_values={"output": action_input},
@@ -150,7 +148,7 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         except Exception as e:
             self.logger.error(f"Error in aplan: {str(e)}", exc_info=True)
             return AgentFinish(
-                return_values={"output": "*looks confused* I encountered an error. Could you please try again? 😿"},
+                return_values={"output": "*looks confused* Meow! I encountered an error. Could you try again? 😿"},
                 log=f"Error in aplan: {str(e)}"
             )
 
@@ -175,53 +173,45 @@ class PromptTemplates:
 
     @staticmethod
     def get_tool_selection_prompt() -> str:
-        return """You must ALWAYS follow this EXACT format and plan your actions carefully:
+        return """Assistant, you are a helpful AI that can use multiple tools to gather information before providing a final response. Follow these steps carefully:
 
-        FIRST: Plan your approach
-        Thought: [Plan out ALL the steps needed, including multiple tool calls if required]
+        1. FIRST ANALYZE what information you need and plan ALL required tool calls
+        2. Execute ONE tool at a time
+        3. After each tool result, evaluate if you need more information
+        4. Only generate Final Response when you have ALL needed information
 
-        THEN: Execute ONE step at a time:
-        Action: [EXACT tool name]
-        Action Input: [ONLY the required input]
+        Format:
+        Thought: [Analyze what information you need and plan your steps]
+        Action: [Tool name]
+        Action Input: [Tool input]
 
-        AFTER each tool result:
-        Thought: [Analyze the result and decide if you need more information or can provide final response]
-        Action: [Next tool or "Final Response" if you have all needed information]
-        Action Input: [Next input or final response with cat personality]
-
-        CRITICAL RULES:
-        1. ALWAYS plan multiple steps ahead in first Thought
-        2. ONE tool action at a time
-        3. NEVER combine searches - use separate calls
-        4. WAIT for each result before next action
-        5. MUST end EVERY chain with "Action: Final Response"
-        6. Cat personality ONLY in Final Response
-        7. MUST include reasoning in EVERY Thought step
-        8. NEVER skip steps or combine actions
-        9. After getting tool results, ALWAYS evaluate if you need more info or can give Final Response
+        After tool result:
+        Thought: [Analyze result and decide next step]
+        Action: [Next tool name or "Final Response" if all information gathered]
+        Action Input: [Next tool input or final response with cat personality]
 
         Example Multi-Step Flow:
-        Thought: To answer about events in two cities, I need current date and search results for both cities
+        Thought: I need current date and events from two cities
         Action: Current Date and Time (CST)
         Action Input: ""
 
-        Observation: [Date result]
-
-        Thought: Now I know the date, I need to search for City1 events
+        Thought: Now I need events from first city
         Action: DuckDuckGo Search
-        Action Input: events in City1 tonight
+        Action Input: "events in City1 today"
 
-        Observation: [Results for City1]
-
-        Thought: Now I need information about City2
+        Thought: Now I need events from second city
         Action: DuckDuckGo Search
-        Action Input: events in City2 tonight
+        Action Input: "events in City2 today"
 
-        Observation: [Results for City2]
-
-        Thought: I now have all the information needed to provide a complete response
+        Thought: I have all needed information
         Action: Final Response
-        Action Input: [Combined response with cat personality]"""
+        Action Input: [Final response with cat personality]
+
+        Remember:
+        - ALWAYS complete all planned tool calls
+        - NEVER skip needed information
+        - Use cat personality ONLY in Final Response
+        - Final Response MUST be last action"""
 
     @staticmethod
     def get_tool_examples() -> List[dict]:
@@ -773,18 +763,16 @@ class AIResponder(commands.Cog):
                 logger=self.logger
             )
 
-            # Create agent executor with modified settings
+            # Create agent executor with proper settings for multi-step execution
             self.agent_executor = AgentExecutor.from_agent_and_tools(
                 agent=self.agent,
                 tools=self.tools,
                 memory=memory,
                 verbose=True,
                 handle_parsing_errors=True,
-                max_iterations=5,
-                return_intermediate_steps=True,
-                early_stopping_method="generate",  # Changed from "force" to "generate"
-                max_execution_time=None,
-                output_parser=None
+                max_iterations=5,  # Ensure enough iterations for multiple tools
+                early_stopping_method="generate",  # Let the agent decide when to stop
+                return_intermediate_steps=True
             )
 
             self.logger.info("LangChain components updated successfully")
