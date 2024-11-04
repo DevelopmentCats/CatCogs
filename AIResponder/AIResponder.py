@@ -75,7 +75,8 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
 
     @property
     def input_keys(self) -> List[str]:
-        return ["input", "chat_history", "intermediate_steps"]
+        # Remove intermediate_steps from input_keys since it's handled by the agent executor
+        return ["input", "chat_history"]
 
     async def plan(
         self, 
@@ -85,7 +86,11 @@ class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
         """Plan the next action or finish the sequence."""
         return await self.aplan(intermediate_steps, **kwargs)
 
-    async def aplan(self, intermediate_steps: List[AgentStep], **kwargs) -> Union[AgentAction, AgentFinish]:
+    async def aplan(
+        self,
+        intermediate_steps: List[AgentStep],
+        **kwargs: Any
+    ) -> Union[AgentAction, AgentFinish]:
         try:
             # Format intermediate steps
             steps_content = self.format_steps(intermediate_steps)
@@ -846,7 +851,6 @@ class AIResponder(commands.Cog):
                 {
                     "input": content,
                     "chat_history": chat_history[-5:],
-                    "intermediate_steps": [],  # Add this line to provide required input key
                     "context": {
                         "message": message,
                         "channel": message.channel,
