@@ -416,8 +416,11 @@ class AIResponder(commands.Cog):
                 temperature=0.7
             )
             
-            # Try a simple test completion
-            test_messages = [SystemMessage(content="Test message")]
+            # Try a simple test completion with proper message format
+            test_messages = [
+                SystemMessage(content="You are a helpful AI assistant."),
+                HumanMessage(content="Say 'success' if you can read this.")
+            ]
             await test_llm.agenerate(messages=[test_messages])
             
             # If we get here, the API key is valid
