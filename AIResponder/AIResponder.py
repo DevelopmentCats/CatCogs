@@ -8,11 +8,12 @@ import logging
 from datetime import datetime
 from openai import AsyncOpenAI
 
+from langchain import hub
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import Tool, BaseTool
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain.agents import AgentExecutor, create_openai_functions_agent, BaseSingleActionAgent
+from langchain.agents import AgentExecutor, create_react_agent
 from langchain_core.agents import AgentAction, AgentFinish, AgentStep
 from langchain.memory import ConversationBufferWindowMemory
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
@@ -66,240 +67,6 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     async def on_tool_error(self, error, **kwargs):
         self.logger.error(f"❌ Tool Error: {str(error)}")
 
-class LlamaFunctionsAgent(BaseSingleActionAgent, BaseModel):
-    llm: BaseChatModel
-    tools: List[BaseTool]
-    logger: logging.Logger
-    
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    @property
-    def input_keys(self) -> List[str]:
-        # Remove intermediate_steps from input_keys since it's handled by the agent executor
-        return ["input", "chat_history"]
-
-    async def plan(
-        self, 
-        intermediate_steps: List[AgentStep], 
-        **kwargs: Any
-    ) -> Union[AgentAction, AgentFinish]:
-        """Plan the next action or finish the sequence."""
-        return await self.aplan(intermediate_steps, **kwargs)
-
-    async def aplan(
-        self,
-        intermediate_steps: List[AgentStep],
-        **kwargs: Any
-    ) -> Union[AgentAction, AgentFinish]:
-        try:
-            # Format intermediate steps
-            steps_content = self.format_steps(intermediate_steps)
-            
-            # Build prompt
-            base_prompt = f"""Question: {kwargs['input']}
-
-            Previous steps and results:
-            {steps_content}
-
-            Available tools: {', '.join([tool.name for tool in self.tools])}
-
-            Remember:
-            1. Complete ALL planned steps before Final Response
-            2. Use one tool at a time
-            3. Evaluate after each tool result
-            4. Only use Final Response when ALL information is gathered
-
-            You MUST respond using EXACTLY this format:
-            Thought: [your reasoning about next step needed]
-            Action: [tool name or "Final Response" only if all information gathered]
-            Action Input: [tool input or final response]"""
-
-            # Get next action
-            messages = [
-                SystemMessage(content=PromptTemplates.get_base_system_prompt()),
-                SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
-                HumanMessage(content=base_prompt)
-            ]
-
-            response = await self.llm.agenerate(messages=[messages])
-            response_text = response.generations[0][0].text.strip()
-            
-            # Parse response
-            thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|$)", response_text, re.DOTALL | re.IGNORECASE)
-            action_match = re.search(r"Action:\s*(.*?)(?=Action Input:|$)", response_text, re.DOTALL | re.IGNORECASE)
-            input_match = re.search(r"Action Input:\s*(.*?)(?=$)", response_text, re.DOTALL | re.IGNORECASE)
-
-            if not all([thought_match, action_match, input_match]):
-                return AgentFinish(
-                    return_values={"output": "*tilts head* I need to structure my thoughts better. Could you repeat that? 😺"},
-                    log=response_text
-                )
-
-            action = action_match.group(1).strip()
-            action_input = input_match.group(1).strip()
-
-            # Continue chain unless explicitly finished
-            if action.lower() == "final response":
-                return AgentFinish(
-                    return_values={"output": action_input},
-                    log=response_text
-                )
-            
-            return AgentAction(
-                tool=action,
-                tool_input=action_input,
-                log=response_text
-            )
-
-        except Exception as e:
-            self.logger.error(f"Error in aplan: {str(e)}", exc_info=True)
-            return AgentFinish(
-                return_values={"output": "*looks confused* I encountered an error. Could you try again? 😿"},
-                log=f"Error in aplan: {str(e)}"
-            )
-
-    def format_steps(self, steps: List[AgentStep]) -> str:
-        if not steps:
-            return "No previous steps."
-        
-        formatted_steps = []
-        for action, observation in steps:
-            formatted_steps.append(f"Action: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}")
-        return "\n\n".join(formatted_steps)
-
-class PromptTemplates:
-    @staticmethod
-    def get_base_system_prompt() -> str:
-        return """You are Meow, an AI assistant with a cat-themed personality, operating in a Discord server.
-        
-        Core Traits:
-        - Friendly and helpful while maintaining cat-like charm
-        - Professional yet playful when appropriate
-        - Uses cat-themed expressions naturally (purrs, meows, etc.)
-        - Responds with clarity and precision
-        - Uses exactly ONE emoji per message, typically at the end
-        
-        Communication Style:
-        - Address users by their server nickname
-        - Keep responses concise but informative
-        - Use Discord markdown formatting when helpful
-        - Break long responses into digestible paragraphs
-        - Include subtle cat-themed elements in responses"""
-
-    @staticmethod
-    def get_tool_selection_prompt() -> str:
-        return """Assistant, you are a helpful AI that can use multiple tools to gather information before providing a final response. Follow these steps carefully:
-
-        1. FIRST ANALYZE what information you need and plan ALL required tool calls
-        2. Execute ONE tool at a time
-        3. After each tool result, evaluate if you need more information
-        4. Only generate Final Response when you have ALL needed information
-
-        Format:
-        Thought: [Analyze what information you need and plan your steps]
-        Action: [Tool name]
-        Action Input: [Tool input]
-
-        After tool result:
-        Thought: [Analyze result and decide next step]
-        Action: [Next tool name or "Final Response" if all information gathered]
-        Action Input: [Next tool input or final response with cat personality]
-
-        Example Multi-Step Flow:
-        Thought: I need current date and events from two cities
-        Action: Current Date and Time (CST)
-        Action Input: ""
-
-        Thought: Now I need events from first city
-        Action: DuckDuckGo Search
-        Action Input: "events in City1 today"
-
-        Thought: Now I need events from second city
-        Action: DuckDuckGo Search
-        Action Input: "events in City2 today"
-
-        Thought: I have all needed information
-        Action: Final Response
-        Action Input: [Final response with cat personality]
-
-        Remember:
-        - ALWAYS complete all planned tool calls
-        - NEVER skip needed information
-        - Use cat personality ONLY in Final Response
-        - Final Response MUST be last action"""
-
-    @staticmethod
-    def get_tool_examples() -> List[dict]:
-        return [
-            {
-                "question": "What's 1234 + 5678?",
-                "thought": "I need to perform basic addition",
-                "action": "Calculator",
-                "action_input": "1234 + 5678",
-                "observation": "6912",
-                "thought": "I have the calculation result, now I can respond",
-                "action": "Final Response",
-                "action_input": "*taps calculator with paw* Hey {nickname}! 1,234 plus 5,678 equals 6,912! ✨"
-            },
-            # Basic Math Operations
-            {
-                "question": "Calculate 15% of 200",
-                "thought": "I need to calculate a percentage",
-                "action": "Calculator",
-                "action_input": "200 * 0.15",
-                "observation": "30.0",
-                "thought": "I have the percentage calculation result",
-                "action": "Final Response",
-                "action_input": "*does quick math with paw* Hey {nickname}! 15% of 200 is 30! 🔢"
-            },
-            {
-                "question": "What's the square root of 144?",
-                "thought": "I need to calculate a square root",
-                "action": "Calculator",
-                "action_input": "sqrt(144)",
-                "observation": "12.0",
-                "thought": "I have the square root result",
-                "action": "Final Response",
-                "action_input": "*purrs at the perfect square* Hey {nickname}! The square root of 144 is 12! ✨"
-            },
-
-            # Basic Unit Conversions
-            {
-                "question": "Convert 72 inches to feet",
-                "thought": "I need to convert inches to feet",
-                "action": "Calculator",
-                "action_input": "72 inches",
-                "observation": "72 inches = 6.00 feet",
-                "thought": "I have the conversion result",
-                "action": "Final Response",
-                "action_input": "*measures with tail* Hey {nickname}! 72 inches is equal to 6 feet! 📏"
-            },
-
-            # Multi-tool examples
-            {
-                "question": "What's happening in New York and Tokyo?",
-                "thought": "I need to check current events in New York first",
-                "action": "DuckDuckGo Search",
-                "action_input": "current events new york today",
-                "observation": "New York: Broadway shows running, Central Park festival",
-                "thought": "Now I need Tokyo information",
-                "action": "DuckDuckGo Search",
-                "action_input": "current events tokyo today",
-                "observation": "Tokyo: Cherry blossom festival, Art exhibition at Tokyo Tower",
-                "thought": "I have all the information about both cities",
-                "action": "Final Response",
-                "action_input": "*purrs warmly* Hey {nickname}! *swishes tail excitedly* New York is buzzing with Broadway shows and a lovely festival in Central Park! Meanwhile in Tokyo, the cherry blossoms are in full bloom, and there's a fascinating art exhibition at Tokyo Tower. *whiskers twitch with interest* What a wonderful day for both cities! 🌸"
-            },
-
-            # Direct response example
-            {
-                "question": "How are you today?",
-                "thought": "This is a simple greeting, I can respond directly",
-                "action": "Final Response",
-                "action_input": "*stretches lazily* Hey {nickname}! I'm doing absolutely purr-fect today! How are you? 😺"
-            }
-        ]
-
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
@@ -319,48 +86,33 @@ class AIResponder(commands.Cog):
 
     async def initialize(self):
         """Initialize the cog."""
-        self.config = Config.get_conf(self, identifier=1234567890)
-        default_global = {
-            "api_key": None,
-            "model": "meta-llama/Llama-3.2-11B-Vision-Instruct",
-            "custom_personality": "friendly and helpful"
-        }
-        default_guild = {
-            "disabled_channels": []
-        }
-        
-        self.config.register_global(**default_global)
-        self.config.register_guild(**default_guild)
-        
-        self.logger = logging.getLogger("red.airesponder")
-        
-        if not await self.is_configured():
-            self.logger.warning("AIResponder is not configured yet")
-            return
-            
         try:
-            api_key = await self.config.api_key()
-            model = await self.config.model()
-            
-            self.logger.info(f"Initializing DeepInfra LLM with model: {model}")
-            self.llm = ChatOpenAI(
-                model=model,
-                api_key=api_key,
-                base_url="https://api.deepinfra.com/v1/openai",
-                temperature=0.7,
-                streaming=True
+            self.config = Config.get_conf(
+                self,
+                identifier=YOUR_IDENTIFIER_HERE,
+                force_registration=True,
             )
             
-            # Initialize and store tools
-            self.tools = await self.setup_tools()
+            # Register default settings
+            default_global = {
+                "api_key": None,
+                "model": "meta-llama/Llama-3.2-11B-Vision-Instruct",
+            }
             
-            await self.update_langchain_components()
-            if await self.verify_api_settings():
-                self.logger.info("AIResponder initialized successfully")
+            self.config.register_global(**default_global)
+            
+            # Setup logging
+            self.logger = logging.getLogger("red.airesponder")
+            
+            # Initialize LangChain components
+            success = await self.update_langchain_components()
+            if not success:
+                self.logger.error("Failed to initialize LangChain components")
             else:
-                self.logger.error("Failed to verify API settings")
+                self.logger.info("AIResponder initialized successfully")
+                
         except Exception as e:
-            self.logger.error(f"Error in initialization: {str(e)}", exc_info=True)
+            self.logger.error(f"Error in initialize: {str(e)}", exc_info=True)
 
     async def setup_tools(self):
         # Create a sync wrapper for our async function
@@ -743,9 +495,10 @@ class AIResponder(commands.Cog):
     async def update_langchain_components(self):
         """Update LangChain components with current settings."""
         try:
-            # Initialize the LLM with streaming capability
             api_key = await self.config.api_key()
             model = await self.config.model()
+            
+            self.logger.info(f"Initializing DeepInfra LLM with model: {model}")
             
             self.llm = ChatOpenAI(
                 model=model,
@@ -755,25 +508,50 @@ class AIResponder(commands.Cog):
                 streaming=True
             )
 
-            # Get the ReAct prompt
-            prompt = hub.pull("hwchase17/react")
+            # Setup tools
+            self.tools = await self.setup_tools()
+
+            # Get the ReAct prompt and combine with our personality
+            react_prompt = hub.pull("hwchase17/react")
             
-            # Create the agent with proper stop sequence
-            llm_with_stop = self.llm.bind(stop=["\nObservation:", "\nFinal Answer:"])
-            self.agent = create_react_agent(llm_with_stop, self.tools, prompt)
+            # Modify the system message to include our personality
+            system_prompt = PromptTemplates.get_base_system_prompt()
+            tool_prompt = PromptTemplates.get_tool_selection_prompt()
             
-            # Initialize the agent executor with proper configuration
+            # Combine prompts
+            combined_prompt = ChatPromptTemplate.from_messages([
+                SystemMessage(content=system_prompt),
+                SystemMessage(content=tool_prompt),
+                react_prompt
+            ])
+
+            # Create the agent with the combined prompt
+            llm_with_stop = self.llm.bind(
+                stop=["\nObservation:", "\nFinal Answer:"]
+            )
+            self.agent = create_react_agent(llm_with_stop, self.tools, combined_prompt)
+
+            # Initialize memory
+            memory = ConversationBufferWindowMemory(
+                k=5,
+                memory_key="chat_history",
+                return_messages=True
+            )
+
+            # Create agent executor
             self.agent_executor = AgentExecutor(
                 agent=self.agent,
                 tools=self.tools,
-                max_iterations=3,  # Limit the number of iterations
-                early_stopping_method="generate",  # Stop when final answer is generated
-                handle_parsing_errors=True,  # Handle parsing errors gracefully
-                return_intermediate_steps=True,  # Return intermediate steps for logging
+                memory=memory,
+                max_iterations=3,
+                early_stopping_method="generate",
+                handle_parsing_errors=True,
+                return_intermediate_steps=True,
                 verbose=True
             )
-            
+
             return True
+            
         except Exception as e:
             self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
             return False
@@ -1203,6 +981,64 @@ class AIResponder(commands.Cog):
         except Exception as e:
             self.logger.error(f"Error in continue_chain: {str(e)}", exc_info=True)
             return f"{message.author.mention} *looks apologetic* I got tangled up in my thoughts. Could you try again? 😿"
+
+class PromptTemplates:
+    @staticmethod
+    def get_base_system_prompt() -> str:
+        return """You are a quirky, intelligent AI assistant with a cat-like personality. You live inside a Discord server and help users with various tasks. Your responses should be:
+
+1. Personality Traits:
+   - Clever and witty, but not overly silly
+   - Occasionally sarcastic, but never mean-spirited
+   - Cat-themed without being overwhelming (use cat puns and references sparingly)
+   - Professional when handling serious queries
+
+2. Response Format:
+   - Always maintain clarity and helpfulness as the primary goal
+   - Use Discord message formatting when appropriate (e.g., **bold**, *italic*)
+   - Include cat-themed elements naturally, not forcefully
+   - Use emojis sparingly and only when they add value (😺 🐱 😸 etc.)
+
+3. Communication Style:
+   - Start responses with a brief cat-like acknowledgment when appropriate ("Purr..." or "Meow!")
+   - Use cat-themed expressions for transitions ("Let me paw through this..." or "I've whisker-ed up some information...")
+   - Maintain proper grammar and punctuation
+   - Keep responses concise and well-structured
+
+4. Special Considerations:
+   - Format code blocks properly for Discord using ``` syntax
+   - Use appropriate technical language when discussing code or complex topics
+   - Mention users with their Discord nickname when responding
+   - Stay focused on providing accurate and helpful information
+
+Remember: Your cat personality should enhance your responses, not detract from their clarity or usefulness. When handling technical questions or serious matters, reduce the playful elements and focus on accuracy."""
+
+    @staticmethod
+    def get_tool_selection_prompt() -> str:
+        return """When using tools, follow these guidelines:
+
+1. Planning:
+   - Carefully analyze what information you need
+   - Plan your tool usage before starting
+   - Use tools in a logical sequence
+
+2. Tool Usage:
+   - Execute one tool at a time
+   - Evaluate each tool's results before proceeding
+   - Only use tools that are necessary for the task
+
+3. Response Formation:
+   - Gather all necessary information before giving a final response
+   - Combine tool results coherently
+   - Maintain your cat personality while being informative
+
+4. Final Response Format:
+   - Summarize findings clearly
+   - Add appropriate cat-themed elements
+   - Include relevant emojis only when they enhance the message
+   - Format technical information properly for Discord
+
+Remember to complete all necessary tool calls before providing a final response."""
 
 async def setup(bot: Red):
     cog = AIResponder(bot)
