@@ -581,6 +581,7 @@ class AIResponder(commands.Cog):
                 memory = ConversationBufferWindowMemory(
                     k=5,
                     memory_key="chat_history",
+                    input_key="input",  # Specify the input key explicitly
                     return_messages=True
                 )
                 self.logger.info("Memory initialized")
@@ -663,24 +664,27 @@ class AIResponder(commands.Cog):
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
-            # Execute the agent with proper input structure
+            # Create the agent executor for this specific query
             result = await self.agent_executor.ainvoke(
                 {
-                    "input": content,
-                    "chat_history": chat_history[-5:],
-                    "context": {
-                        "message": message,
-                        "channel": message.channel,
-                        "guild": message.guild,
-                        "user": {
-                            "name": str(message.author.name),
-                            "nickname": str(message.author.display_name),
-                            "id": str(message.author.id)
-                        }
-                    }
+                    "input": content,  # Only pass the input content
+                    "chat_history": chat_history[-5:]
                 },
                 {"callbacks": [callback_handler]}
             )
+
+            # Store the context in the agent's memory without using it as an input
+            if hasattr(self.agent_executor, 'memory'):
+                self.agent_executor.memory.context = {
+                    "message": message,
+                    "channel": message.channel,
+                    "guild": message.guild,
+                    "user": {
+                        "name": str(message.author.name),
+                        "nickname": str(message.author.display_name),
+                        "id": str(message.author.id)
+                    }
+                }
 
             # Log intermediate steps
             if "intermediate_steps" in result:
