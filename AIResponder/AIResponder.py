@@ -37,15 +37,13 @@ from pydantic import BaseModel, Field, ValidationError
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
         self.discord_message = discord_message
-        self.full_response = ""
-        self.last_update = 0
         self.logger = logger
         self.current_plan = ""
         self.current_step = 0
         self.total_steps = 0
-        self.step_results = []
+        self.full_response = ""
+        self.last_update = datetime.now().timestamp()
         self.is_finished = False
-        self.tool_outputs = {}  # Add this to store tool outputs
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
         self.logger.info("LLM started generating response")
@@ -56,8 +54,8 @@ class DiscordCallbackHandler(BaseCallbackHandler):
             return
         self.full_response += token
         current_time = datetime.now().timestamp()
-        if current_time - self.last_update > 1:
-            truncated_response = self.full_response[-1500:]
+        if current_time - self.last_update > 1:  # Update every second
+            truncated_response = self.full_response[-1500:]  # Discord limit
             formatted_response = f"🤔 Thinking...\n\n{truncated_response}"
             await self.discord_message.edit(content=formatted_response)
             self.last_update = current_time
@@ -71,7 +69,7 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     async def on_step_start(self, step: int, total: int, **kwargs):
         self.current_step = step
         self.total_steps = total
-        step_msg = f"📝 *gracefully executes step {step}/{total}*\n{self.current_plan}"
+        step_msg = f"📝 *gracefully executes step {step}/{total}*"
         await self.discord_message.edit(content=step_msg)
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
@@ -81,12 +79,9 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         await self.discord_message.edit(content=tool_msg)
 
     async def on_tool_end(self, output, **kwargs):
-        self.logger.info(f"Tool execution completed with output: {output}")
-        # Store the tool output
-        self.tool_outputs[f"step_{self.current_step}"] = output
-        self.step_results.append(output)
+        self.logger.info(f"Tool execution completed")
         await self.discord_message.edit(
-            content=f"✨ *purrs contentedly at the results*\nStep {self.current_step}/{self.total_steps}\nResult: {output[:500]}"
+            content=f"✨ *purrs contentedly*\nStep {self.current_step}/{self.total_steps}"
         )
 
     async def on_tool_error(self, error, **kwargs):
@@ -97,8 +92,6 @@ class DiscordCallbackHandler(BaseCallbackHandler):
 
     async def on_chain_end(self, outputs, **kwargs):
         self.logger.info("Chain completed")
-        if self.step_results:
-            self.step_results = []  # Reset for next run
 
     async def on_plan_error(self, error: str, **kwargs):
         self.logger.error(f"Plan Error: {error}")
@@ -113,26 +106,26 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         )
 
     async def on_agent_action(self, action: AgentAction, **kwargs):
-        self.logger.info(f"Agent Action: {action.tool} - {action.tool_input}")
-        # Include previous tool outputs in the context
-        context = f"Previous results: {self.tool_outputs}\nCurrent action: {action.tool}"
+        self.logger.info(f"Agent Action: {action.tool}")
         await self.discord_message.edit(
-            content=f"🐱 *carefully considers using {action.tool}*\nStep {self.current_step}/{self.total_steps}\n{context[:500]}"
+            content=f"🐱 *carefully considers using {action.tool}*\nStep {self.current_step}/{self.total_steps}"
         )
 
     async def on_agent_finish(self, finish: AgentFinish, **kwargs):
         self.logger.info("Agent finished execution")
         self.is_finished = True
-        
-        # Combine all tool outputs with the final response
         final_response = finish.return_values.get("output", "")
-        tool_summary = "\n".join([f"{k}: {v[:200]}..." for k, v in self.tool_outputs.items()])
         
-        self.full_response = f"{final_response}\n\nBased on:\n{tool_summary}"
+        # Split into pages
+        pages = list(pagify(final_response, delims=["\n", " "], page_length=2000))
         
-        await self.discord_message.edit(
-            content=f"✨ *finishes with feline grace*\n{self.full_response[:1500]}"
-        )
+        if pages:
+            # Edit the original "thinking" message with the first part
+            await self.discord_message.edit(content=pages[0])
+            
+            # Send any additional parts as new messages
+            for page in pages[1:]:
+                await self.discord_message.channel.send(page)
 
 class DiscordContext(BaseModel):
     guild: Optional[Dict] = Field(default_factory=dict)
