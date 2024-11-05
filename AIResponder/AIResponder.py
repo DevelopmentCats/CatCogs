@@ -586,8 +586,21 @@ class AIResponder(commands.Cog):
 
             # Create the agent with ReAct
             try:
+                # Create the agent executor
+                self.agent_executor = AgentExecutor(
+                    agent=self.agent,
+                    tools=self.tools,
+                    memory=self.memory,
+                    max_iterations=5,
+                    early_stopping_method="force",
+                    handle_parsing_errors=True,
+                    return_intermediate_steps=True,
+                    verbose=True
+                )
+
+                # Bind the LLM with appropriate stop sequences
                 llm_with_stop = self.llm.bind(
-                    stop=["\nHuman:", "\nAssistant:"]
+                    stop=["\nObservation:", "\nHuman:", "\nAssistant:"]
                 )
 
                 # Get tool names for the prompt
@@ -610,15 +623,27 @@ class AIResponder(commands.Cog):
                 You MUST follow this EXACT format for EVERY response:
                 Thought: [your reasoning about what to do next]
                 Action: [EXACTLY one of these tool names: {tool_names}]
-                Action Input: [just the input for the tool, no commentary or personality]
+                Action Input: [just the input for the tool, no commentary]
                 Observation: [result from the action]
 
-                After getting the information you need, you MUST end with:
+                After observing the result, you MUST:
+                1. Think about whether you have enough information
+                2. Use another tool if needed
+                3. Only give a Final Answer when you have all required information
+
+                To give your final answer:
                 Thought: I now know the final answer
                 Action: Final Answer
-                Action Input: [your complete response in cat personality format, incorporating all gathered information]
+                Action Input: [your complete response in cat personality format]
 
-                Remember: You MUST complete the full cycle and provide a Final Answer!
+                Example of correct flow:
+                Thought: I need to know the current time
+                Action: Current Date and Time (CST)
+                Action Input: None
+                Observation: Current date and time in CST: 2024-03-14 15:30:00
+                Thought: I now know the final answer
+                Action: Final Answer
+                Action Input: *purrs* It's 3:30 PM, human!
 
                 {agent_scratchpad}"""
 
@@ -634,20 +659,6 @@ class AIResponder(commands.Cog):
                 )
                 
                 self.logger.info("Agent created successfully")
-
-                # Create agent executor with memory and higher iteration limit
-                self.agent_executor = AgentExecutor(
-                    agent=self.agent,
-                    tools=self.tools,
-                    memory=self.memory,
-                    max_iterations=5,
-                    early_stopping_method="force",  # Changed from "generate" to "force"
-                    handle_parsing_errors=True,
-                    return_intermediate_steps=True,
-                    verbose=True
-                )
-                
-                self.logger.info("Agent executor created successfully")
                 return True
 
             except Exception as e:
@@ -730,21 +741,24 @@ class AIResponder(commands.Cog):
                     }
                 })
             
-            # Create the agent executor for this specific query
+            # Execute the agent with proper handling of the ReAct cycle
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
-                    "chat_history": chat_history[-5:]
+                    "chat_history": chat_history[-5:],
+                    "intermediate_steps": []  # Initialize empty steps
                 },
                 {"callbacks": [callback_handler]}
             )
 
-            if "output" in result:
+            # Check for proper final answer
+            if "output" in result and isinstance(result["output"], str):
                 formatted_response = f"{message.author.mention} {result['output']}"
                 await response_message.edit(content=formatted_response)
                 return formatted_response
-
-            return f"{message.author.mention} *looks confused* I couldn't process that properly. Could you try again? 😿"
+            else:
+                self.logger.warning("Agent did not provide a proper final answer")
+                return f"{message.author.mention} *looks confused* I didn't reach a proper conclusion. Could you try again? 😿"
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
