@@ -813,12 +813,14 @@ class AIResponder(commands.Cog):
 
             # Execute Plan-and-Execute agent
             try:
+                # Format input for agent
+                agent_input = {
+                    "input": f"""User {message.author.display_name} asks: {content}
+                    Chat History: {' '.join([msg.content for msg in chat_history[-5:]])}"""
+                }
+
                 result = await self.agent_executor.ainvoke(
-                    {
-                        "input": content,
-                        "chat_history": chat_history[-5:],
-                        "user_nickname": str(message.author.display_name)
-                    },
+                    agent_input,
                     config={"callbacks": [callback_handler]}
                 )
 
