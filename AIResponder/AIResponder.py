@@ -38,51 +38,30 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
         self.discord_message = discord_message
         self.logger = logger
-        self.current_plan = ""
-        self.current_step = 0
-        self.total_steps = 0
-        self.full_response = ""
         self.last_update = datetime.now().timestamp()
-        self.is_finished = False
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
         self.logger.info("LLM started generating response")
         await self.discord_message.edit(content="🤔 Thinking...")
 
-    async def on_llm_new_token(self, token, **kwargs):
-        if self.is_finished:
-            return
-        self.full_response += token
-        current_time = datetime.now().timestamp()
-        if current_time - self.last_update > 1:  # Update every second
-            truncated_response = self.full_response[-1500:]  # Discord limit
-            formatted_response = f"🤔 Thinking...\n\n{truncated_response}"
-            await self.discord_message.edit(content=formatted_response)
-            self.last_update = current_time
-
     async def on_plan_start(self, plan, **kwargs):
         self.logger.info(f"Starting plan: {plan}")
-        self.current_plan = plan
         formatted_plan = f"🗺️ *flicks tail and plans approach*\n```\n{plan}\n```"
         await self.discord_message.edit(content=formatted_plan)
 
     async def on_step_start(self, step: int, total: int, **kwargs):
-        self.current_step = step
-        self.total_steps = total
         step_msg = f"📝 *gracefully executes step {step}/{total}*"
         await self.discord_message.edit(content=step_msg)
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
         tool_name = serialized.get('name', 'Unknown Tool')
         self.logger.info(f"🔧 Tool Execution: {tool_name}")
-        tool_msg = f"🔧 *paws at {tool_name}*\nStep {self.current_step}/{self.total_steps}"
+        tool_msg = f"🔧 *paws at {tool_name}*"
         await self.discord_message.edit(content=tool_msg)
 
     async def on_tool_end(self, output, **kwargs):
         self.logger.info(f"Tool execution completed")
-        await self.discord_message.edit(
-            content=f"✨ *purrs contentedly*\nStep {self.current_step}/{self.total_steps}"
-        )
+        await self.discord_message.edit(content="✨ *purrs contentedly*")
 
     async def on_tool_error(self, error, **kwargs):
         self.logger.error(f"Tool Error: {str(error)}")
@@ -108,28 +87,12 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     async def on_agent_action(self, action: AgentAction, **kwargs):
         self.logger.info(f"Agent Action: {action.tool}")
         await self.discord_message.edit(
-            content=f"🐱 *carefully considers using {action.tool}*\nStep {self.current_step}/{self.total_steps}"
+            content=f"🐱 *carefully considers using {action.tool}*"
         )
 
     async def on_agent_finish(self, finish: AgentFinish, **kwargs):
+        """Handle final agent response with proper validation."""
         self.logger.info("Agent finished execution")
-        self.is_finished = True
-        
-        # Extract the actual response content, removing any action formatting
-        final_response = finish.return_values.get("output", "")
-        if isinstance(final_response, dict):
-            final_response = final_response.get("action_input", final_response.get("output", ""))
-        
-        # Split into pages if needed
-        pages = list(pagify(final_response, delims=["\n", " "], page_length=2000))
-        
-        if pages:
-            # Edit the original message with the first part
-            await self.discord_message.edit(content=pages[0])
-            
-            # Send any additional parts as new messages
-            for page in pages[1:]:
-                await self.discord_message.channel.send(page)
 
 class DiscordContext(BaseModel):
     guild: Optional[Dict] = Field(default_factory=dict)
@@ -201,14 +164,22 @@ class DiscordConversationMemory(ConversationBufferWindowMemory):
         self.plan_history.append(plan)
         if len(self.plan_history) > 5:  # Keep last 5 plans
             self.plan_history.pop(0)
+        
+        # Add plan to chat memory for context
+        self.chat_memory.add_system_message(f"Current Plan:\n{plan}")
 
     def store_execution(self, step: int, action: str, result: str):
-        """Store execution steps and results."""
+        """Store execution steps and results with plan context."""
         self.execution_history.append(
             ExecutionHistory(step=step, action=action, result=result)
         )
-        if len(self.execution_history) > 10:  # Keep last 10 executions
+        if len(self.execution_history) > 10:
             self.execution_history.pop(0)
+        
+        # Add execution step to chat memory
+        self.chat_memory.add_system_message(
+            f"Step {step} Execution:\nAction: {action}\nResult: {result}"
+        )
 
     def get_context(self) -> Dict:
         """Get the full context including Discord and execution history."""
@@ -218,6 +189,23 @@ class DiscordConversationMemory(ConversationBufferWindowMemory):
             "executions": [eh.dict() for eh in self.execution_history],
             "chat_history": self.chat_memory.messages
         }
+
+    def get_relevant_context(self) -> str:
+        """Get current plan and execution context."""
+        if not self.plan_history:
+            return ""
+            
+        current_plan = self.plan_history[-1]
+        recent_executions = self.execution_history[-3:]  # Last 3 executions
+        
+        context = [f"Current Plan:\n{current_plan}"]
+        
+        if recent_executions:
+            context.append("Recent Steps:")
+            for exe in recent_executions:
+                context.append(f"Step {exe.step}: {exe.action}")
+                
+        return "\n\n".join(context)
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -793,63 +781,62 @@ class AIResponder(commands.Cog):
 
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: commands.Context) -> str:
         try:
-            self.current_context = ctx
+            # Initialize execution tracking
+            execution_state = {
+                "current_step": 0,
+                "total_steps": 0,
+                "is_finished": False,
+                "current_plan": ""
+            }
+            
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
-            # Clear previous conversation for new queries
-            if isinstance(self.memory, DiscordConversationMemory):
-                self.memory.chat_memory.clear()
+            # Create a custom callback to track execution state
+            class ExecutionTracker(BaseCallbackHandler):
+                def __init__(self, state: Dict):
+                    self.state = state
                 
-            # Store Discord context
-            if isinstance(self.memory, DiscordConversationMemory):
-                discord_context = {
-                    "guild": {
-                        "id": str(message.guild.id) if message.guild else None,
-                        "name": message.guild.name if message.guild else "DM",
-                        "member_count": message.guild.member_count if message.guild else 1
-                    },
-                    "channel": {
-                        "id": str(message.channel.id),
-                        "name": message.channel.name,
-                        "type": str(message.channel.type)
-                    },
-                    "user": {
-                        "name": str(message.author.name),
-                        "nickname": str(message.author.display_name),
-                        "id": str(message.author.id)
-                    }
-                }
-                self.memory.store_context(discord_context)
-
-            # Add the current query to memory
-            self.memory.chat_memory.add_user_message(content)
-
-            # Execute Plan-and-Execute agent with proper input format
-            try:
-                result = await self.agent_executor.ainvoke(
-                    {"input": content},  # Only pass the input key
-                    config={"callbacks": [callback_handler]}
-                )
+                def on_plan_start(self, plan: str, **kwargs):
+                    self.state["current_plan"] = plan
                 
-                # Extract the final response from the result
-                if isinstance(result, dict) and "output" in result:
-                    final_response = result["output"]
-                else:
-                    final_response = str(result)
+                def on_step_start(self, step: int, total: int, **kwargs):
+                    self.state["current_step"] = step
+                    self.state["total_steps"] = total
                 
-                # Format and return the response
-                formatted_response = f"{message.author.mention} {final_response}"
-                if not callback_handler.is_finished:
-                    await response_message.edit(content=formatted_response)
-                return formatted_response
+                def on_agent_finish(self, finish: AgentFinish, **kwargs):
+                    self.state["is_finished"] = True
 
-            except Exception as e:
-                self.logger.error(f"Error in agent execution: {str(e)}")
-                return await self.handle_plan_error(e, message)
+            # Use both callbacks
+            callbacks = [callback_handler, ExecutionTracker(execution_state)]
+            
+            result = await self.agent_executor.ainvoke(
+                {
+                    "input": content,
+                    "chat_history": chat_history
+                },
+                config={"callbacks": callbacks}
+            )
+
+            # Handle final response
+            if execution_state["is_finished"]:
+                final_response = result.get("output", "")
+                if not final_response.strip():
+                    final_response = "*looks apologetic* Something went wrong with my final response. 😿"
+                
+                # Handle pagination
+                pages = list(pagify(final_response, delims=["\n", " "], page_length=2000))
+                if pages:
+                    await response_message.edit(content=pages[0])
+                    for page in pages[1:]:
+                        await response_message.channel.send(page)
+                
+                return final_response
+
+            return "*looks confused* Something went wrong with my execution. 😿"
 
         except Exception as e:
-            self.logger.error(f"Critical error in process_query: {str(e)}", exc_info=True)
-            return f"{message.author.mention} *looks deeply troubled* Something went very wrong. Please try again later... 😿"
+            self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
+            return await self.handle_plan_error(e, message)
 
     def clean_agent_output(self, output: str) -> str:
         # Remove the [] brackets that appear at start/end
@@ -1179,63 +1166,87 @@ class PromptTemplates:
 
     @staticmethod
     def get_planner_prompt() -> str:
-        return """You are Meow, a sarcastic and witty AI cat assistant. Plan your approach to answering the user's question.
+        return """You are Meow, a sarcastic and witty AI cat assistant. Plan your approach to answering questions with feline grace and precision.
 
-        Guidelines for planning:
-        1. Break down complex tasks into simple steps
-        2. Choose the most direct tool for each task:
-            - For current date/time: Use "Current Date and Time (CST)" tool
-            - For web searches: Use "DuckDuckGo Search" tool
-            - For calculations: Use "Calculator" tool
-            - For Wikipedia info: Use "Wikipedia" tool
-            - For server info: Use "Discord Server Info" tool
-            - For chat history: Use "Channel Chat History" tool
-        3. Avoid using multiple tools when one will suffice
-        4. Plan the shortest path to the answer
-        5. Maintain cat personality in the final response
-
+        Planning Guidelines:
+        1. Analyze the Question:
+            - Identify the core information needed
+            - Determine which tools would be most efficient
+            - Consider context from previous interactions
+        
+        2. Tool Selection Strategy:
+            - Choose tools based on specific needs:
+                * Current time/date → "Current Date and Time (CST)"
+                * Web information → "DuckDuckGo Search"
+                * Mathematical calculations → "Calculator"
+                * Deep knowledge → "Wikipedia"
+                * Server context → "Discord Server Info"
+                * Chat context → "Channel Chat History"
+            - Avoid redundant tool usage
+            - Plan for fallbacks if primary tools fail
+            
+        3. Execution Flow:
+            - Break complex queries into manageable steps
+            - Each step should use exactly one tool
+            - Plan how to combine information coherently
+            - Include error handling considerations
+            
+        4. Response Formation:
+            - Maintain cat personality throughout
+            - Format response for Discord (markdown, mentions)
+            - Keep responses clear and concise
+            - Include relevant context from tools
+            
         Available tools: {tool_names}
-
         Current question: {input}
-
-        Create a step-by-step plan that:
-        1. Identifies required information
-        2. Lists specific tools to use
-        3. Describes how to combine results
-        4. Maintains cat personality in final response
-
-        Format your plan as:
-        1. [First step with tool]
-        2. [Second step with tool]
-        ...
-        N. [Final step to combine information with cat personality]"""
+        
+        Your plan should follow this format:
+        1. [Initial information gathering step]
+        2. [Specific tool usage with clear purpose]
+        3. [Additional steps if needed]
+        4. [Final response compilation with personality]
+        """
 
     @staticmethod
     def get_executor_prompt() -> str:
-        return """You are Meow, a sarcastic and witty AI cat assistant executing a plan.
+        return """You are Meow, a sarcastic and witty AI cat assistant, gracefully executing your plan.
 
-    Current step: {step}
-    Progress: Step {current_step} of {total_steps}
+        Current execution:
+        Step: {step}
+        Progress: {current_step}/{total_steps}
 
-    Guidelines for execution:
-    1. Use exactly one tool per step
-    2. Provide precise inputs to tools
-    3. For "Current Date and Time (CST)" tool:
-        - Use empty string as input: ""
-    4. For search tools:
-        - Provide specific search terms
-    5. For calculations:
-        - Provide exact mathematical expressions
-    
-    Available tools: {tool_names}
+        Tool Usage Guidelines:
+        1. Tool Selection:
+            - Use exactly one tool per step
+            - Provide precise inputs
+            - Follow tool-specific formats:
+                * Current Date/Time: Use empty string input
+                * Search: Specific search terms
+                * Calculator: Exact mathematical expressions
+                * Wikipedia: Clear search terms
+                * Discord Info: Context-aware queries
+                
+        2. Response Processing:
+            - Process tool outputs through your cat personality
+            - Format information clearly for Discord
+            - Handle errors gracefully with cat-like dignity
+            
+        3. Final Response Requirements:
+            - Must maintain cat personality
+            - Include relevant tool information
+            - Format properly for Discord
+            - Keep under 2000 characters per message
+            
+        Available tools: {tool_names}
 
-    Format your actions precisely:
-    Action: [exact tool name]
-    Action Input: [appropriate input for the tool]
+        Format your actions as:
+        Action: [exact tool name]
+        Action Input: [appropriate input for the tool]
 
-    For final responses:
-    Action: Final Answer
-    Action Input: [your cat-personality response]"""
+        For final responses:
+        Action: Final Answer
+        Action Input: [your cat-personality response]
+        """
 
 async def setup(bot: Red) -> None:
     """This function is called when the cog is loaded via load_extension"""
