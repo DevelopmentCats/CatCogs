@@ -587,7 +587,7 @@ class AIResponder(commands.Cog):
             # Create the agent with ReAct
             try:
                 llm_with_stop = self.llm.bind(
-                    stop=["\nObservation:", "\nFinal Answer:"]
+                    stop=["\nHuman:", "\nAssistant:"]
                 )
 
                 # Get tool names for the prompt
@@ -618,14 +618,7 @@ class AIResponder(commands.Cog):
                 Action: Final Answer
                 Action Input: [your complete response in cat personality format, incorporating all gathered information]
 
-                Example of a complete response:
-                Thought: I need to know the current time
-                Action: Current Date and Time (CST)
-                Action Input: None
-                Observation: Current date and time in CST: 2024-03-14 15:30:00
-                Thought: I now know the final answer
-                Action: Final Answer
-                Action Input: *flicks tail thoughtfully* Ah yes, human, the current time is 3:30 PM CST. *stretches lazily* I hope you appreciate my timekeeping abilities!
+                Remember: You MUST complete the full cycle and provide a Final Answer!
 
                 {agent_scratchpad}"""
 
