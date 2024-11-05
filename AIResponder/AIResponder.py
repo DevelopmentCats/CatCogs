@@ -44,12 +44,15 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         self.current_step = 0
         self.total_steps = 0
         self.step_results = []
+        self.is_finished = False
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
         self.logger.info("LLM started generating response")
         await self.discord_message.edit(content="🤔 Thinking...")
 
     async def on_llm_new_token(self, token, **kwargs):
+        if self.is_finished:
+            return
         self.full_response += token
         current_time = datetime.now().timestamp()
         if current_time - self.last_update > 1:
@@ -114,6 +117,7 @@ class DiscordCallbackHandler(BaseCallbackHandler):
 
     async def on_agent_finish(self, finish: AgentFinish, **kwargs):
         self.logger.info("Agent finished execution")
+        self.is_finished = True
         self.full_response = finish.return_values.get("output", "")
         await self.discord_message.edit(
             content=f"✨ *finishes with feline grace*\n{self.full_response[:1500]}"
@@ -780,15 +784,14 @@ class AIResponder(commands.Cog):
                 await response_message.edit(content=f"{message.author.mention} Oops! My circuits got a bit tangled there. Can you try again?")
 
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: commands.Context) -> str:
-        """Process a user query using the Plan-and-Execute agent."""
         try:
             self.current_context = ctx
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
-            # Validate input length
-            if len(content.strip()) < 2:
-                return f"{message.author.mention} *looks unimpressed* I need more than that to work with... 😾"
-
+            # Clear previous conversation for new queries
+            if isinstance(self.memory, DiscordConversationMemory):
+                self.memory.chat_memory.clear()
+                
             # Store Discord context
             if isinstance(self.memory, DiscordConversationMemory):
                 discord_context = {
@@ -810,12 +813,13 @@ class AIResponder(commands.Cog):
                 }
                 self.memory.store_context(discord_context)
 
+            # Add the current query to memory
+            self.memory.chat_memory.add_user_message(content)
+
             # Execute Plan-and-Execute agent
             try:
-                # Format input for agent
                 agent_input = {
-                    "input": f"""User {message.author.display_name} asks: {content}
-                    Chat History: {' '.join([msg.content for msg in chat_history[-5:]])}"""
+                    "input": content  # Simplified input without chat history
                 }
 
                 result = await self.agent_executor.ainvoke(
@@ -828,7 +832,9 @@ class AIResponder(commands.Cog):
                 
                 if processed_response:
                     formatted_response = f"{message.author.mention} {processed_response}"
-                    await response_message.edit(content=formatted_response)
+                    # Only edit if not already finished by callback handler
+                    if not callback_handler.is_finished:
+                        await response_message.edit(content=formatted_response)
                     return formatted_response
 
             except ValidationError as ve:
@@ -1092,7 +1098,7 @@ class AIResponder(commands.Cog):
 
         except Exception as e:
             self.logger.error(f"Error processing plan execution: {str(e)}", exc_info=True)
-            return "*looks apologetic* I encountered an error while executing my plan. Could you try again? ���"
+            return "*looks apologetic* I encountered an error while executing my plan. Could you try again? "
 
     async def validate_plan(self, plan: str) -> bool:
         """Validate the generated plan before execution."""
