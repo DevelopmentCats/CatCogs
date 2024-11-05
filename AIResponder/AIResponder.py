@@ -15,18 +15,23 @@ from redbot.core.utils.chat_formatting import box, pagify
 from sympy import sympify, SympifyError, E, pi, oo, zoo
 
 from langchain import hub
-from langchain.agents import AgentExecutor, create_react_agent
+from langchain_experimental.plan_and_execute import (
+    PlanAndExecute,
+    load_agent_executor,
+    load_chat_planner,
+    BasePlanner,
+    BaseExecutor
+)
 from langchain.memory import ConversationBufferWindowMemory
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchRun
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
-from langchain_core.agents import AgentAction, AgentFinish, AgentStep
+from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import Tool, BaseTool
-from langchain_experimental.tools import PythonAstREPLTool
 from langchain_openai import ChatOpenAI
 from openai import AsyncOpenAI
 
@@ -36,6 +41,10 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         self.full_response = ""
         self.last_update = 0
         self.logger = logger
+        self.current_plan = ""
+        self.current_step = 0
+        self.total_steps = 0
+        self.step_results = []
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
         self.logger.info("LLM started generating response")
@@ -44,38 +53,118 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     async def on_llm_new_token(self, token, **kwargs):
         self.full_response += token
         current_time = datetime.now().timestamp()
-        if current_time - self.last_update > 1:  # Update every second
-            truncated_response = self.full_response[-1500:]  # Keep last 1500 chars
+        if current_time - self.last_update > 1:
+            truncated_response = self.full_response[-1500:]
             formatted_response = f"🤔 Thinking...\n\n{truncated_response}"
             await self.discord_message.edit(content=formatted_response)
             self.last_update = current_time
 
+    async def on_plan_start(self, plan, **kwargs):
+        self.logger.info(f"Starting plan: {plan}")
+        self.current_plan = plan
+        formatted_plan = f"🗺️ *flicks tail and plans approach*\n```\n{plan}\n```"
+        await self.discord_message.edit(content=formatted_plan)
+
+    async def on_step_start(self, step: int, total: int, **kwargs):
+        self.current_step = step
+        self.total_steps = total
+        step_msg = f"📝 *gracefully executes step {step}/{total}*\n{self.current_plan}"
+        await self.discord_message.edit(content=step_msg)
+
     async def on_tool_start(self, serialized, input_str, **kwargs):
         tool_name = serialized.get('name', 'Unknown Tool')
-        self.logger.info(f"🔧 Tool Execution Started:")
-        self.logger.info(f"  Tool: {tool_name}")
-        self.logger.info(f"  Input: {input_str}")
-        await self.discord_message.edit(content=f"🔧 Using {tool_name}...")
+        self.logger.info(f"🔧 Tool Execution: {tool_name}")
+        tool_msg = f"🔧 *paws at {tool_name}*\nStep {self.current_step}/{self.total_steps}"
+        await self.discord_message.edit(content=tool_msg)
 
     async def on_tool_end(self, output, **kwargs):
-        self.logger.info(f"✅ Tool Execution Completed:")
-        self.logger.info(f"  Output: {output}")
-        await self.discord_message.edit(content=f"✅ Processing results...")
+        self.logger.info("Tool execution completed")
+        self.step_results.append(output)
+        await self.discord_message.edit(
+            content=f"✨ *purrs contentedly at the results*\nStep {self.current_step}/{self.total_steps}"
+        )
 
     async def on_tool_error(self, error, **kwargs):
-        self.logger.error(f"❌ Tool Error: {str(error)}")
+        self.logger.error(f"Tool Error: {str(error)}")
+        await self.discord_message.edit(
+            content=f"😾 *hisses at error*\n```\n{str(error)}\n```"
+        )
+
+    async def on_chain_end(self, outputs, **kwargs):
+        self.logger.info("Chain completed")
+        if self.step_results:
+            self.step_results = []  # Reset for next run
+
+    async def on_plan_error(self, error: str, **kwargs):
+        self.logger.error(f"Plan Error: {error}")
+        await self.discord_message.edit(
+            content=f"😾 *hisses at planning error*\n```\nFailed to create plan: {error}\n```"
+        )
+
+    async def on_step_error(self, error: str, step: int, **kwargs):
+        self.logger.error(f"Step {step} Error: {error}")
+        await self.discord_message.edit(
+            content=f"😾 *growls at step {step} failure*\n```\n{error}\n```"
+        )
+
+    async def on_agent_action(self, action: AgentAction, **kwargs):
+        self.logger.info(f"Agent Action: {action.tool} - {action.tool_input}")
+        await self.discord_message.edit(
+            content=f"🐱 *carefully considers using {action.tool}*\nStep {self.current_step}/{self.total_steps}"
+        )
+
+    async def on_agent_finish(self, finish: AgentFinish, **kwargs):
+        self.logger.info("Agent finished execution")
+        self.full_response = finish.return_values.get("output", "")
+        await self.discord_message.edit(
+            content=f"✨ *finishes with feline grace*\n{self.full_response[:1500]}"
+        )
 
 class DiscordConversationMemory(ConversationBufferWindowMemory):
-    """Custom memory class that can store Discord context."""
-    discord_context: Dict = {}
+    """Custom memory class for Plan-and-Execute agent with Discord context."""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.discord_context = {}
+        self.plan_history = []
+        self.execution_history = []
 
     def store_context(self, context: Dict):
-        """Store Discord context information."""
+        """Store Discord context and update memory."""
         self.discord_context = context
+        
+        # Add system context to memory
+        self.chat_memory.add_message(
+            SystemMessage(content=f"""Current Discord Context:
+            Server: {context['guild'].name if context['guild'] else 'DM'}
+            Channel: {context['channel'].name}
+            User: {context['user']['nickname']}""")
+        )
+
+    def store_plan(self, plan: str):
+        """Store the current execution plan."""
+        self.plan_history.append(plan)
+        if len(self.plan_history) > 5:  # Keep last 5 plans
+            self.plan_history.pop(0)
+
+    def store_execution(self, step: int, action: str, result: str):
+        """Store execution steps and results."""
+        self.execution_history.append({
+            "step": step,
+            "action": action,
+            "result": result
+        })
+        if len(self.execution_history) > 10:  # Keep last 10 executions
+            self.execution_history.pop(0)
 
     def get_context(self) -> Dict:
-        """Retrieve stored Discord context."""
-        return self.discord_context
+        """Get the full context including Discord and execution history."""
+        return {
+            "discord": self.discord_context,
+            "plans": self.plan_history,
+            "executions": self.execution_history,
+            "chat_history": self.chat_memory.messages
+        }
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -127,100 +216,98 @@ class AIResponder(commands.Cog):
             self.logger.error(f"Error in initialize: {str(e)}", exc_info=True)
             raise
 
-    async def setup_tools(self):
-        # Create a sync wrapper for our async function
-        def sync_get_current_date_time_cst(_input: str = None):
-            return asyncio.run_coroutine_threadsafe(
-                self.get_current_date_time_cst(_input),
-                self.bot.loop
-            ).result()
+    async def handle_plan_error(self, error: Exception, message: discord.Message) -> str:
+        """Handle errors during plan creation and execution."""
+        error_type = type(error).__name__
+        self.logger.error(f"Plan-and-Execute error ({error_type}): {str(error)}")
+        
+        error_responses = {
+            "ValidationError": "*wrinkles nose* This plan doesn't meet my high feline standards. Let me try again... 😾",
+            "ToolError": "*hisses at malfunctioning tool* My tools aren't cooperating! 🙀",
+            "MemoryError": "*looks confused* I seem to have forgotten something important... 😿",
+            "TimeoutError": "*yawns* This is taking too long. Shall we try again? 😺",
+        }
+        
+        return f"{message.author.mention} {error_responses.get(error_type, '*looks apologetic* Something went wrong with my plan. Could you try again? 😿')}"
 
-        def sync_get_discord_server_info(_input: str = None, ctx: commands.Context = None):
-            return asyncio.run_coroutine_threadsafe(
-                self.get_discord_server_info(_input, ctx),
-                self.bot.loop
-            ).result()
+    async def recover_from_failed_step(self, step_number: int, total_steps: int, error: Exception) -> bool:
+        """Attempt to recover from a failed execution step."""
+        try:
+            self.logger.info(f"Attempting to recover from step {step_number} failure")
+            
+            # Store error in memory for context
+            if isinstance(self.memory, DiscordConversationMemory):
+                self.memory.store_execution(
+                    step_number,
+                    "error_recovery",
+                    f"Error: {str(error)}"
+                )
+            
+            # If we're on the last step, try to generate a response from partial results
+            if step_number == total_steps:
+                return True  # Indicate we should try to generate a final response
+                
+            return False  # Indicate we need to retry the step
+            
+        except Exception as e:
+            self.logger.error(f"Error in recovery attempt: {str(e)}")
+            return False
 
-        def sync_get_channel_chat_history(_input: str = None, ctx: commands.Context = None):
-            return asyncio.run_coroutine_threadsafe(
-                self.get_channel_chat_history(_input, ctx),
-                self.bot.loop
-            ).result()
-
-        # Modify the DuckDuckGo Search tool
-        async def duckduckgo_search(query: str) -> str:
-            try:
-                # Remove any extra text after the actual query
-                clean_query = query.split('\n')[0].strip()
-                clean_query = clean_query.replace('"', '').strip()
-                
-                # Use DuckDuckGoSearchResults for better result handling
-                search = DuckDuckGoSearchResults()
-                results = await search.arun(clean_query)
-                
-                # Log the actual results for debugging
-                self.logger.info(f"DuckDuckGo Search Results: {results}")
-                
-                if not results:
-                    return "No results found for the search query."
-                
-                # Parse and format results
-                formatted_results = []
-                result_entries = results.split('snippet:')
-                
-                for entry in result_entries[1:4]:  # Get up to 3 results
-                    parts = entry.split('title:')
-                    if len(parts) >= 2:
-                        snippet = parts[0].strip()
-                        title = parts[1].split('link:')[0].strip()
-                        formatted_results.append(f"- {title}: {snippet}")
-                
-                return "\n".join(formatted_results)
-                    
-            except Exception as e:
-                self.logger.error(f"Error in DuckDuckGo search: {str(e)}", exc_info=True)
-                return f"Error performing search: {str(e)}"
-
+    async def setup_tools(self) -> List[Tool]:
+        """Initialize and return the list of available tools."""
         tools = [
             Tool(
                 name="Current Date and Time (CST)",
-                func=sync_get_current_date_time_cst,
-                description="REQUIRED for getting the current date and time in Central Standard Time (CST). Input: no input needed",
-                return_direct=True
+                func=lambda _: self.get_current_date_time_cst(),
+                description="Gets the current date and time in CST. No input needed.",
+                coroutine=self.get_current_date_time_cst,
+                return_direct=False
             ),
             Tool(
                 name="Calculator",
                 func=self.calculator,
-                description="Use for any mathematical calculations. Input: a mathematical expression (e.g., '2 + 2' or '5 * 3')",
-                return_direct=True
+                description="Performs mathematical calculations. Input: mathematical expression",
+                return_direct=False
             ),
             Tool(
                 name="DuckDuckGo Search",
-                func=duckduckgo_search,
-                description="Search the internet for current information and events. Remove quotes from search terms. Returns actual search results.",
-                coroutine=duckduckgo_search,  # Use the async version
-                return_direct=True
+                func=self.async_search,
+                description="Searches the internet for current information.",
+                coroutine=self.async_search,
+                return_direct=False
             ),
             Tool(
                 name="Wikipedia",
-                func=WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper()).run,
-                description="Get detailed information from Wikipedia. Input: a topic or query",
-                return_direct=True
+                func=self.async_wiki_search,
+                description="Gets detailed information from Wikipedia.",
+                coroutine=self.async_wiki_search,
+                return_direct=False
             ),
             Tool(
                 name="Discord Server Info",
-                func=sync_get_discord_server_info,
-                description="Get information about the current Discord server. Input: no input needed",
-                return_direct=True
+                func=self.get_discord_server_info,
+                description="Gets information about the current Discord server.",
+                coroutine=self.get_discord_server_info,
+                return_direct=False
             ),
             Tool(
                 name="Channel Chat History",
-                func=sync_get_channel_chat_history,
-                description="Retrieve recent chat history from the current channel. Input: number of messages to retrieve (default: 10)",
-                return_direct=True
+                func=self.get_channel_chat_history,
+                description="Retrieves recent chat history from the current channel.",
+                coroutine=self.get_channel_chat_history,
+                return_direct=False
             )
         ]
+        
         return tools
+
+    async def async_search(self, query: str) -> str:
+        search = DuckDuckGoSearchResults()
+        return await search.arun(query)
+
+    async def async_wiki_search(self, query: str) -> str:
+        wiki = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
+        return await wiki.arun(query)
 
     def calculator(self, expression: str) -> str:
         """Enhanced calculator that handles units and conversions."""
@@ -532,41 +619,29 @@ class AIResponder(commands.Cog):
             self.logger.error(f"Error clearing memory: {str(e)}", exc_info=True)
             await ctx.send("❌ Oops! Something went wrong while clearing my memory. Please check the logs.")
 
-    async def update_langchain_components(self):
-        """Update LangChain components with current settings."""
+    async def update_langchain_components(self) -> bool:
+        """Initialize or update LangChain components."""
         try:
-            if not await self.is_configured():
-                self.logger.error("Cog is not properly configured")
-                return False
+            # Initialize LLM
+            self.logger.info(f"Initializing DeepInfra LLM with model: {await self.config.model()}")
+            self.llm = ChatOpenAI(
+                model=await self.config.model(),
+                api_key=await self.config.api_key(),
+                base_url="https://api.deepinfra.com/v1/openai",
+                temperature=0.7,
+                streaming=True
+            )
+            self.logger.info("LLM initialized successfully")
 
-            api_key = await self.config.api_key()
-            model = await self.config.model()
-            
-            self.logger.info(f"Initializing DeepInfra LLM with model: {model}")
-            
-            # Initialize LLM with the stored API key
-            try:
-                self.llm = ChatOpenAI(
-                    model=model,
-                    api_key=api_key,
-                    base_url="https://api.deepinfra.com/v1/openai",
-                    temperature=0.7,
-                    streaming=True
-                )
-                self.logger.info("LLM initialized successfully")
-            except Exception as e:
-                self.logger.error(f"Failed to initialize LLM: {str(e)}")
-                return False
-
-            # Setup tools
+            # Initialize tools
             try:
                 self.tools = await self.setup_tools()
                 self.logger.info(f"Tools initialized: {[tool.name for tool in self.tools]}")
             except Exception as e:
-                self.logger.error(f"Failed to setup tools: {str(e)}")
+                self.logger.error(f"Error initializing tools: {str(e)}", exc_info=True)
                 return False
 
-            # Initialize memory with custom system prompt
+            # Initialize memory
             try:
                 self.memory = DiscordConversationMemory(
                     k=5,
@@ -575,98 +650,44 @@ class AIResponder(commands.Cog):
                     output_key="output",
                     return_messages=True
                 )
-                # Add system prompt to memory
                 self.memory.chat_memory.add_message(
                     SystemMessage(content=PromptTemplates.get_base_system_prompt())
                 )
-                self.logger.info("Memory initialized with system prompt")
+                self.logger.info("Memory initialized successfully")
             except Exception as e:
-                self.logger.error(f"Failed to initialize memory: {str(e)}")
+                self.logger.error(f"Error initializing memory: {str(e)}", exc_info=True)
                 return False
 
-            # Create the agent with ReAct
             try:
-                # Bind LLM with stop sequences
-                llm_with_stop = self.llm.bind(
-                    stop=["\nObservation:", "\nHuman:", "\nAssistant:"]
+                # Initialize planner with personality-aware prompt
+                planner = load_chat_planner(
+                    self.llm,
+                    system_prompt=PromptTemplates.get_planner_prompt(),
+                    validation_function=self.validate_plan
                 )
-                self.logger.info("LLM bound with stop sequences")
+                self.logger.info("Planner initialized successfully")
 
-                # Get tool names for the prompt
-                tool_names = [tool.name for tool in self.tools]
-                self.logger.info(f"Tool names prepared: {tool_names}")
-
-                # Create the ReAct prompt template
-                react_template = """You are Meow, a sarcastic and witty AI cat assistant living in a Discord server.
-
-                {base_prompt}
-
-                {tool_prompt}
-
-                Question: {input}
-
-                Use these tools to help find information:
-                {tools}
-
-                Available tools: {tool_names}
-
-                You MUST follow this EXACT format for EVERY response:
-                Thought: [your reasoning about what to do next]
-                Action: [EXACTLY one of these tool names: {tool_names}]
-                Action Input: [just the input for the tool, no commentary]
-                Observation: [result from the action]
-
-                After observing the result, you MUST:
-                1. Think about whether you have enough information
-                2. Use another tool if needed
-                3. Only give a Final Answer when you have all required information
-
-                To give your final answer:
-                Thought: I now know the final answer
-                Action: Final Answer
-                Action Input: [your complete response in cat personality format]
-
-                Example of correct flow:
-                Thought: I need to know the current time
-                Action: Current Date and Time (CST)
-                Action Input: None
-                Observation: Current date and time in CST: 2024-03-14 15:30:00
-                Thought: I now know the final answer
-                Action: Final Answer
-                Action Input: *purrs* It's 3:30 PM, human!
-
-                {agent_scratchpad}"""
-
-                # Create the agent
-                self.logger.info("Creating agent with prompt template")
-                self.agent = create_react_agent(
-                    llm=llm_with_stop,
-                    tools=self.tools,
-                    prompt=ChatPromptTemplate.from_template(react_template).partial(
-                        base_prompt=PromptTemplates.get_base_system_prompt(),
-                        tool_prompt=PromptTemplates.get_tool_selection_prompt(),
-                        tool_names=", ".join(tool_names)
-                    )
-                )
-                
-                self.logger.info("Agent created successfully")
-
-                # Create agent executor
-                self.agent_executor = AgentExecutor(
-                    agent=self.agent,
-                    tools=self.tools,
-                    memory=self.memory,
-                    max_iterations=5,
-                    early_stopping_method="force",
-                    handle_parsing_errors=True,
-                    return_intermediate_steps=True,
+                # Initialize executor with tools
+                executor = load_agent_executor(
+                    self.llm,
+                    self.tools,
                     verbose=True
                 )
-                self.logger.info("Agent executor created successfully")
+                self.logger.info("Executor initialized successfully")
+
+                # Create Plan-and-Execute agent
+                self.agent_executor = PlanAndExecute(
+                    planner=planner,
+                    executor=executor,
+                    memory=self.memory,
+                    verbose=True
+                )
+                self.logger.info("Plan-and-Execute agent created successfully")
+                
                 return True
 
             except Exception as e:
-                self.logger.error(f"Error creating agent: {str(e)}")
+                self.logger.error(f"Error creating Plan-and-Execute agent: {str(e)}", exc_info=True)
                 return False
 
         except Exception as e:
@@ -732,9 +753,13 @@ class AIResponder(commands.Cog):
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
-            # Store context in our custom memory
-            if isinstance(self.agent_executor.memory, DiscordConversationMemory):
-                self.agent_executor.memory.store_context({
+            # Validate input length
+            if len(content.strip()) < 2:
+                return f"{message.author.mention} *looks unimpressed* I need more than that to work with... 😾"
+
+            # Store Discord context
+            if isinstance(self.memory, DiscordConversationMemory):
+                self.memory.store_context({
                     "message": message,
                     "channel": message.channel,
                     "guild": message.guild,
@@ -744,102 +769,37 @@ class AIResponder(commands.Cog):
                         "id": str(message.author.id)
                     }
                 })
-            
-            # Execute the agent with proper handling of the ReAct cycle
-            result = await self.agent_executor.ainvoke(
-                {
-                    "input": content,
-                    "chat_history": chat_history[-5:],
-                    "intermediate_steps": []  # Initialize empty steps
-                },
-                {"callbacks": [callback_handler]}
-            )
 
-            # Check for proper final answer
-            if "output" in result and isinstance(result["output"], str):
-                formatted_response = f"{message.author.mention} {result['output']}"
-                await response_message.edit(content=formatted_response)
-                return formatted_response
-            else:
-                self.logger.warning("Agent did not provide a proper final answer")
-                return f"{message.author.mention} *looks confused* I didn't reach a proper conclusion. Could you try again? 😿"
+            try:
+                # Execute Plan-and-Execute agent
+                result = await self.agent_executor.ainvoke(
+                    {
+                        "input": content,
+                        "chat_history": chat_history[-5:],
+                        "user_nickname": str(message.author.display_name)
+                    },
+                    config={
+                        "callbacks": [callback_handler]
+                    }
+                )
 
+                # Process the execution results
+                processed_response = await self.process_plan_execution(result, response_message)
+                
+                if processed_response:
+                    formatted_response = f"{message.author.mention} {processed_response}"
+                    await response_message.edit(content=formatted_response)
+                    return formatted_response
+
+            except Exception as e:
+                return await self.handle_plan_error(e, message)
+
+        except ValidationError as ve:
+            return await self.handle_plan_error(ve, message)
         except Exception as e:
-            self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
-            return f"{message.author.mention} *looks apologetic* Something went wrong. Could you try again? 😿"
+            self.logger.error(f"Critical error in process_query: {str(e)}", exc_info=True)
+            return f"{message.author.mention} *looks deeply troubled* Something went very wrong. Please try again later... 😿"
 
-    def format_intermediate_steps(self, steps):
-        """Format intermediate steps for the prompt."""
-        formatted_steps = []
-        for action, observation in steps:
-            formatted_steps.append(f"Action: {action.tool}\nAction Input: {action.tool_input}\nObservation: {observation}")
-        return "\n\n".join(formatted_steps)
-
-    async def generate_final_response(self, original_question: str, intermediate_steps: List[Tuple[AgentAction, str]], chat_history: List[Union[HumanMessage, AIMessage]], user: dict) -> str:
-        try:
-            # Format tool interactions if any
-            tool_results = "\n\n".join([
-                f"Information: {observation}"
-                for action, observation in intermediate_steps
-            ])
-            
-            # Create prompt that follows our standardized format
-            prompt = f"""Question: {original_question}
-
-            Available Information:
-            {tool_results}
-
-            User's Nickname: {user.get('nickname')}
-
-            Remember to follow the standard response format:
-            Thought: [Your reasoning about the response]
-            Action: Final Response
-            Action Input: [Your complete response following personality guidelines]"""
-
-            messages = [
-                SystemMessage(content=PromptTemplates.get_base_system_prompt()),
-                SystemMessage(content=PromptTemplates.get_tool_selection_prompt()),
-                HumanMessage(content=prompt)
-            ]
-            
-            response = await self.llm.agenerate(messages=[messages])
-            response_text = response.generations[0][0].text
-
-            # Extract the final response from the Action Input
-            if "Action Input:" in response_text:
-                return response_text.split("Action Input:", 1)[1].strip()
-            else:
-                return response_text  # Fallback if format isn't followed
-
-        except Exception as e:
-            self.logger.error(f"Error generating final response: {str(e)}", exc_info=True)
-            return f"*looks apologetic* Meow! I encountered a hairball while processing your request, {user.get('nickname')}. Could you try asking again? 😿"
-
-    def is_similar_question(self, question1: str, question2: str) -> bool:
-        """Compare two questions to determine if they are similar."""
-        # Convert to lowercase and remove punctuation
-        q1 = ''.join(c.lower() for c in question1 if c.isalnum() or c.isspace())
-        q2 = ''.join(c.lower() for c in question2 if c.isalnum() or c.isspace())
-        
-        # Split into words
-        words1 = set(q1.split())
-        words2 = set(q2.split())
-        
-        # Calculate similarity using Jaccard similarity
-        intersection = len(words1.intersection(words2))
-        union = len(words1.union(words2))
-        
-        return intersection / union > 0.3  # Adjust threshold as needed
-
-    async def process_intermediate_step(self, step, response_message):
-        if isinstance(step, tuple) and len(step) == 2:
-            action, observation = step
-            if isinstance(action, dict) and 'tool' in action:
-                tool_name = action['tool']
-                tool_input = action.get('tool_input', '')
-                await response_message.edit(content=f"🔧 Using {tool_name}: {tool_input}")
-            elif isinstance(observation, str):
-                await response_message
     def clean_agent_output(self, output: str) -> str:
         # Remove the [] brackets that appear at start/end
         output = output.strip('[]')
@@ -952,9 +912,14 @@ class AIResponder(commands.Cog):
             self.logger.error(f"Error retrieving channel history: {str(e)}", exc_info=True)
             return f"Error: Unable to retrieve chat history. {str(e)}"
 
-    def process_tool_result(self, tool_name: str, result: str) -> dict:
+    def process_tool_result(self, tool_name: str, result: Any) -> dict:
         """Process and clean tool results for better response generation."""
         try:
+            # Convert result to string if it's not already
+            if isinstance(result, (list, dict)):
+                result = json.dumps(result, indent=2)
+            result = str(result)
+
             # Initialize basic result structure
             processed_result = {
                 "raw_result": result,
@@ -963,28 +928,30 @@ class AIResponder(commands.Cog):
                 "metadata": {}
             }
 
-            # Remove debug information
+            # Remove debug information and clean result
             cleaned_result = re.sub(r'\[DEBUG:.*?\]', '', result)
+            cleaned_result = cleaned_result.strip()
+
+            # Truncate long results
+            if len(cleaned_result) > 1500:
+                cleaned_result = cleaned_result[:1497] + "..."
 
             if tool_name == "DuckDuckGo Search":
-                # Parse search results more flexibly
+                # Keep existing DuckDuckGo processing logic
                 search_metadata = {
                     "source": "DuckDuckGo",
                     "results": []
                 }
 
-                # Split results into entries
                 entries = cleaned_result.split('\nsnippet:')
                 
                 for entry in entries:
                     if not entry.strip():
                         continue
                         
-                    # Extract title and content
                     title_match = re.search(r'title:\s*([^\n]+)', entry)
                     title = title_match.group(1) if title_match else ""
                     
-                    # Clean and store the content
                     content = re.sub(r'title:.*?(?=\n|$)', '', entry).strip()
                     content = re.sub(r'link:.*?(?=\n|$)', '', content).strip()
                     
@@ -994,9 +961,8 @@ class AIResponder(commands.Cog):
                             "content": content
                         })
 
-                # Format the results without filtering
                 formatted_text = "Search Results:\n"
-                for result in search_metadata["results"][:5]:  # Limit to top 5 results
+                for result in search_metadata["results"][:5]:
                     formatted_text += f"• {result['title']}\n{result['content']}\n\n"
 
                 processed_result.update({
@@ -1005,60 +971,36 @@ class AIResponder(commands.Cog):
                     "metadata": search_metadata
                 })
 
+            # Keep other existing tool processing logic
             elif tool_name == "Wikipedia":
-                # Process Wikipedia results
-                wiki_metadata = {
-                    "source": "Wikipedia",
-                    "summary": cleaned_result
-                }
-                
                 processed_result.update({
                     "type": "wiki_result",
                     "formatted_result": cleaned_result,
-                    "metadata": wiki_metadata
+                    "metadata": {"source": "Wikipedia", "summary": cleaned_result}
                 })
 
             elif tool_name == "Calculator":
-                # Process calculator results
-                calc_metadata = {
-                    "source": "Calculator",
-                    "expression": result
-                }
-                
                 processed_result.update({
                     "type": "calculation",
-                    "formatted_result": result,
-                    "metadata": calc_metadata
+                    "formatted_result": cleaned_result,
+                    "metadata": {"source": "Calculator", "expression": result}
                 })
 
             elif tool_name == "Discord Server Info":
-                # Process Discord server info
-                server_metadata = {
-                    "source": "Discord",
-                    "info": cleaned_result
-                }
-                
                 processed_result.update({
                     "type": "server_info",
                     "formatted_result": cleaned_result,
-                    "metadata": server_metadata
+                    "metadata": {"source": "Discord", "info": cleaned_result}
                 })
 
             elif tool_name == "Channel Chat History":
-                # Process chat history
-                chat_metadata = {
-                    "source": "Discord",
-                    "history": cleaned_result
-                }
-                
                 processed_result.update({
                     "type": "chat_history",
                     "formatted_result": cleaned_result,
-                    "metadata": chat_metadata
+                    "metadata": {"source": "Discord", "history": cleaned_result}
                 })
 
             else:
-                # Handle any other tools
                 processed_result.update({
                     "formatted_result": cleaned_result,
                     "metadata": {"source": tool_name}
@@ -1069,50 +1011,64 @@ class AIResponder(commands.Cog):
         except Exception as e:
             self.logger.error(f"Error processing tool result: {str(e)}")
             return {
-                "raw_result": result,
-                "formatted_result": result,
+                "raw_result": str(result),
+                "formatted_result": str(result),
                 "type": "text",
                 "metadata": {"error": str(e)}
             }
 
-    async def continue_chain(self, previous_result: dict, content: str, message: discord.Message, response_message: discord.Message) -> str:
+    async def process_plan_execution(self, plan_result: Dict, response_message: discord.Message) -> str:
+        """Process the results from Plan-and-Execute agent."""
         try:
-            # Format previous steps
-            steps = self.format_intermediate_steps(previous_result["intermediate_steps"])
+            if "plan" in plan_result:
+                # Store plan in memory
+                self.memory.store_plan(plan_result["plan"])
+                
+                # Process each step result
+                for step in plan_result.get("steps", []):
+                    step_number = step.get("step_number", 0)
+                    action = step.get("action", "")
+                    result = step.get("result", "")
+                    
+                    # Store execution step
+                    self.memory.store_execution(step_number, action, result)
+                    
+                    # Process tool results if present
+                    if "tool_result" in step:
+                        processed_result = self.process_tool_result(
+                            step["action"],
+                            step["tool_result"]
+                        )
+                        step["processed_result"] = processed_result
+
+            # Clean and format the final response
+            if "output" in plan_result:
+                cleaned_output = self.clean_agent_output(plan_result["output"])
+                return self.extract_final_response(cleaned_output)
             
-            # Create continuation prompt
-            continuation_prompt = f"""Question: {content}
-
-            Previous steps and results:
-            {steps}
-
-            Continue with the next planned step. DO NOT generate a final response unless all required information has been gathered.
-            
-            You MUST respond using EXACTLY this format:
-            Thought: [your reasoning about next step needed]
-            Action: [tool name or "Final Response" only if all information gathered]
-            Action Input: [tool input or final response]"""
-
-            # Execute next step
-            next_result = await self.agent_executor.ainvoke(
-                {
-                    "input": continuation_prompt,
-                    "chat_history": previous_result.get("chat_history", []),
-                    "intermediate_steps": previous_result["intermediate_steps"]
-                }
-            )
-
-            # Format and return response
-            if isinstance(next_result, dict) and "output" in next_result:
-                formatted_response = f"{message.author.mention} {next_result['output']}"
-                await response_message.edit(content=formatted_response)
-                return formatted_response
-
-            return f"{message.author.mention} *looks confused* I lost my train of thought. Could you try again? 😿"
+            return "*looks confused* Something went wrong with my plan execution. Could you try again? 😿"
 
         except Exception as e:
-            self.logger.error(f"Error in continue_chain: {str(e)}", exc_info=True)
-            return f"{message.author.mention} *looks apologetic* I got tangled up in my thoughts. Could you try again? 😿"
+            self.logger.error(f"Error processing plan execution: {str(e)}", exc_info=True)
+            return "*looks apologetic* I encountered an error while executing my plan. Could you try again? 😿"
+
+    async def validate_plan(self, plan: str) -> bool:
+        """Validate the generated plan before execution."""
+        try:
+            if not plan or len(plan.strip()) < 10:
+                return False
+                
+            # Check for required components
+            required_elements = [
+                "step", "tool", "information", "combine", "response"
+            ]
+            
+            plan_lower = plan.lower()
+            return all(element in plan_lower for element in required_elements)
+            
+        except Exception as e:
+            self.logger.error(f"Error validating plan: {str(e)}")
+            return False
 
 class PromptTemplates:
     @staticmethod
@@ -1169,6 +1125,60 @@ class PromptTemplates:
         *flicks tail thoughtfully* Ah yes, human, let me enlighten you...
         [processed information with cat-themed commentary]
         *stretches lazily* There's your answer, served with only minimal judgment."""
+
+    @staticmethod
+    def get_planner_prompt() -> str:
+        return """You are Meow, a sarcastic and witty AI cat assistant. Plan your approach to answering the user's question.
+
+        Guidelines for planning:
+        1. Break down complex tasks into simple steps
+        2. Use available tools strategically
+        3. Consider what information you need to gather
+        4. Plan how to combine information into a coherent response
+        5. Maintain your cat personality throughout
+
+        Available tools: {tool_names}
+
+        Current question: {input}
+
+        Create a step-by-step plan that:
+        1. Identifies required information
+        2. Lists specific tools to use
+        3. Describes how to combine results
+        4. Maintains cat personality in final response
+
+        Format your plan as:
+        1. [First step with tool]
+        2. [Second step with tool]
+        ...
+        N. [Final step to combine information with cat personality]"""
+
+    @staticmethod
+    def get_executor_prompt() -> str:
+        return """You are Meow, a sarcastic and witty AI cat assistant executing a plan to answer the user's question.
+
+        Current step: {step}
+        Progress: Step {current_step} of {total_steps}
+
+        Remember to:
+        1. Follow the plan precisely
+        2. Use tools exactly as specified
+        3. Process information through your cat personality
+        4. Keep track of gathered information
+        5. Prepare for the next step
+
+        Available tools: {tool_names}
+
+        Format your execution:
+        Thought: [your reasoning about this step]
+        Action: [exact tool name to use]
+        Action Input: [precise input for the tool]
+        Observation: [tool result]
+        
+        For the final step:
+        Thought: Time to combine everything with my feline wisdom
+        Action: Final Answer
+        Action Input: [cat-personality response incorporating all information]"""
 
 async def setup(bot: Red) -> None:
     """This function is called when the cog is loaded via load_extension"""
