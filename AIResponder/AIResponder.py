@@ -586,25 +586,15 @@ class AIResponder(commands.Cog):
 
             # Create the agent with ReAct
             try:
-                # Create the agent executor
-                self.agent_executor = AgentExecutor(
-                    agent=self.agent,
-                    tools=self.tools,
-                    memory=self.memory,
-                    max_iterations=5,
-                    early_stopping_method="force",
-                    handle_parsing_errors=True,
-                    return_intermediate_steps=True,
-                    verbose=True
-                )
-
-                # Bind the LLM with appropriate stop sequences
+                # Bind LLM with stop sequences
                 llm_with_stop = self.llm.bind(
                     stop=["\nObservation:", "\nHuman:", "\nAssistant:"]
                 )
+                self.logger.info("LLM bound with stop sequences")
 
                 # Get tool names for the prompt
                 tool_names = [tool.name for tool in self.tools]
+                self.logger.info(f"Tool names prepared: {tool_names}")
 
                 # Create the ReAct prompt template
                 react_template = """You are Meow, a sarcastic and witty AI cat assistant living in a Discord server.
@@ -647,7 +637,8 @@ class AIResponder(commands.Cog):
 
                 {agent_scratchpad}"""
 
-                # Create the agent with our prompt
+                # Create the agent
+                self.logger.info("Creating agent with prompt template")
                 self.agent = create_react_agent(
                     llm=llm_with_stop,
                     tools=self.tools,
@@ -659,10 +650,23 @@ class AIResponder(commands.Cog):
                 )
                 
                 self.logger.info("Agent created successfully")
+
+                # Create agent executor
+                self.agent_executor = AgentExecutor(
+                    agent=self.agent,
+                    tools=self.tools,
+                    memory=self.memory,
+                    max_iterations=5,
+                    early_stopping_method="force",
+                    handle_parsing_errors=True,
+                    return_intermediate_steps=True,
+                    verbose=True
+                )
+                self.logger.info("Agent executor created successfully")
                 return True
 
             except Exception as e:
-                self.logger.error(f"Failed to create agent: {str(e)}")
+                self.logger.error(f"Error creating agent: {str(e)}")
                 return False
 
         except Exception as e:
