@@ -114,13 +114,17 @@ class DiscordCallbackHandler(BaseCallbackHandler):
     async def on_agent_finish(self, finish: AgentFinish, **kwargs):
         self.logger.info("Agent finished execution")
         self.is_finished = True
-        final_response = finish.return_values.get("output", "")
         
-        # Split into pages
+        # Extract the actual response content, removing any action formatting
+        final_response = finish.return_values.get("output", "")
+        if isinstance(final_response, dict):
+            final_response = final_response.get("action_input", final_response.get("output", ""))
+        
+        # Split into pages if needed
         pages = list(pagify(final_response, delims=["\n", " "], page_length=2000))
         
         if pages:
-            # Edit the original "thinking" message with the first part
+            # Edit the original message with the first part
             await self.discord_message.edit(content=pages[0])
             
             # Send any additional parts as new messages
@@ -820,34 +824,25 @@ class AIResponder(commands.Cog):
             # Add the current query to memory
             self.memory.chat_memory.add_user_message(content)
 
-            # Execute Plan-and-Execute agent with tool tracking
+            # Execute Plan-and-Execute agent with proper input format
             try:
-                agent_input = {
-                    "input": content,
-                    "tool_results": {},  # Initialize empty tool results
-                }
-
                 result = await self.agent_executor.ainvoke(
-                    agent_input,
+                    {"input": content},  # Only pass the input key
                     config={"callbacks": [callback_handler]}
                 )
-
-                # Update agent input with tool results for final processing
-                agent_input["tool_results"] = callback_handler.tool_outputs
                 
-                # Process the execution results
-                processed_response = await self.process_plan_execution(result, response_message)
+                # Extract the final response from the result
+                if isinstance(result, dict) and "output" in result:
+                    final_response = result["output"]
+                else:
+                    final_response = str(result)
                 
-                if processed_response:
-                    formatted_response = f"{message.author.mention} {processed_response}"
-                    # Only edit if not already finished by callback handler
-                    if not callback_handler.is_finished:
-                        await response_message.edit(content=formatted_response)
-                    return formatted_response
+                # Format and return the response
+                formatted_response = f"{message.author.mention} {final_response}"
+                if not callback_handler.is_finished:
+                    await response_message.edit(content=formatted_response)
+                return formatted_response
 
-            except ValidationError as ve:
-                self.logger.error(f"Validation error in agent execution: {str(ve)}")
-                return await self.handle_plan_error(ve, message)
             except Exception as e:
                 self.logger.error(f"Error in agent execution: {str(e)}")
                 return await self.handle_plan_error(e, message)
