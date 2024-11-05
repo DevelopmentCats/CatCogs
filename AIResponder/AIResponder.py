@@ -21,7 +21,7 @@ from langchain_experimental.plan_and_execute import (
     load_chat_planner
 )
 from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_community.memory import ConversationBufferWindowMemory
+from langchain.memory import ConversationBufferWindowMemory
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchRun
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
