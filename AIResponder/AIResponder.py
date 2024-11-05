@@ -18,9 +18,7 @@ from langchain import hub
 from langchain_experimental.plan_and_execute import (
     PlanAndExecute,
     load_agent_executor,
-    load_chat_planner,
-    BasePlanner,
-    BaseExecutor
+    load_chat_planner
 )
 from langchain.memory import ConversationBufferWindowMemory
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
@@ -662,8 +660,7 @@ class AIResponder(commands.Cog):
                 # Initialize planner with personality-aware prompt
                 planner = load_chat_planner(
                     self.llm,
-                    system_prompt=PromptTemplates.get_planner_prompt(),
-                    validation_function=self.validate_plan
+                    system_prompt=PromptTemplates.get_planner_prompt()
                 )
                 self.logger.info("Planner initialized successfully")
 
