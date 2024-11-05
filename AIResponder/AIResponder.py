@@ -127,11 +127,44 @@ class DiscordConversationMemory(ConversationBufferWindowMemory):
     context: DiscordContext = Field(default_factory=DiscordContext)
     plan_history: List[str] = Field(default_factory=list)
     execution_history: List[ExecutionHistory] = Field(default_factory=list)
-    logger: Optional[logging.Logger] = None  # Add logger field
+    logger: Optional[logging.Logger] = None
 
     def __init__(self, logger: logging.Logger = None, **kwargs):
         super().__init__(**kwargs)
         self.logger = logger or logging.getLogger("red.airesponder")
+        self.chat_memory = ChatMessageHistory()
+
+    def get_relevant_context(self) -> str:
+        """Get current context including recent messages and execution history."""
+        context_parts = []
+        
+        # Add Discord context
+        if self.context:
+            context_parts.append(f"Current server: {self.context.guild.get('name', 'Unknown')}")
+            context_parts.append(f"Current channel: {self.context.channel.get('name', 'Unknown')}")
+            context_parts.append(f"Speaking with: {self.context.user.get('nickname', 'Unknown')}")
+
+        # Add recent chat history (last 3 messages)
+        recent_messages = self.chat_memory.messages[-3:] if self.chat_memory.messages else []
+        if recent_messages:
+            context_parts.append("\nRecent conversation:")
+            for msg in recent_messages:
+                if isinstance(msg, HumanMessage):
+                    context_parts.append(f"User: {msg.content}")
+                elif isinstance(msg, AIMessage):
+                    context_parts.append(f"Assistant: {msg.content}")
+
+        # Add current plan if exists
+        if self.plan_history:
+            context_parts.append(f"\nCurrent plan:\n{self.plan_history[-1]}")
+
+        # Add recent execution steps
+        if self.execution_history:
+            context_parts.append("\nRecent steps:")
+            for exe in self.execution_history[-3:]:
+                context_parts.append(f"Step {exe.step}: {exe.action} -> {exe.result}")
+
+        return "\n".join(context_parts)
 
     def store_context(self, context: Dict):
         """Store Discord context and update memory."""
@@ -189,23 +222,6 @@ class DiscordConversationMemory(ConversationBufferWindowMemory):
             "executions": [eh.dict() for eh in self.execution_history],
             "chat_history": self.chat_memory.messages
         }
-
-    def get_relevant_context(self) -> str:
-        """Get current plan and execution context."""
-        if not self.plan_history:
-            return ""
-            
-        current_plan = self.plan_history[-1]
-        recent_executions = self.execution_history[-3:]  # Last 3 executions
-        
-        context = [f"Current Plan:\n{current_plan}"]
-        
-        if recent_executions:
-            context.append("Recent Steps:")
-            for exe in recent_executions:
-                context.append(f"Step {exe.step}: {exe.action}")
-                
-        return "\n\n".join(context)
 
 class AIResponder(commands.Cog):
     def __init__(self, bot: Red):
@@ -674,14 +690,10 @@ class AIResponder(commands.Cog):
             self.logger.info("LLM initialized successfully")
 
             # Initialize tools
-            try:
-                self.tools = await self.setup_tools()
-                self.logger.info(f"Tools initialized: {[tool.name for tool in self.tools]}")
-            except Exception as e:
-                self.logger.error(f"Error initializing tools: {str(e)}", exc_info=True)
-                return False
+            self.tools = await self.setup_tools()
+            self.logger.info(f"Tools initialized: {[tool.name for tool in self.tools]}")
 
-            # Initialize memory with proper input/output keys
+            # Initialize memory
             self.memory = DiscordConversationMemory(
                 logger=self.logger,
                 return_messages=True,
@@ -692,40 +704,32 @@ class AIResponder(commands.Cog):
             )
             self.logger.info("Memory initialized successfully")
 
-            try:
-                # Initialize planner with personality-aware prompt
-                planner = load_chat_planner(
-                    self.llm,
-                    system_prompt=PromptTemplates.get_planner_prompt()
-                )
-                self.logger.info("Planner initialized successfully")
+            # Initialize planner
+            planner = load_chat_planner(
+                self.llm,
+                system_prompt=PromptTemplates.get_planner_prompt()
+            )
+            self.logger.info("Planner initialized successfully")
 
-                # Initialize executor with tools
-                executor = load_agent_executor(
-                    self.llm,
-                    self.tools,
-                    verbose=True,
-                    memory=self.memory
-                )
-                self.logger.info("Executor initialized successfully")
-
-                # Create Plan-and-Execute agent with memory
-                self.agent_executor = PlanAndExecute(
-                    planner=planner,
-                    executor=executor,
-                    memory=self.memory,
-                    verbose=True
-                )
-                self.logger.info("Plan-and-Execute agent created successfully")
-                
-                return True
-
-            except Exception as e:
-                self.logger.error(f"Error creating Plan-and-Execute agent: {str(e)}", exc_info=True)
-                return False
+            # Initialize executor with base configuration
+            executor = load_agent_executor(
+                self.llm,
+                self.tools,
+                verbose=True
+            )
+            
+            # Create Plan-and-Execute agent
+            self.agent_executor = PlanAndExecute(
+                planner=planner,
+                executor=executor,
+                verbose=True
+            )
+            self.logger.info("Plan-and-Execute agent created successfully")
+            
+            return True
 
         except Exception as e:
-            self.logger.error(f"Error updating LangChain components: {str(e)}", exc_info=True)
+            self.logger.error(f"Error creating Plan-and-Execute agent: {str(e)}")
             return False
 
     @commands.Cog.listener()
@@ -785,6 +789,32 @@ class AIResponder(commands.Cog):
 
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: commands.Context) -> str:
         try:
+            # Update memory with current Discord context
+            user_info = {
+                'name': message.author.name,
+                'nickname': message.author.display_name,
+                'id': str(message.author.id)
+            }
+            
+            # Store Discord context in memory
+            if isinstance(self.memory, DiscordConversationMemory):
+                self.memory.store_context({
+                    'guild': {
+                        'id': str(message.guild.id) if message.guild else None,
+                        'name': message.guild.name if message.guild else None,
+                        'member_count': message.guild.member_count if message.guild else None
+                    },
+                    'channel': {
+                        'id': str(message.channel.id),
+                        'name': message.channel.name,
+                        'type': str(message.channel.type)
+                    },
+                    'user': user_info
+                })
+
+            # Add current message to memory
+            self.memory.chat_memory.add_user_message(content)
+            
             # Initialize execution tracking
             execution_state = {
                 "current_step": 0,
@@ -802,22 +832,41 @@ class AIResponder(commands.Cog):
                 
                 def on_plan_start(self, plan: str, **kwargs):
                     self.state["current_plan"] = plan
+                    if isinstance(self.memory, DiscordConversationMemory):
+                        self.memory.store_plan(plan)
                 
                 def on_step_start(self, step: int, total: int, **kwargs):
                     self.state["current_step"] = step
                     self.state["total_steps"] = total
                 
+                def on_tool_end(self, output: str, **kwargs):
+                    if isinstance(self.memory, DiscordConversationMemory):
+                        self.memory.store_execution(
+                            self.state["current_step"],
+                            self.state["current_plan"],
+                            output
+                        )
+                
                 def on_agent_finish(self, finish: AgentFinish, **kwargs):
                     self.state["is_finished"] = True
+                    if isinstance(self.memory, DiscordConversationMemory):
+                        self.memory.chat_memory.add_ai_message(finish.return_values['output'])
 
             # Use both callbacks
             callbacks = [callback_handler, ExecutionTracker(execution_state)]
             
+            # Get relevant context from memory
+            context = self.memory.get_relevant_context() if isinstance(self.memory, DiscordConversationMemory) else ""
+            
+            # Prepare input with context
+            input_with_context = {
+                "input": content,
+                "context": context,
+                "chat_history": self.memory.chat_memory.messages if isinstance(self.memory, DiscordConversationMemory) else []
+            }
+
             result = await self.agent_executor.ainvoke(
-                {
-                    "input": content,
-                    "chat_history": chat_history
-                },
+                input_with_context,
                 config={"callbacks": callbacks}
             )
 
@@ -826,6 +875,10 @@ class AIResponder(commands.Cog):
                 final_response = result.get("output", "")
                 if not final_response.strip():
                     final_response = "*looks apologetic* Something went wrong with my final response. 😿"
+                
+                # Store the final response in memory
+                if isinstance(self.memory, DiscordConversationMemory):
+                    self.memory.chat_memory.add_ai_message(final_response)
                 
                 # Handle pagination
                 pages = list(pagify(final_response, delims=["\n", " "], page_length=2000))
