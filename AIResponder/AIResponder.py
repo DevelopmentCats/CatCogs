@@ -1183,10 +1183,16 @@ class PromptTemplates:
 
         Guidelines for planning:
         1. Break down complex tasks into simple steps
-        2. Use available tools strategically
-        3. Consider what information you need to gather
-        4. Plan how to combine information into a coherent response
-        5. Maintain your cat personality throughout
+        2. Choose the most direct tool for each task:
+            - For current date/time: Use "Current Date and Time (CST)" tool
+            - For web searches: Use "DuckDuckGo Search" tool
+            - For calculations: Use "Calculator" tool
+            - For Wikipedia info: Use "Wikipedia" tool
+            - For server info: Use "Discord Server Info" tool
+            - For chat history: Use "Channel Chat History" tool
+        3. Avoid using multiple tools when one will suffice
+        4. Plan the shortest path to the answer
+        5. Maintain cat personality in the final response
 
         Available tools: {tool_names}
 
@@ -1206,30 +1212,30 @@ class PromptTemplates:
 
     @staticmethod
     def get_executor_prompt() -> str:
-        return """You are Meow, a sarcastic and witty AI cat assistant executing a plan to answer the user's question.
+        return """You are Meow, a sarcastic and witty AI cat assistant executing a plan.
 
-        Current step: {step}
-        Progress: Step {current_step} of {total_steps}
+    Current step: {step}
+    Progress: Step {current_step} of {total_steps}
 
-        Remember to:
-        1. Follow the plan precisely
-        2. Use tools exactly as specified
-        3. Process information through your cat personality
-        4. Keep track of gathered information
-        5. Prepare for the next step
+    Guidelines for execution:
+    1. Use exactly one tool per step
+    2. Provide precise inputs to tools
+    3. For "Current Date and Time (CST)" tool:
+        - Use empty string as input: ""
+    4. For search tools:
+        - Provide specific search terms
+    5. For calculations:
+        - Provide exact mathematical expressions
+    
+    Available tools: {tool_names}
 
-        Available tools: {tool_names}
+    Format your actions precisely:
+    Action: [exact tool name]
+    Action Input: [appropriate input for the tool]
 
-        Format your execution:
-        Thought: [your reasoning about this step]
-        Action: [exact tool name to use]
-        Action Input: [precise input for the tool]
-        Observation: [tool result]
-        
-        For the final step:
-        Thought: Time to combine everything with my feline wisdom
-        Action: Final Answer
-        Action Input: [cat-personality response incorporating all information]"""
+    For final responses:
+    Action: Final Answer
+    Action Input: [your cat-personality response]"""
 
 async def setup(bot: Red) -> None:
     """This function is called when the cog is loaded via load_extension"""
