@@ -224,6 +224,7 @@ class AIResponder(commands.Cog):
         self.logger = logging.getLogger("red.airesponder")
         self.bot.loop.create_task(self.initialize())
         self.user_chat_histories = {}
+        self.current_context = None
 
     async def initialize(self):
         """Initialize the cog."""
@@ -300,9 +301,8 @@ class AIResponder(commands.Cog):
             Tool(
                 name="Current Date and Time (CST)",
                 description="Get the current date and time in Central Standard Time (CST)",
-                func=self.get_current_date_time_cst,
-                coroutine=self.get_current_date_time_cst,
-                args_schema=None  # Remove args schema since we don't need input
+                func=lambda _: self.get_current_date_time_cst(),
+                coroutine=lambda _: self.get_current_date_time_cst(),
             ),
             Tool(
                 name="Calculator",
@@ -326,17 +326,15 @@ class AIResponder(commands.Cog):
             ),
             Tool(
                 name="Discord Server Info",
-                func=self.get_discord_server_info,
+                func=lambda _: self.get_discord_server_info(ctx=self.current_context),
                 description="Gets information about the current Discord server.",
-                coroutine=self.get_discord_server_info,
-                return_direct=False
+                coroutine=lambda _: self.get_discord_server_info(ctx=self.current_context),
             ),
             Tool(
                 name="Channel Chat History",
-                func=self.get_channel_chat_history,
+                func=lambda x: self.get_channel_chat_history(x, ctx=self.current_context),
                 description="Retrieves recent chat history from the current channel.",
-                coroutine=self.get_channel_chat_history,
-                return_direct=False
+                coroutine=lambda x: self.get_channel_chat_history(x, ctx=self.current_context),
             )
         ]
         
@@ -524,7 +522,7 @@ class AIResponder(commands.Cog):
         except Exception as e:
             return f"Error: Unable to calculate. {str(e)}"
 
-    async def get_current_date_time_cst(self, query: str = "") -> str:
+    async def get_current_date_time_cst(self) -> str:
         """Get the current date and time in CST."""
         try:
             async with aiohttp.ClientSession() as session:
@@ -784,6 +782,7 @@ class AIResponder(commands.Cog):
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: commands.Context) -> str:
         """Process a user query using the Plan-and-Execute agent."""
         try:
+            self.current_context = ctx
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
             # Validate input length
@@ -1093,7 +1092,7 @@ class AIResponder(commands.Cog):
 
         except Exception as e:
             self.logger.error(f"Error processing plan execution: {str(e)}", exc_info=True)
-            return "*looks apologetic* I encountered an error while executing my plan. Could you try again? 😿"
+            return "*looks apologetic* I encountered an error while executing my plan. Could you try again? ���"
 
     async def validate_plan(self, plan: str) -> bool:
         """Validate the generated plan before execution."""
