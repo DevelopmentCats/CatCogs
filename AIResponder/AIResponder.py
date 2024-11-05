@@ -318,10 +318,11 @@ class AIResponder(commands.Cog):
         tools = [
             Tool(
                 name="Current Date and Time (CST)",
-                func=lambda x="": self.get_current_date_time_cst(x),
-                description="Get the current date and time in Central Standard Time (CST). No input required.",
-                coroutine=lambda x="": self.get_current_date_time_cst(x),
-                return_direct=False
+                func=self.get_current_date_time_cst,
+                description="Get the current date and time in Central Standard Time (CST). Input should be an empty string.",
+                coroutine=self.get_current_date_time_cst,
+                return_direct=False,
+                args_schema=lambda: str
             ),
             Tool(
                 name="Calculator",
@@ -541,7 +542,7 @@ class AIResponder(commands.Cog):
         except Exception as e:
             return f"Error: Unable to calculate. {str(e)}"
 
-    async def get_current_date_time_cst(self, _: Optional[str] = "") -> str:
+    async def get_current_date_time_cst(self, _input: str = "") -> str:
         """Get the current date and time in CST."""
         try:
             async with aiohttp.ClientSession() as session:
