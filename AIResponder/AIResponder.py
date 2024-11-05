@@ -607,17 +607,25 @@ class AIResponder(commands.Cog):
 
                 Available tools: {tool_names}
 
-                You MUST respond in this EXACT format:
+                You MUST follow this EXACT format for EVERY response:
                 Thought: [your reasoning about what to do next]
-                Action: [the action to take, must be one of: {tool_names}]
+                Action: [the action to take, must be one of: {tool_names} or "Final Answer"]
                 Action Input: [input for the action]
                 Observation: [result from the action]
-                ... (this Thought/Action/Action Input/Observation can repeat N times)
+
+                After getting the information you need, you MUST end with:
                 Thought: I now know the final answer
                 Action: Final Answer
-                Action Input: [your response in cat personality format]
+                Action Input: [your complete response in cat personality format, incorporating all gathered information]
 
-                Remember: ALWAYS follow this EXACT format for EVERY response!
+                Example of a complete response:
+                Thought: I need to know the current time
+                Action: Current Date and Time (CST)
+                Action Input: None
+                Observation: Current date and time in CST: 2024-03-14 15:30:00
+                Thought: I now know the final answer
+                Action: Final Answer
+                Action Input: *flicks tail thoughtfully* Ah yes, human, the current time is 3:30 PM CST. *stretches lazily* I hope you appreciate my timekeeping abilities!
 
                 {agent_scratchpad}"""
 
@@ -640,7 +648,7 @@ class AIResponder(commands.Cog):
                     tools=self.tools,
                     memory=self.memory,
                     max_iterations=5,
-                    early_stopping_method="force",
+                    early_stopping_method="generate",
                     handle_parsing_errors=True,
                     return_intermediate_steps=True,
                     verbose=True
