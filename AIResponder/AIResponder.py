@@ -607,7 +607,17 @@ class AIResponder(commands.Cog):
 
                 Available tools: {tool_names}
 
-                Remember to maintain your cat personality throughout ALL responses!
+                You MUST respond in this EXACT format:
+                Thought: [your reasoning about what to do next]
+                Action: [the action to take, must be one of: {tool_names}]
+                Action Input: [input for the action]
+                Observation: [result from the action]
+                ... (this Thought/Action/Action Input/Observation can repeat N times)
+                Thought: I now know the final answer
+                Action: Final Answer
+                Action Input: [your response in cat personality format]
+
+                Remember: ALWAYS follow this EXACT format for EVERY response!
 
                 {agent_scratchpad}"""
 
