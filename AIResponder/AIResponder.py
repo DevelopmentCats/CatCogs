@@ -32,6 +32,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import Tool, BaseTool
 from langchain_openai import ChatOpenAI
 from openai import AsyncOpenAI
+from pydantic import BaseModel, Field
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
@@ -118,18 +119,30 @@ class DiscordCallbackHandler(BaseCallbackHandler):
             content=f"✨ *finishes with feline grace*\n{self.full_response[:1500]}"
         )
 
+class DiscordContext(BaseModel):
+    guild: Optional[Dict] = Field(default_factory=dict)
+    channel: Optional[Dict] = Field(default_factory=dict)
+    user: Optional[Dict] = Field(default_factory=dict)
+
+class ExecutionHistory(BaseModel):
+    step: int
+    action: str
+    result: str
+
 class DiscordConversationMemory(ConversationBufferWindowMemory):
     """Custom memory class for Plan-and-Execute agent with Discord context."""
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.discord_context = {}
-        self.plan_history = []
-        self.execution_history = []
+    context: DiscordContext = Field(default_factory=DiscordContext)
+    plan_history: List[str] = Field(default_factory=list)
+    execution_history: List[ExecutionHistory] = Field(default_factory=list)
 
     def store_context(self, context: Dict):
         """Store Discord context and update memory."""
-        self.discord_context = context
+        self.context = DiscordContext(
+            guild=context.get('guild', {}),
+            channel=context.get('channel', {}),
+            user=context.get('user', {})
+        )
         
         # Add system context to memory
         self.chat_memory.add_message(
@@ -147,20 +160,18 @@ class DiscordConversationMemory(ConversationBufferWindowMemory):
 
     def store_execution(self, step: int, action: str, result: str):
         """Store execution steps and results."""
-        self.execution_history.append({
-            "step": step,
-            "action": action,
-            "result": result
-        })
+        self.execution_history.append(
+            ExecutionHistory(step=step, action=action, result=result)
+        )
         if len(self.execution_history) > 10:  # Keep last 10 executions
             self.execution_history.pop(0)
 
     def get_context(self) -> Dict:
         """Get the full context including Discord and execution history."""
         return {
-            "discord": self.discord_context,
+            "discord": self.context.dict(),
             "plans": self.plan_history,
-            "executions": self.execution_history,
+            "executions": [eh.dict() for eh in self.execution_history],
             "chat_history": self.chat_memory.messages
         }
 
