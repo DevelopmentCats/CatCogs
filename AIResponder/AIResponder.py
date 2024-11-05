@@ -152,25 +152,36 @@ class DiscordConversationMemory(ConversationBufferWindowMemory):
     context: DiscordContext = Field(default_factory=DiscordContext)
     plan_history: List[str] = Field(default_factory=list)
     execution_history: List[ExecutionHistory] = Field(default_factory=list)
+    logger: Optional[logging.Logger] = None  # Add logger field
+
+    def __init__(self, logger: logging.Logger = None, **kwargs):
+        super().__init__(**kwargs)
+        self.logger = logger or logging.getLogger("red.airesponder")
 
     def store_context(self, context: Dict):
         """Store Discord context and update memory."""
         try:
-            self.context = DiscordContext.from_discord_objects(
-                guild=context.get('guild'),
-                channel=context.get('channel'),
-                user_dict=context.get('user', {})
+            # Extract values directly from the dict structure
+            guild_data = context.get('guild', {})
+            channel_data = context.get('channel', {})
+            user_data = context.get('user', {})
+
+            self.context = DiscordContext(
+                guild=guild_data,
+                channel=channel_data,
+                user=user_data
             )
             
             # Add system context to memory
             self.chat_memory.add_message(
                 SystemMessage(content=f"""Current Discord Context:
-                Server: {self.context.guild['name'] if self.context.guild['name'] else 'DM'}
-                Channel: {self.context.channel['name']}
-                User: {self.context.user['nickname']}""")
+                Server: {guild_data.get('name', 'DM')}
+                Channel: {channel_data.get('name', 'Unknown')}
+                User: {user_data.get('nickname', 'Unknown')}""")
             )
         except Exception as e:
-            self.logger.error(f"Error storing context: {str(e)}")
+            if self.logger:
+                self.logger.error(f"Error storing context: {str(e)}")
             raise ValidationError(f"Failed to store Discord context: {str(e)}")
 
     def store_plan(self, plan: str):
@@ -672,22 +683,13 @@ class AIResponder(commands.Cog):
                 self.logger.error(f"Error initializing tools: {str(e)}", exc_info=True)
                 return False
 
-            # Initialize memory
-            try:
-                self.memory = DiscordConversationMemory(
-                    k=5,
-                    memory_key="chat_history",
-                    input_key="input",
-                    output_key="output",
-                    return_messages=True
-                )
-                self.memory.chat_memory.add_message(
-                    SystemMessage(content=PromptTemplates.get_base_system_prompt())
-                )
-                self.logger.info("Memory initialized successfully")
-            except Exception as e:
-                self.logger.error(f"Error initializing memory: {str(e)}", exc_info=True)
-                return False
+            # Initialize memory with logger
+            self.memory = DiscordConversationMemory(
+                logger=self.logger,
+                return_messages=True,
+                k=5
+            )
+            self.logger.info("Memory initialized successfully")
 
             try:
                 # Initialize planner with personality-aware prompt
