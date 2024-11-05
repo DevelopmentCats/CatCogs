@@ -32,7 +32,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import Tool, BaseTool
 from langchain_openai import ChatOpenAI
 from openai import AsyncOpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger):
@@ -124,6 +124,23 @@ class DiscordContext(BaseModel):
     channel: Optional[Dict] = Field(default_factory=dict)
     user: Optional[Dict] = Field(default_factory=dict)
 
+    @classmethod
+    def from_discord_objects(cls, guild, channel, user_dict):
+        """Create DiscordContext from Discord objects."""
+        return cls(
+            guild={
+                "id": str(guild.id) if guild else None,
+                "name": guild.name if guild else None,
+                "member_count": guild.member_count if guild else None
+            },
+            channel={
+                "id": str(channel.id) if channel else None,
+                "name": channel.name if channel else None,
+                "type": str(channel.type) if channel else None
+            },
+            user=user_dict
+        )
+
 class ExecutionHistory(BaseModel):
     step: int
     action: str
@@ -138,19 +155,23 @@ class DiscordConversationMemory(ConversationBufferWindowMemory):
 
     def store_context(self, context: Dict):
         """Store Discord context and update memory."""
-        self.context = DiscordContext(
-            guild=context.get('guild', {}),
-            channel=context.get('channel', {}),
-            user=context.get('user', {})
-        )
-        
-        # Add system context to memory
-        self.chat_memory.add_message(
-            SystemMessage(content=f"""Current Discord Context:
-            Server: {context['guild'].name if context['guild'] else 'DM'}
-            Channel: {context['channel'].name}
-            User: {context['user']['nickname']}""")
-        )
+        try:
+            self.context = DiscordContext.from_discord_objects(
+                guild=context.get('guild'),
+                channel=context.get('channel'),
+                user_dict=context.get('user', {})
+            )
+            
+            # Add system context to memory
+            self.chat_memory.add_message(
+                SystemMessage(content=f"""Current Discord Context:
+                Server: {self.context.guild['name'] if self.context.guild['name'] else 'DM'}
+                Channel: {self.context.channel['name']}
+                User: {self.context.user['nickname']}""")
+            )
+        except Exception as e:
+            self.logger.error(f"Error storing context: {str(e)}")
+            raise ValidationError(f"Failed to store Discord context: {str(e)}")
 
     def store_plan(self, plan: str):
         """Store the current execution plan."""
@@ -765,20 +786,20 @@ class AIResponder(commands.Cog):
             if len(content.strip()) < 2:
                 return f"{message.author.mention} *looks unimpressed* I need more than that to work with... 😾"
 
-            # Store Discord context
-            if isinstance(self.memory, DiscordConversationMemory):
-                self.memory.store_context({
-                    "message": message,
-                    "channel": message.channel,
-                    "guild": message.guild,
-                    "user": {
-                        "name": str(message.author.name),
-                        "nickname": str(message.author.display_name),
-                        "id": str(message.author.id)
-                    }
-                })
-
             try:
+                # Store Discord context
+                if isinstance(self.memory, DiscordConversationMemory):
+                    self.memory.store_context({
+                        "message": message,
+                        "channel": message.channel,
+                        "guild": message.guild,
+                        "user": {
+                            "name": str(message.author.name),
+                            "nickname": str(message.author.display_name),
+                            "id": str(message.author.id)
+                        }
+                    })
+
                 # Execute Plan-and-Execute agent
                 result = await self.agent_executor.ainvoke(
                     {
@@ -799,11 +820,9 @@ class AIResponder(commands.Cog):
                     await response_message.edit(content=formatted_response)
                     return formatted_response
 
-            except Exception as e:
+            except (ValidationError, Exception) as e:
                 return await self.handle_plan_error(e, message)
 
-        except ValidationError as ve:
-            return await self.handle_plan_error(ve, message)
         except Exception as e:
             self.logger.error(f"Critical error in process_query: {str(e)}", exc_info=True)
             return f"{message.author.mention} *looks deeply troubled* Something went very wrong. Please try again later... 😿"
