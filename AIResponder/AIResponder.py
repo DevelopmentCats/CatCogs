@@ -20,7 +20,8 @@ from langchain_experimental.plan_and_execute import (
     load_agent_executor,
     load_chat_planner
 )
-from langchain.memory import ConversationBufferWindowMemory, ChatMessageHistory
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_community.memory import ConversationBufferWindowMemory
 from langchain_community.tools import DuckDuckGoSearchResults, WikipediaQueryRun
 from langchain_community.tools.ddg_search.tool import DuckDuckGoSearchRun
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper, WikipediaAPIWrapper
@@ -31,6 +32,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import Tool, BaseTool
 from langchain_openai import ChatOpenAI
+
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
@@ -316,9 +318,10 @@ class AIResponder(commands.Cog):
         tools = [
             Tool(
                 name="Current Date and Time (CST)",
-                description="Get the current date and time in Central Standard Time (CST)",
-                func=self.get_current_date_time_cst,
-                coroutine=self.get_current_date_time_cst,
+                func=lambda x="": self.get_current_date_time_cst(x),
+                description="Get the current date and time in Central Standard Time (CST). No input required.",
+                coroutine=lambda x="": self.get_current_date_time_cst(x),
+                return_direct=False
             ),
             Tool(
                 name="Calculator",
@@ -538,7 +541,7 @@ class AIResponder(commands.Cog):
         except Exception as e:
             return f"Error: Unable to calculate. {str(e)}"
 
-    async def get_current_date_time_cst(self, _: str = "") -> str:
+    async def get_current_date_time_cst(self, _: Optional[str] = "") -> str:
         """Get the current date and time in CST."""
         try:
             async with aiohttp.ClientSession() as session:
