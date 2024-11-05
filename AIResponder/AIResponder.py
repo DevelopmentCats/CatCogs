@@ -45,6 +45,7 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         self.total_steps = 0
         self.step_results = []
         self.is_finished = False
+        self.tool_outputs = {}  # Add this to store tool outputs
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
         self.logger.info("LLM started generating response")
@@ -80,10 +81,12 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         await self.discord_message.edit(content=tool_msg)
 
     async def on_tool_end(self, output, **kwargs):
-        self.logger.info("Tool execution completed")
+        self.logger.info(f"Tool execution completed with output: {output}")
+        # Store the tool output
+        self.tool_outputs[f"step_{self.current_step}"] = output
         self.step_results.append(output)
         await self.discord_message.edit(
-            content=f"✨ *purrs contentedly at the results*\nStep {self.current_step}/{self.total_steps}"
+            content=f"✨ *purrs contentedly at the results*\nStep {self.current_step}/{self.total_steps}\nResult: {output[:500]}"
         )
 
     async def on_tool_error(self, error, **kwargs):
@@ -111,14 +114,22 @@ class DiscordCallbackHandler(BaseCallbackHandler):
 
     async def on_agent_action(self, action: AgentAction, **kwargs):
         self.logger.info(f"Agent Action: {action.tool} - {action.tool_input}")
+        # Include previous tool outputs in the context
+        context = f"Previous results: {self.tool_outputs}\nCurrent action: {action.tool}"
         await self.discord_message.edit(
-            content=f"🐱 *carefully considers using {action.tool}*\nStep {self.current_step}/{self.total_steps}"
+            content=f"🐱 *carefully considers using {action.tool}*\nStep {self.current_step}/{self.total_steps}\n{context[:500]}"
         )
 
     async def on_agent_finish(self, finish: AgentFinish, **kwargs):
         self.logger.info("Agent finished execution")
         self.is_finished = True
-        self.full_response = finish.return_values.get("output", "")
+        
+        # Combine all tool outputs with the final response
+        final_response = finish.return_values.get("output", "")
+        tool_summary = "\n".join([f"{k}: {v[:200]}..." for k, v in self.tool_outputs.items()])
+        
+        self.full_response = f"{final_response}\n\nBased on:\n{tool_summary}"
+        
         await self.discord_message.edit(
             content=f"✨ *finishes with feline grace*\n{self.full_response[:1500]}"
         )
@@ -816,10 +827,11 @@ class AIResponder(commands.Cog):
             # Add the current query to memory
             self.memory.chat_memory.add_user_message(content)
 
-            # Execute Plan-and-Execute agent
+            # Execute Plan-and-Execute agent with tool tracking
             try:
                 agent_input = {
-                    "input": content  # Simplified input without chat history
+                    "input": content,
+                    "tool_results": {},  # Initialize empty tool results
                 }
 
                 result = await self.agent_executor.ainvoke(
@@ -827,6 +839,9 @@ class AIResponder(commands.Cog):
                     config={"callbacks": [callback_handler]}
                 )
 
+                # Update agent input with tool results for final processing
+                agent_input["tool_results"] = callback_handler.tool_outputs
+                
                 # Process the execution results
                 processed_response = await self.process_plan_execution(result, response_message)
                 
