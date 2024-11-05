@@ -827,33 +827,34 @@ class AIResponder(commands.Cog):
             
             # Create a custom callback to track execution state
             class ExecutionTracker(BaseCallbackHandler):
-                def __init__(self, state: Dict):
+                def __init__(self, state: Dict, memory: DiscordConversationMemory):
                     self.state = state
+                    self.memory = memory
                 
                 def on_plan_start(self, plan: str, **kwargs):
                     self.state["current_plan"] = plan
-                    if isinstance(self.memory, DiscordConversationMemory):
-                        self.memory.store_plan(plan)
+                    self.memory.store_plan(plan)
                 
                 def on_step_start(self, step: int, total: int, **kwargs):
                     self.state["current_step"] = step
                     self.state["total_steps"] = total
                 
                 def on_tool_end(self, output: str, **kwargs):
-                    if isinstance(self.memory, DiscordConversationMemory):
-                        self.memory.store_execution(
-                            self.state["current_step"],
-                            self.state["current_plan"],
-                            output
-                        )
+                    self.memory.store_execution(
+                        self.state["current_step"],
+                        self.state["current_plan"],
+                        output
+                    )
                 
                 def on_agent_finish(self, finish: AgentFinish, **kwargs):
                     self.state["is_finished"] = True
-                    if isinstance(self.memory, DiscordConversationMemory):
-                        self.memory.chat_memory.add_ai_message(finish.return_values['output'])
+                    self.memory.chat_memory.add_ai_message(finish.return_values['output'])
 
             # Use both callbacks
-            callbacks = [callback_handler, ExecutionTracker(execution_state)]
+            callbacks = [
+                callback_handler, 
+                ExecutionTracker(execution_state, self.memory)
+            ]
             
             # Get relevant context from memory
             context = self.memory.get_relevant_context() if isinstance(self.memory, DiscordConversationMemory) else ""
