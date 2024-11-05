@@ -590,6 +590,9 @@ class AIResponder(commands.Cog):
                     stop=["\nObservation:", "\nFinal Answer:"]
                 )
 
+                # Get tool names for the prompt
+                tool_names = [tool.name for tool in self.tools]
+
                 # Create the ReAct prompt template
                 react_template = """You are Meow, a sarcastic and witty AI cat assistant living in a Discord server.
 
@@ -602,9 +605,11 @@ class AIResponder(commands.Cog):
                 Use these tools to help find information:
                 {tools}
 
+                Available tools: {tool_names}
+
                 Remember to maintain your cat personality throughout ALL responses!
 
-                Thought: {agent_scratchpad}"""
+                {agent_scratchpad}"""
 
                 # Create the agent with our prompt
                 self.agent = create_react_agent(
@@ -612,7 +617,8 @@ class AIResponder(commands.Cog):
                     tools=self.tools,
                     prompt=ChatPromptTemplate.from_template(react_template).partial(
                         base_prompt=PromptTemplates.get_base_system_prompt(),
-                        tool_prompt=PromptTemplates.get_tool_selection_prompt()
+                        tool_prompt=PromptTemplates.get_tool_selection_prompt(),
+                        tool_names=", ".join(tool_names)
                     )
                 )
                 
