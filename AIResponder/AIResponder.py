@@ -681,10 +681,13 @@ class AIResponder(commands.Cog):
                 self.logger.error(f"Error initializing tools: {str(e)}", exc_info=True)
                 return False
 
-            # Initialize memory with logger
+            # Initialize memory with proper input/output keys
             self.memory = DiscordConversationMemory(
                 logger=self.logger,
                 return_messages=True,
+                input_key="input",
+                output_key="output",
+                memory_key="chat_history",
                 k=5
             )
             self.logger.info("Memory initialized successfully")
@@ -701,11 +704,12 @@ class AIResponder(commands.Cog):
                 executor = load_agent_executor(
                     self.llm,
                     self.tools,
-                    verbose=True
+                    verbose=True,
+                    memory=self.memory
                 )
                 self.logger.info("Executor initialized successfully")
 
-                # Create Plan-and-Execute agent
+                # Create Plan-and-Execute agent with memory
                 self.agent_executor = PlanAndExecute(
                     planner=planner,
                     executor=executor,
