@@ -288,10 +288,10 @@ class AIResponder(commands.Cog):
         tools = [
             Tool(
                 name="Current Date and Time (CST)",
-                func=lambda _: self.get_current_date_time_cst(),
-                description="Gets the current date and time in CST. No input needed.",
+                description="Get the current date and time in Central Standard Time (CST)",
+                func=self.get_current_date_time_cst,
                 coroutine=self.get_current_date_time_cst,
-                return_direct=False
+                args_schema=None  # Remove args schema since we don't need input
             ),
             Tool(
                 name="Calculator",
@@ -513,7 +513,8 @@ class AIResponder(commands.Cog):
         except Exception as e:
             return f"Error: Unable to calculate. {str(e)}"
 
-    async def get_current_date_time_cst(self, _input: str = None):  # Add _input parameter with default None
+    async def get_current_date_time_cst(self, query: str = "") -> str:
+        """Get the current date and time in CST."""
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get('http://worldtimeapi.org/api/timezone/America/Chicago') as response:
@@ -779,6 +780,7 @@ class AIResponder(commands.Cog):
                 await response_message.edit(content=f"{message.author.mention} Oops! My circuits got a bit tangled there. Can you try again?")
 
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: commands.Context) -> str:
+        """Process a user query using the Plan-and-Execute agent."""
         try:
             callback_handler = DiscordCallbackHandler(response_message, self.logger)
             
@@ -786,30 +788,36 @@ class AIResponder(commands.Cog):
             if len(content.strip()) < 2:
                 return f"{message.author.mention} *looks unimpressed* I need more than that to work with... 😾"
 
-            try:
-                # Store Discord context
-                if isinstance(self.memory, DiscordConversationMemory):
-                    self.memory.store_context({
-                        "message": message,
-                        "channel": message.channel,
-                        "guild": message.guild,
-                        "user": {
-                            "name": str(message.author.name),
-                            "nickname": str(message.author.display_name),
-                            "id": str(message.author.id)
-                        }
-                    })
+            # Store Discord context
+            if isinstance(self.memory, DiscordConversationMemory):
+                discord_context = {
+                    "guild": {
+                        "id": str(message.guild.id) if message.guild else None,
+                        "name": message.guild.name if message.guild else "DM",
+                        "member_count": message.guild.member_count if message.guild else 1
+                    },
+                    "channel": {
+                        "id": str(message.channel.id),
+                        "name": message.channel.name,
+                        "type": str(message.channel.type)
+                    },
+                    "user": {
+                        "name": str(message.author.name),
+                        "nickname": str(message.author.display_name),
+                        "id": str(message.author.id)
+                    }
+                }
+                self.memory.store_context(discord_context)
 
-                # Execute Plan-and-Execute agent
+            # Execute Plan-and-Execute agent
+            try:
                 result = await self.agent_executor.ainvoke(
                     {
                         "input": content,
                         "chat_history": chat_history[-5:],
                         "user_nickname": str(message.author.display_name)
                     },
-                    config={
-                        "callbacks": [callback_handler]
-                    }
+                    config={"callbacks": [callback_handler]}
                 )
 
                 # Process the execution results
@@ -820,7 +828,11 @@ class AIResponder(commands.Cog):
                     await response_message.edit(content=formatted_response)
                     return formatted_response
 
-            except (ValidationError, Exception) as e:
+            except ValidationError as ve:
+                self.logger.error(f"Validation error in agent execution: {str(ve)}")
+                return await self.handle_plan_error(ve, message)
+            except Exception as e:
+                self.logger.error(f"Error in agent execution: {str(e)}")
                 return await self.handle_plan_error(e, message)
 
         except Exception as e:
