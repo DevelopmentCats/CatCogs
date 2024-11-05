@@ -609,8 +609,8 @@ class AIResponder(commands.Cog):
 
                 You MUST follow this EXACT format for EVERY response:
                 Thought: [your reasoning about what to do next]
-                Action: [the action to take, must be one of: {tool_names} or "Final Answer"]
-                Action Input: [input for the action]
+                Action: [EXACTLY one of these tool names: {tool_names}]
+                Action Input: [just the input for the tool, no commentary or personality]
                 Observation: [result from the action]
 
                 After getting the information you need, you MUST end with:
@@ -641,7 +641,7 @@ class AIResponder(commands.Cog):
                     tools=self.tools,
                     memory=self.memory,
                     max_iterations=5,
-                    early_stopping_method="generate",
+                    early_stopping_method="force",  # Changed from "generate" to "force"
                     handle_parsing_errors=True,
                     return_intermediate_steps=True,
                     verbose=True
