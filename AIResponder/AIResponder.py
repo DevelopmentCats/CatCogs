@@ -763,9 +763,7 @@ class AIResponder(commands.Cog):
             executor = load_agent_executor(
                 llm=self.llm,
                 tools=self.tools,
-                prompt=executor_prompt,
-                verbose=True,
-                handle_parsing_errors=True
+                verbose=True
             )
             
             # Create Plan-and-Execute agent with re-planning capabilities
