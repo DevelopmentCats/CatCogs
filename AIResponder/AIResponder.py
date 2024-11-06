@@ -740,15 +740,14 @@ class AIResponder(commands.Cog):
             )
             self.logger.info("Planner initialized successfully")
 
-            # Initialize executor with specific configuration
+            # Initialize executor with updated configuration
             executor = load_agent_executor(
                 llm=self.llm,
                 tools=self.tools,
                 verbose=True,
-                agent_kwargs={
-                    "system_message": PromptTemplates.get_tool_selection_prompt()
-                }
+                system_message=PromptTemplates.get_tool_selection_prompt()  # Changed from agent_kwargs
             )
+            self.logger.info("Executor initialized successfully")
             
             # Create Plan-and-Execute agent
             self.agent_executor = PlanAndExecute(
