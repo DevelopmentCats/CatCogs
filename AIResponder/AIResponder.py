@@ -728,33 +728,46 @@ class AIResponder(commands.Cog):
                 memory_key="chat_history",
                 k=5
             )
+
+            # Get base prompts from hub
+            base_planner_prompt = hub.pull("hwchase17/plan-and-execute-planner")
+            base_executor_prompt = hub.pull("hwchase17/plan-and-execute-executor")
             
-            # Create base system message
-            base_system_message = SystemMessage(content=PromptTemplates.get_base_system_prompt())
-            
-            # Create planner
-            planner = load_chat_planner(
-                llm=self.llm,
-                extra_messages=[
-                    base_system_message,
-                    SystemMessage(content=PromptTemplates.get_planner_prompt())
-                ]
+            # Customize with our PromptTemplates
+            planner_prompt = base_planner_prompt.partial(
+                system_message=PromptTemplates.get_base_system_prompt(),
+                instructions=PromptTemplates.get_planner_prompt()
             )
             
-            # Create executor
+            executor_prompt = base_executor_prompt.partial(
+                system_message=PromptTemplates.get_base_system_prompt(),
+                instructions=PromptTemplates.get_executor_prompt()
+            )
+            
+            # Create planner and executor
+            planner = load_chat_planner(
+                llm=self.llm,
+                prompt=planner_prompt,
+                stop=["\nStep"]  # Stop generation at new steps for cleaner plans
+            )
+            
             executor = load_agent_executor(
                 llm=self.llm,
                 tools=self.tools,
-                extra_system_message=PromptTemplates.get_base_system_prompt() + "\n" + PromptTemplates.get_executor_prompt(),
-                verbose=True
+                prompt=executor_prompt,
+                verbose=True,
+                handle_parsing_errors=True  # Enable better error handling
             )
             
-            # Create Plan-and-Execute agent
+            # Create Plan-and-Execute agent with re-planning capabilities
             self.agent_executor = PlanAndExecute(
                 planner=planner,
                 executor=executor,
                 memory=self.memory,
-                verbose=True
+                verbose=True,
+                max_iterations=3,  # Allow up to 3 planning attempts
+                max_execution_time=300,  # 5 minutes max execution time
+                return_intermediate_steps=True,  # Return all steps for better monitoring
             )
             
             self.logger.info("LangChain components initialized successfully")
@@ -824,27 +837,32 @@ class AIResponder(commands.Cog):
             # Initialize callback handler with memory
             callbacks = [DiscordCallbackHandler(response_message, self.logger, self.memory)]
             
-            # Execute the agent
+            # Execute the agent with re-planning support
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
                     "chat_history": chat_history,
                 },
-                config={"callbacks": callbacks}
+                config={
+                    "callbacks": callbacks,
+                    "max_iterations": 3,  # Allow up to 3 planning attempts
+                    "max_execution_time": 300,  # 5 minutes max execution time
+                }
             )
 
-            # Get the callback handler
-            discord_handler = callbacks[0]
+            # Check if we need to re-plan
+            if "intermediate_steps" in result:
+                for step in result["intermediate_steps"]:
+                    if step.get("status") == "failed":
+                        await response_message.edit(content="😾 *hisses at failed step* Let me try a different approach...")
+                        # Re-planning happens automatically due to max_iterations setting
             
-            # Process the result
-            if discord_handler.tool_outputs:
-                # We have tool outputs, use them in the final response
-                tool_results = "\n".join(discord_handler.tool_outputs)
-                final_response = self.clean_agent_output(result.get("output", ""))
-                if not final_response:
-                    final_response = f"*purrs* Here's what I found:\n{tool_results}"
+            # Process the final result
+            if result.get("output"):
+                final_response = self.clean_agent_output(result["output"])
             else:
-                final_response = self.clean_agent_output(result.get("output", "*looks confused* Something went wrong with my execution."))
+                # Handle case where all planning attempts failed
+                final_response = "*looks apologetic* Even after several attempts, I couldn't complete the task. Could you try rephrasing your request? 😿"
 
             # Store the final response in memory
             if isinstance(self.memory, DiscordConversationMemory):
