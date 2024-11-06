@@ -29,12 +29,27 @@ from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain_core.tools import Tool, BaseTool
 from langchain_openai import ChatOpenAI
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field, ValidationError
+
+# Base prompt templates for planner and executor
+base_planner_prompt = ChatPromptTemplate.from_messages([
+    ("system", "{system_message}"),
+    ("system", "{instructions}"),
+    ("human", "{input}")
+])
+
+base_executor_prompt = ChatPromptTemplate.from_messages([
+    ("system", "{system_message}"),
+    ("system", "{instructions}"),
+    MessagesPlaceholder(variable_name="chat_history"),
+    ("human", "{input}"),
+    MessagesPlaceholder(variable_name="agent_scratchpad")
+])
 
 class DiscordCallbackHandler(BaseCallbackHandler):
     def __init__(self, discord_message, logger, memory):
