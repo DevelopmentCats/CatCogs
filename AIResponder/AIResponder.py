@@ -4,7 +4,7 @@ import logging
 import math
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Tuple, Any, Optional, Union
 
 import aiohttp
@@ -201,7 +201,9 @@ class DiscordConversationMemory(ConversationBufferWindowMemory):
             self.plan_history.pop(0)
         
         # Add plan to chat memory for context
-        self.chat_memory.add_system_message(f"Current Plan:\n{plan}")
+        self.chat_memory.add_message(
+            SystemMessage(content=f"Current Plan:\n{plan}")
+        )
 
     def store_execution(self, step: int, action: str, result: str):
         """Store execution steps and results with plan context."""
@@ -212,9 +214,29 @@ class DiscordConversationMemory(ConversationBufferWindowMemory):
             self.execution_history.pop(0)
         
         # Add execution step to chat memory
-        self.chat_memory.add_system_message(
-            f"Step {step} Execution:\nAction: {action}\nResult: {result}"
+        self.chat_memory.add_message(
+            SystemMessage(content=f"Step {step} Execution:\nAction: {action}\nResult: {result}")
         )
+
+    def store_tool_result(self, tool_name: str, result: str):
+        """Store tool execution results in memory."""
+        try:
+            # Add tool result to chat memory
+            self.chat_memory.add_message(
+                SystemMessage(content=f"Tool Result ({tool_name}): {result}")
+            )
+            
+            # Store in execution history
+            self.execution_history.append(
+                ExecutionHistory(
+                    step=len(self.execution_history) + 1,
+                    action=f"Used {tool_name}",
+                    result=result
+                )
+            )
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error storing tool result: {str(e)}")
 
     def get_context(self) -> Dict:
         """Get the full context including Discord and execution history."""
@@ -316,13 +338,12 @@ class AIResponder(commands.Cog):
     async def setup_tools(self) -> List[Tool]:
         """Initialize and return the list of available tools."""
         tools = [
-            Tool.from_function(
+            Tool(
                 name="Current Date and Time (CST)",
-                description="Get the current date and time in Central Standard Time (CST). No input needed.",
                 func=self.get_current_date_time_cst,
+                description="Get the current date and time in Central Standard Time (CST). No input needed.",
                 coroutine=self.get_current_date_time_cst,
-                args_schema=None,  # Remove any args schema
-                return_direct=False
+                return_direct=False  # Changed to False to allow agent to process the result
             ),
             Tool(
                 name="Calculator",
@@ -545,20 +566,12 @@ class AIResponder(commands.Cog):
     async def get_current_date_time_cst(self, *args, **kwargs) -> str:
         """Get the current date and time in CST."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get('http://worldtimeapi.org/api/timezone/America/Chicago') as response:
-                    if response.status != 200:
-                        return "Error: Unable to fetch time data"
-                        
-                    data = await response.json()
-                    datetime_cst = datetime.fromisoformat(data['datetime'].replace('Z', '+00:00'))
-                    
-                    # Format with day of week
-                    formatted_time = datetime_cst.strftime('%A, %Y-%m-%d %H:%M:%S %Z')
-                    return f"Current date and time in CST: {formatted_time}"
-                    
+            # Get current time in CST
+            current_time = datetime.now(timezone(timedelta(hours=-6)))  # CST is UTC-6
+            formatted_time = current_time.strftime('%A, %Y-%m-%d %H:%M:%S %Z')
+            return f"Current date and time in CST: {formatted_time}"
         except Exception as e:
-            self.logger.error(f"Error fetching time: {str(e)}")
+            self.logger.error(f"Error getting time: {str(e)}")
             return f"Error: Unable to fetch current date and time. ({str(e)})"
 
     @commands.group(name="air")
@@ -827,45 +840,49 @@ class AIResponder(commands.Cog):
             # Add current message to memory
             self.memory.chat_memory.add_user_message(content)
             
-            # Initialize execution tracking
-            execution_state = {
-                "current_step": 0,
-                "total_steps": 0,
-                "is_finished": False,
-                "current_plan": ""
-            }
-            
-            callback_handler = DiscordCallbackHandler(response_message, self.logger)
-            
-            # Create a custom callback to track execution state
-            class ExecutionTracker(BaseCallbackHandler):
-                def __init__(self, state: Dict, memory: DiscordConversationMemory):
-                    self.state = state
+            # Create a custom callback to track execution and store results
+            class QueryExecutionTracker(BaseCallbackHandler):
+                def __init__(self, memory: DiscordConversationMemory, logger: logging.Logger):
                     self.memory = memory
-                
-                def on_plan_start(self, plan: str, **kwargs):
-                    self.state["current_plan"] = plan
-                    self.memory.store_plan(plan)
-                
-                def on_step_start(self, step: int, total: int, **kwargs):
-                    self.state["current_step"] = step
-                    self.state["total_steps"] = total
-                
+                    self.logger = logger
+                    self.current_step = 0
+                    self.total_steps = 0
+                    
+                def on_tool_start(self, serialized: Dict[str, Any], input_str: str, **kwargs):
+                    self.logger.info(f"Starting tool: {serialized.get('name')} with input: {input_str}")
+                    
                 def on_tool_end(self, output: str, **kwargs):
-                    self.memory.store_execution(
-                        self.state["current_step"],
-                        self.state["current_plan"],
-                        output
-                    )
+                    tool_name = kwargs.get('name', 'Unknown Tool')
+                    self.logger.info(f"Tool {tool_name} completed with output: {output}")
+                    
+                    # Store tool result in memory
+                    if isinstance(self.memory, DiscordConversationMemory):
+                        self.memory.chat_memory.add_message(
+                            SystemMessage(content=f"Tool Result ({tool_name}): {output}")
+                        )
+                        
+                        # Store in execution history
+                        self.memory.execution_history.append(
+                            ExecutionHistory(
+                                step=self.current_step,
+                                action=f"Used {tool_name}",
+                                result=output
+                            )
+                        )
+                
+                def on_agent_action(self, action: AgentAction, **kwargs):
+                    self.current_step += 1
+                    self.logger.info(f"Agent Action {self.current_step}: {action.tool}")
                 
                 def on_agent_finish(self, finish: AgentFinish, **kwargs):
-                    self.state["is_finished"] = True
-                    self.memory.chat_memory.add_ai_message(finish.return_values['output'])
+                    self.logger.info("Agent finished execution")
+                    if isinstance(self.memory, DiscordConversationMemory):
+                        self.memory.chat_memory.add_ai_message(finish.return_values['output'])
 
-            # Use both callbacks
+            # Initialize callbacks
             callbacks = [
-                callback_handler, 
-                ExecutionTracker(execution_state, self.memory)
+                DiscordCallbackHandler(response_message, self.logger),
+                QueryExecutionTracker(self.memory, self.logger)
             ]
             
             # Get relevant context from memory
@@ -878,31 +895,20 @@ class AIResponder(commands.Cog):
                 "chat_history": self.memory.chat_memory.messages if isinstance(self.memory, DiscordConversationMemory) else []
             }
 
+            # Execute the agent with callbacks
             result = await self.agent_executor.ainvoke(
                 input_with_context,
                 config={"callbacks": callbacks}
             )
 
-            # Handle final response
-            if execution_state["is_finished"]:
-                final_response = result.get("output", "")
-                if not final_response.strip():
-                    final_response = "*looks apologetic* Something went wrong with my final response. 😿"
-                
-                # Store the final response in memory
+            # Process and return the final response
+            if "output" in result:
+                final_response = result["output"]
                 if isinstance(self.memory, DiscordConversationMemory):
                     self.memory.chat_memory.add_ai_message(final_response)
-                
-                # Handle pagination
-                pages = list(pagify(final_response, delims=["\n", " "], page_length=2000))
-                if pages:
-                    await response_message.edit(content=pages[0])
-                    for page in pages[1:]:
-                        await response_message.channel.send(page)
-                
                 return final_response
-
-            return "*looks confused* Something went wrong with my execution. 😿"
+            
+            return "*looks confused* Something went wrong with my execution. Could you try again? 😿"
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
@@ -1130,16 +1136,19 @@ class AIResponder(commands.Cog):
         try:
             if "plan" in plan_result:
                 # Store plan in memory
-                self.memory.store_plan(plan_result["plan"])
+                if isinstance(self.memory, DiscordConversationMemory):
+                    self.memory.store_plan(plan_result["plan"])
                 
                 # Process each step result
+                final_response = []
                 for step in plan_result.get("steps", []):
                     step_number = step.get("step_number", 0)
                     action = step.get("action", "")
                     result = step.get("result", "")
                     
-                    # Store execution step
-                    self.memory.store_execution(step_number, action, result)
+                    # Store execution step in memory
+                    if isinstance(self.memory, DiscordConversationMemory):
+                        self.memory.store_execution(step_number, action, result)
                     
                     # Process tool results if present
                     if "tool_result" in step:
@@ -1148,17 +1157,21 @@ class AIResponder(commands.Cog):
                             step["tool_result"]
                         )
                         step["processed_result"] = processed_result
+                        final_response.append(processed_result["formatted_result"])
 
-            # Clean and format the final response
-            if "output" in plan_result:
-                cleaned_output = self.clean_agent_output(plan_result["output"])
-                return self.extract_final_response(cleaned_output)
-            
-            return "*looks confused* Something went wrong with my plan execution. Could you try again? 😿"
+                # Ensure we have a final response
+                if final_response:
+                    return "\n".join(final_response)
+                elif "output" in plan_result:
+                    return self.clean_agent_output(plan_result["output"])
+                
+                return "*looks confused* I wasn't able to complete the task. Could you try again? 😿"
+
+            return "*tilts head* Something went wrong with my plan execution. Could you try again? 😿"
 
         except Exception as e:
             self.logger.error(f"Error processing plan execution: {str(e)}", exc_info=True)
-            return "*looks apologetic* I encountered an error while executing my plan. Could you try again? "
+            return f"*looks apologetic* I encountered an error while executing my plan: {str(e)} 😿"
 
     async def validate_plan(self, plan: str) -> bool:
         """Validate the generated plan before execution."""
