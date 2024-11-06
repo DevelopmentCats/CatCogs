@@ -740,12 +740,19 @@ class AIResponder(commands.Cog):
             )
             self.logger.info("Planner initialized successfully")
 
+            # Create prompt template for the executor
+            executor_prompt = ChatPromptTemplate.from_messages([
+                ("system", PromptTemplates.get_tool_selection_prompt()),
+                ("human", "{input}"),
+                MessagesPlaceholder(variable_name="agent_scratchpad"),
+            ])
+
             # Initialize executor with updated configuration
             executor = load_agent_executor(
                 llm=self.llm,
                 tools=self.tools,
                 verbose=True,
-                system_message=PromptTemplates.get_tool_selection_prompt()  # Changed from agent_kwargs
+                prompt=executor_prompt
             )
             self.logger.info("Executor initialized successfully")
             
