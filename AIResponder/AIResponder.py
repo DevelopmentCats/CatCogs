@@ -52,88 +52,22 @@ base_executor_prompt = ChatPromptTemplate.from_messages([
 ])
 
 class DiscordCallbackHandler(BaseCallbackHandler):
-    def __init__(self, discord_message, logger, memory):
+    def __init__(self, discord_message, logger):
         self.discord_message = discord_message
         self.logger = logger
-        self.memory = memory
-        self.last_update = datetime.now().timestamp()
-        self.tool_outputs = []
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
-        self.logger.info("LLM started generating response")
         await self.discord_message.edit(content="🤔 Thinking...")
-
-    async def on_plan_start(self, plan, **kwargs):
-        self.logger.info(f"Starting plan: {plan}")
-        formatted_plan = f"🗺️ *flicks tail and plans approach*\n```\n{plan}\n```"
-        await self.discord_message.edit(content=formatted_plan)
-
-    async def on_step_start(self, step: int, total: int, **kwargs):
-        step_msg = f"📝 *gracefully executes step {step}/{total}*"
-        await self.discord_message.edit(content=step_msg)
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
         tool_name = serialized.get('name', 'Unknown Tool')
-        self.logger.info(f"🔧 Starting Tool Execution: {tool_name} with input: {input_str}")
-        tool_msg = f"🔧 *paws at {tool_name}*"
-        await self.discord_message.edit(content=tool_msg)
+        await self.discord_message.edit(content=f"🔧 Using {tool_name}...")
 
     async def on_tool_end(self, output, **kwargs):
-        """Enhanced tool end handling with better logging"""
-        self.logger.info(f"Tool execution completed with output: {output}")
-        
-        # Store the tool output
-        self.tool_outputs.append(output)
-        
-        # Add to memory if available
-        if isinstance(self.memory, DiscordConversationMemory):
-            self.memory.store_tool_result(
-                kwargs.get('name', 'Unknown Tool'),
-                output
-            )
-            self.memory.chat_memory.add_ai_message(f"Tool output: {output}")
-        
-        # Update Discord message
-        await self.discord_message.edit(content="✨ *purrs contentedly at tool result*")
-
-    async def on_tool_error(self, error, **kwargs):
-        self.logger.error(f"Tool Error: {str(error)}")
-        await self.discord_message.edit(
-            content=f"😾 *hisses at error*\n```\n{str(error)}\n```"
-        )
+        await self.discord_message.edit(content="✨ Processing results...")
 
     async def on_chain_end(self, outputs, **kwargs):
-        self.logger.info("Chain completed")
-
-    async def on_plan_error(self, error: str, **kwargs):
-        self.logger.error(f"Plan Error: {error}")
-        await self.discord_message.edit(
-            content=f"😾 *hisses at planning error*\n```\nFailed to create plan: {error}\n```"
-        )
-
-    async def on_step_error(self, error: str, step: int, **kwargs):
-        self.logger.error(f"Step {step} Error: {error}")
-        await self.discord_message.edit(
-            content=f"😾 *growls at step {step} failure*\n```\n{error}\n```"
-        )
-
-    async def on_agent_action(self, action: AgentAction, **kwargs):
-        """Enhanced agent action logging"""
-        self.logger.info(f"Agent Action: {action.tool} with input: {action.tool_input}")
-        self.logger.info(f"Agent Action Log: {action.log}")
-        
-        await self.discord_message.edit(
-            content=f"🐱 *carefully considers using {action.tool}*"
-        )
-
-    async def on_agent_finish(self, finish: AgentFinish, **kwargs):
-        """Enhanced agent finish handling"""
-        self.logger.info(f"Agent finished with output: {finish.return_values}")
-        self.logger.info(f"Agent finish log: {finish.log}")
-        
-        # Store the final output in memory if available
-        if isinstance(self.memory, DiscordConversationMemory):
-            self.memory.chat_memory.add_ai_message(finish.return_values.get('output', ''))
+        await self.discord_message.edit(content="📝 Finalizing response...")
 
 class DiscordContext(BaseModel):
     guild: Optional[Dict] = Field(default_factory=dict)
@@ -861,46 +795,65 @@ class AIResponder(commands.Cog):
 
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: commands.Context) -> str:
         try:
-            # Initialize callback handler with memory
-            callbacks = [DiscordCallbackHandler(response_message, self.logger, self.memory)]
+            # Initialize callback handler
+            callbacks = [DiscordCallbackHandler(response_message, self.logger)]
             
             # Store current context for tool access
             self.current_context = ctx
             
             self.logger.info(f"Starting query processing with content: {content}")
             
-            # Execute the agent with enhanced logging
+            # Execute the agent
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
                     "chat_history": chat_history,
                 },
                 config={
-                    "callbacks": callbacks,
-                    "max_iterations": 3,
-                    "max_execution_time": 300,
+                    "callbacks": callbacks
                 }
             )
             
-            self.logger.info(f"Agent execution result: {result}")
+            self.logger.info(f"Raw agent result: {result}")
             
-            # Process intermediate steps if available
-            if "intermediate_steps" in result:
-                for step in result["intermediate_steps"]:
-                    self.logger.info(f"Intermediate step: {step}")
-                    if isinstance(step, AgentAction):
-                        self.logger.info(f"Tool execution: {step.tool} with input {step.tool_input}")
-                    elif isinstance(step, AgentFinish):
-                        self.logger.info(f"Step completion: {step.return_values}")
-
-            # Process the final result
-            if result.get("output"):
-                final_response = self.clean_agent_output(result["output"])
-                self.logger.info(f"Final response: {final_response}")
+            # Extract the actual response from the result
+            if isinstance(result, dict):
+                if "output" in result:
+                    # Check if the output is a string containing an action JSON
+                    output = result["output"]
+                    if isinstance(output, str) and output.startswith('Action:'):
+                        try:
+                            # Parse the action JSON
+                            action_json = json.loads(output.replace('Action:', '').strip())
+                            if action_json.get("action") == "Final Answer":
+                                final_response = action_json.get("action_input", "")
+                            else:
+                                # If it's a tool action, get the tool result
+                                tool_name = action_json.get("action")
+                                tool_input = action_json.get("action_input")
+                                self.logger.info(f"Executing tool: {tool_name} with input: {tool_input}")
+                                
+                                # Find and execute the appropriate tool
+                                tool = next((t for t in self.tools if t.name == tool_name), None)
+                                if tool:
+                                    if asyncio.iscoroutinefunction(tool.func):
+                                        tool_result = await tool.func(tool_input)
+                                    else:
+                                        tool_result = tool.func(tool_input)
+                                    final_response = tool_result
+                                else:
+                                    final_response = "*looks confused* I couldn't find the right tool for that task."
+                        except json.JSONDecodeError:
+                            final_response = output
+                    else:
+                        final_response = output
+                else:
+                    final_response = "*tilts head* I didn't get a clear answer from my thinking process."
             else:
-                final_response = "*looks apologetic* Even after several attempts, I couldn't complete the task. Could you try rephrasing your request? 😿"
-                self.logger.warning("No output in result")
+                final_response = "*looks puzzled* I received an unexpected response format."
 
+            self.logger.info(f"Final response: {final_response}")
+            
             # Store the final response in memory
             if isinstance(self.memory, DiscordConversationMemory):
                 self.memory.chat_memory.add_ai_message(final_response)
