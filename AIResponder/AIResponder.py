@@ -745,21 +745,19 @@ class AIResponder(commands.Cog):
                 llm=self.llm,
                 tools=self.tools,
                 verbose=True,
-                handle_parsing_errors=True,
-                max_iterations=3,
+                max_iterations=3,  # Limit iterations
                 early_stopping_method="generate",
                 agent_kwargs={
                     "system_message": PromptTemplates.get_tool_selection_prompt()
                 }
             )
             
-            # Create Plan-and-Execute agent with aligned configuration
+            # Create Plan-and-Execute agent
             self.agent_executor = PlanAndExecute(
                 planner=planner,
                 executor=executor,
                 verbose=True,
-                max_iterations=3,
-                handle_parsing_errors=True
+                max_iterations=3  # Limit iterations
             )
             self.logger.info("Plan-and-Execute agent created successfully")
             
