@@ -314,9 +314,9 @@ class AIResponder(commands.Cog):
         tools = [
             Tool(
                 name="Current Date and Time (CST)",
-                func=self.get_current_date_time_cst,
-                description="Get the current date and time in Central Standard Time (CST). No input needed.",
-                coroutine=self.get_current_date_time_cst,
+                func=lambda _: self.get_current_date_time_cst(),
+                description="Get the current date and time in Central Standard Time (CST). No input needed - use empty string.",
+                coroutine=lambda _: self.get_current_date_time_cst(),
                 return_direct=False
             ),
             Tool(
@@ -537,11 +537,10 @@ class AIResponder(commands.Cog):
         except Exception as e:
             return f"Error: Unable to calculate. {str(e)}"
 
-    async def get_current_date_time_cst(self, *args, **kwargs) -> str:
-        """Get the current date and time in CST."""
+    async def get_current_date_time_cst(self) -> str:
+        """Get the current date and time in CST. No input needed."""
         try:
-            # Use timezone-aware datetime
-            current_time = datetime.now(timezone(timedelta(hours=-6)))  # CST is UTC-6
+            current_time = datetime.now(timezone(timedelta(hours=-6)))
             formatted_time = current_time.strftime('%A, %B %d, %Y %I:%M:%S %p CST')
             return f"*checks internal clock* The current time is {formatted_time}"
         except Exception as e:
@@ -801,6 +800,7 @@ class AIResponder(commands.Cog):
             
             self.logger.info(f"Starting query processing with content: {content}")
             
+            # Execute the agent
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
@@ -811,8 +811,14 @@ class AIResponder(commands.Cog):
                 }
             )
             
-            self.logger.info(f"Raw agent result: {result}")
-            
+            # Log the plan and steps
+            if "plan" in result:
+                self.logger.info(f"Generated Plan:\n{result['plan']}")
+                
+            if "steps" in result:
+                for step in result["steps"]:
+                    self.logger.info(f"Executing Step: {step}")
+
             # Extract the final response
             if isinstance(result, dict) and "output" in result:
                 output = result["output"]
