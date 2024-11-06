@@ -745,8 +745,6 @@ class AIResponder(commands.Cog):
                 llm=self.llm,
                 tools=self.tools,
                 verbose=True,
-                max_iterations=3,  # Limit iterations
-                early_stopping_method="generate",
                 agent_kwargs={
                     "system_message": PromptTemplates.get_tool_selection_prompt()
                 }
@@ -756,8 +754,7 @@ class AIResponder(commands.Cog):
             self.agent_executor = PlanAndExecute(
                 planner=planner,
                 executor=executor,
-                verbose=True,
-                max_iterations=3  # Limit iterations
+                verbose=True
             )
             self.logger.info("Plan-and-Execute agent created successfully")
             
