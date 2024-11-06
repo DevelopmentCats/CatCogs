@@ -57,12 +57,12 @@ class DiscordCallbackHandler(BaseCallbackHandler):
 
     async def on_tool_start(self, serialized, input_str, **kwargs):
         tool_name = serialized.get('name', 'Unknown Tool')
-        self.logger.info(f"🔧 Tool Execution: {tool_name}")
+        self.logger.info(f"🔧 Starting Tool Execution: {tool_name} with input: {input_str}")
         tool_msg = f"🔧 *paws at {tool_name}*"
         await self.discord_message.edit(content=tool_msg)
 
     async def on_tool_end(self, output, **kwargs):
-        self.logger.info(f"Tool execution completed")
+        self.logger.info(f"Tool execution completed with output: {output}")
         await self.discord_message.edit(content="✨ *purrs contentedly*")
 
     async def on_tool_error(self, error, **kwargs):
@@ -316,11 +316,12 @@ class AIResponder(commands.Cog):
     async def setup_tools(self) -> List[Tool]:
         """Initialize and return the list of available tools."""
         tools = [
-            Tool(
+            Tool.from_function(
                 name="Current Date and Time (CST)",
+                description="Get the current date and time in Central Standard Time (CST). No input needed.",
                 func=self.get_current_date_time_cst,
-                description="Get the current date and time in Central Standard Time (CST).",
                 coroutine=self.get_current_date_time_cst,
+                args_schema=None,  # Remove any args schema
                 return_direct=False
             ),
             Tool(
@@ -541,15 +542,23 @@ class AIResponder(commands.Cog):
         except Exception as e:
             return f"Error: Unable to calculate. {str(e)}"
 
-    async def get_current_date_time_cst(self, _: Any = None) -> str:
+    async def get_current_date_time_cst(self, *args, **kwargs) -> str:
         """Get the current date and time in CST."""
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get('http://worldtimeapi.org/api/timezone/America/Chicago') as response:
+                    if response.status != 200:
+                        return "Error: Unable to fetch time data"
+                        
                     data = await response.json()
                     datetime_cst = datetime.fromisoformat(data['datetime'].replace('Z', '+00:00'))
-                    return f"Current date and time in CST: {datetime_cst.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+                    
+                    # Format with day of week
+                    formatted_time = datetime_cst.strftime('%A, %Y-%m-%d %H:%M:%S %Z')
+                    return f"Current date and time in CST: {formatted_time}"
+                    
         except Exception as e:
+            self.logger.error(f"Error fetching time: {str(e)}")
             return f"Error: Unable to fetch current date and time. ({str(e)})"
 
     @commands.group(name="air")
