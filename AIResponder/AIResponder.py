@@ -46,6 +46,7 @@ base_planner_prompt = ChatPromptTemplate.from_messages([
 base_executor_prompt = ChatPromptTemplate.from_messages([
     ("system", "{system_message}"),
     ("system", "{instructions}"),
+    ("system", "Current Plan:\n{plan}"),
     MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{input}"),
     MessagesPlaceholder(variable_name="agent_scratchpad")
