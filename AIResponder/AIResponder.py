@@ -37,10 +37,12 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
 class DiscordCallbackHandler(BaseCallbackHandler):
-    def __init__(self, discord_message, logger):
+    def __init__(self, discord_message, logger, memory):
         self.discord_message = discord_message
         self.logger = logger
+        self.memory = memory
         self.last_update = datetime.now().timestamp()
+        self.tool_outputs = []
 
     async def on_llm_start(self, serialized, prompts, **kwargs):
         self.logger.info("LLM started generating response")
@@ -63,6 +65,9 @@ class DiscordCallbackHandler(BaseCallbackHandler):
 
     async def on_tool_end(self, output, **kwargs):
         self.logger.info(f"Tool execution completed with output: {output}")
+        self.tool_outputs.append(output)
+        if isinstance(self.memory, DiscordConversationMemory):
+            self.memory.chat_memory.add_ai_message(f"Tool output: {output}")
         await self.discord_message.edit(content="✨ *purrs contentedly*")
 
     async def on_tool_error(self, error, **kwargs):
@@ -343,7 +348,7 @@ class AIResponder(commands.Cog):
                 func=self.get_current_date_time_cst,
                 description="Get the current date and time in Central Standard Time (CST). No input needed.",
                 coroutine=self.get_current_date_time_cst,
-                return_direct=False  # Changed to False to allow agent to process the result
+                return_direct=False
             ),
             Tool(
                 name="Calculator",
@@ -566,7 +571,6 @@ class AIResponder(commands.Cog):
     async def get_current_date_time_cst(self, *args, **kwargs) -> str:
         """Get the current date and time in CST."""
         try:
-            # Get current time in CST
             current_time = datetime.now(timezone(timedelta(hours=-6)))  # CST is UTC-6
             formatted_time = current_time.strftime('%A, %Y-%m-%d %H:%M:%S %Z')
             return f"Current date and time in CST: {formatted_time}"
@@ -729,25 +733,33 @@ class AIResponder(commands.Cog):
             )
             self.logger.info("Memory initialized successfully")
 
-            # Initialize planner
+            # Initialize planner with specific prompt
             planner = load_chat_planner(
-                self.llm,
+                llm=self.llm,
                 system_prompt=PromptTemplates.get_planner_prompt()
             )
             self.logger.info("Planner initialized successfully")
 
-            # Initialize executor with base configuration
+            # Initialize executor with specific configuration
             executor = load_agent_executor(
-                self.llm,
-                self.tools,
-                verbose=True
+                llm=self.llm,
+                tools=self.tools,
+                verbose=True,
+                handle_parsing_errors=True,
+                max_iterations=3,
+                early_stopping_method="generate",
+                agent_kwargs={
+                    "system_message": PromptTemplates.get_tool_selection_prompt()
+                }
             )
             
-            # Create Plan-and-Execute agent
+            # Create Plan-and-Execute agent with aligned configuration
             self.agent_executor = PlanAndExecute(
                 planner=planner,
                 executor=executor,
-                verbose=True
+                verbose=True,
+                max_iterations=3,
+                handle_parsing_errors=True
             )
             self.logger.info("Plan-and-Execute agent created successfully")
             
@@ -814,101 +826,36 @@ class AIResponder(commands.Cog):
 
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: commands.Context) -> str:
         try:
-            # Update memory with current Discord context
-            user_info = {
-                'name': message.author.name,
-                'nickname': message.author.display_name,
-                'id': str(message.author.id)
-            }
+            # Initialize callback handler with memory
+            callbacks = [DiscordCallbackHandler(response_message, self.logger, self.memory)]
             
-            # Store Discord context in memory
-            if isinstance(self.memory, DiscordConversationMemory):
-                self.memory.store_context({
-                    'guild': {
-                        'id': str(message.guild.id) if message.guild else None,
-                        'name': message.guild.name if message.guild else None,
-                        'member_count': message.guild.member_count if message.guild else None
-                    },
-                    'channel': {
-                        'id': str(message.channel.id),
-                        'name': message.channel.name,
-                        'type': str(message.channel.type)
-                    },
-                    'user': user_info
-                })
-
-            # Add current message to memory
-            self.memory.chat_memory.add_user_message(content)
-            
-            # Create a custom callback to track execution and store results
-            class QueryExecutionTracker(BaseCallbackHandler):
-                def __init__(self, memory: DiscordConversationMemory, logger: logging.Logger):
-                    self.memory = memory
-                    self.logger = logger
-                    self.current_step = 0
-                    self.total_steps = 0
-                    
-                def on_tool_start(self, serialized: Dict[str, Any], input_str: str, **kwargs):
-                    self.logger.info(f"Starting tool: {serialized.get('name')} with input: {input_str}")
-                    
-                def on_tool_end(self, output: str, **kwargs):
-                    tool_name = kwargs.get('name', 'Unknown Tool')
-                    self.logger.info(f"Tool {tool_name} completed with output: {output}")
-                    
-                    # Store tool result in memory
-                    if isinstance(self.memory, DiscordConversationMemory):
-                        self.memory.chat_memory.add_message(
-                            SystemMessage(content=f"Tool Result ({tool_name}): {output}")
-                        )
-                        
-                        # Store in execution history
-                        self.memory.execution_history.append(
-                            ExecutionHistory(
-                                step=self.current_step,
-                                action=f"Used {tool_name}",
-                                result=output
-                            )
-                        )
-                
-                def on_agent_action(self, action: AgentAction, **kwargs):
-                    self.current_step += 1
-                    self.logger.info(f"Agent Action {self.current_step}: {action.tool}")
-                
-                def on_agent_finish(self, finish: AgentFinish, **kwargs):
-                    self.logger.info("Agent finished execution")
-                    if isinstance(self.memory, DiscordConversationMemory):
-                        self.memory.chat_memory.add_ai_message(finish.return_values['output'])
-
-            # Initialize callbacks
-            callbacks = [
-                DiscordCallbackHandler(response_message, self.logger),
-                QueryExecutionTracker(self.memory, self.logger)
-            ]
-            
-            # Get relevant context from memory
-            context = self.memory.get_relevant_context() if isinstance(self.memory, DiscordConversationMemory) else ""
-            
-            # Prepare input with context
-            input_with_context = {
-                "input": content,
-                "context": context,
-                "chat_history": self.memory.chat_memory.messages if isinstance(self.memory, DiscordConversationMemory) else []
-            }
-
-            # Execute the agent with callbacks
+            # Execute the agent
             result = await self.agent_executor.ainvoke(
-                input_with_context,
+                {
+                    "input": content,
+                    "chat_history": chat_history,
+                },
                 config={"callbacks": callbacks}
             )
 
-            # Process and return the final response
-            if "output" in result:
-                final_response = result["output"]
-                if isinstance(self.memory, DiscordConversationMemory):
-                    self.memory.chat_memory.add_ai_message(final_response)
-                return final_response
+            # Get the callback handler
+            discord_handler = callbacks[0]
             
-            return "*looks confused* Something went wrong with my execution. Could you try again? 😿"
+            # Process the result
+            if discord_handler.tool_outputs:
+                # We have tool outputs, use them in the final response
+                tool_results = "\n".join(discord_handler.tool_outputs)
+                final_response = self.clean_agent_output(result.get("output", ""))
+                if not final_response:
+                    final_response = f"*purrs* Here's what I found:\n{tool_results}"
+            else:
+                final_response = self.clean_agent_output(result.get("output", "*looks confused* Something went wrong with my execution."))
+
+            # Store the final response in memory
+            if isinstance(self.memory, DiscordConversationMemory):
+                self.memory.chat_memory.add_ai_message(final_response)
+
+            return final_response
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
