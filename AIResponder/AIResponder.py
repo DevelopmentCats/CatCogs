@@ -79,11 +79,22 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         await self.discord_message.edit(content=tool_msg)
 
     async def on_tool_end(self, output, **kwargs):
+        """Enhanced tool end handling with better logging"""
         self.logger.info(f"Tool execution completed with output: {output}")
+        
+        # Store the tool output
         self.tool_outputs.append(output)
+        
+        # Add to memory if available
         if isinstance(self.memory, DiscordConversationMemory):
+            self.memory.store_tool_result(
+                kwargs.get('name', 'Unknown Tool'),
+                output
+            )
             self.memory.chat_memory.add_ai_message(f"Tool output: {output}")
-        await self.discord_message.edit(content="✨ *purrs contentedly*")
+        
+        # Update Discord message
+        await self.discord_message.edit(content="✨ *purrs contentedly at tool result*")
 
     async def on_tool_error(self, error, **kwargs):
         self.logger.error(f"Tool Error: {str(error)}")
@@ -107,14 +118,22 @@ class DiscordCallbackHandler(BaseCallbackHandler):
         )
 
     async def on_agent_action(self, action: AgentAction, **kwargs):
-        self.logger.info(f"Agent Action: {action.tool}")
+        """Enhanced agent action logging"""
+        self.logger.info(f"Agent Action: {action.tool} with input: {action.tool_input}")
+        self.logger.info(f"Agent Action Log: {action.log}")
+        
         await self.discord_message.edit(
             content=f"🐱 *carefully considers using {action.tool}*"
         )
 
     async def on_agent_finish(self, finish: AgentFinish, **kwargs):
-        """Handle final agent response with proper validation."""
-        self.logger.info("Agent finished execution")
+        """Enhanced agent finish handling"""
+        self.logger.info(f"Agent finished with output: {finish.return_values}")
+        self.logger.info(f"Agent finish log: {finish.log}")
+        
+        # Store the final output in memory if available
+        if isinstance(self.memory, DiscordConversationMemory):
+            self.memory.chat_memory.add_ai_message(finish.return_values.get('output', ''))
 
 class DiscordContext(BaseModel):
     guild: Optional[Dict] = Field(default_factory=dict)
@@ -845,7 +864,12 @@ class AIResponder(commands.Cog):
             # Initialize callback handler with memory
             callbacks = [DiscordCallbackHandler(response_message, self.logger, self.memory)]
             
-            # Execute the agent with re-planning support
+            # Store current context for tool access
+            self.current_context = ctx
+            
+            self.logger.info(f"Starting query processing with content: {content}")
+            
+            # Execute the agent with enhanced logging
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
@@ -853,24 +877,29 @@ class AIResponder(commands.Cog):
                 },
                 config={
                     "callbacks": callbacks,
-                    "max_iterations": 3,  # Allow up to 3 planning attempts
-                    "max_execution_time": 300,  # 5 minutes max execution time
+                    "max_iterations": 3,
+                    "max_execution_time": 300,
                 }
             )
-
-            # Check if we need to re-plan
+            
+            self.logger.info(f"Agent execution result: {result}")
+            
+            # Process intermediate steps if available
             if "intermediate_steps" in result:
                 for step in result["intermediate_steps"]:
-                    if step.get("status") == "failed":
-                        await response_message.edit(content="😾 *hisses at failed step* Let me try a different approach...")
-                        # Re-planning happens automatically due to max_iterations setting
-            
+                    self.logger.info(f"Intermediate step: {step}")
+                    if isinstance(step, AgentAction):
+                        self.logger.info(f"Tool execution: {step.tool} with input {step.tool_input}")
+                    elif isinstance(step, AgentFinish):
+                        self.logger.info(f"Step completion: {step.return_values}")
+
             # Process the final result
             if result.get("output"):
                 final_response = self.clean_agent_output(result["output"])
+                self.logger.info(f"Final response: {final_response}")
             else:
-                # Handle case where all planning attempts failed
                 final_response = "*looks apologetic* Even after several attempts, I couldn't complete the task. Could you try rephrasing your request? 😿"
+                self.logger.warning("No output in result")
 
             # Store the final response in memory
             if isinstance(self.memory, DiscordConversationMemory):
