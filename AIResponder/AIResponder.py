@@ -729,17 +729,23 @@ class AIResponder(commands.Cog):
                 k=5
             )
             
-            # Create planner with custom prompt
+            # Create base system message
+            base_system_message = SystemMessage(content=PromptTemplates.get_base_system_prompt())
+            
+            # Create planner
             planner = load_chat_planner(
                 llm=self.llm,
-                system_message=PromptTemplates.get_base_system_prompt() + "\n" + PromptTemplates.get_planner_prompt()
+                extra_messages=[
+                    base_system_message,
+                    SystemMessage(content=PromptTemplates.get_planner_prompt())
+                ]
             )
             
-            # Create executor with custom prompt
+            # Create executor
             executor = load_agent_executor(
                 llm=self.llm,
                 tools=self.tools,
-                system_message=PromptTemplates.get_base_system_prompt() + "\n" + PromptTemplates.get_executor_prompt(),
+                extra_system_message=PromptTemplates.get_base_system_prompt() + "\n" + PromptTemplates.get_executor_prompt(),
                 verbose=True
             )
             
