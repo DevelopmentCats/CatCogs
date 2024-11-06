@@ -728,10 +728,6 @@ class AIResponder(commands.Cog):
                 memory_key="chat_history",
                 k=5
             )
-
-            # Get base prompts from hub
-            base_planner_prompt = hub.pull("hwchase17/plan-and-execute-planner")
-            base_executor_prompt = hub.pull("hwchase17/plan-and-execute-executor")
             
             # Customize with our PromptTemplates
             planner_prompt = base_planner_prompt.partial(
