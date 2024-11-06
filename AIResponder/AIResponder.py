@@ -758,7 +758,7 @@ class AIResponder(commands.Cog):
             # Create planner and executor
             planner = load_chat_planner(
                 llm=self.llm,
-                prompt=planner_prompt,
+                system_message=PromptTemplates.get_base_system_prompt(),
                 stop=["\nStep"]  # Stop generation at new steps for cleaner plans
             )
             
