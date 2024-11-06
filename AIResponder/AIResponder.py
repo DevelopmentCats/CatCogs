@@ -795,15 +795,11 @@ class AIResponder(commands.Cog):
 
     async def process_query(self, content: str, message: discord.Message, response_message: discord.Message, chat_history: List[HumanMessage], ctx: commands.Context) -> str:
         try:
-            # Initialize callback handler
             callbacks = [DiscordCallbackHandler(response_message, self.logger)]
-            
-            # Store current context for tool access
             self.current_context = ctx
             
             self.logger.info(f"Starting query processing with content: {content}")
             
-            # Execute the agent
             result = await self.agent_executor.ainvoke(
                 {
                     "input": content,
@@ -816,49 +812,49 @@ class AIResponder(commands.Cog):
             
             self.logger.info(f"Raw agent result: {result}")
             
-            # Extract the actual response from the result
-            if isinstance(result, dict):
-                if "output" in result:
-                    # Check if the output is a string containing an action JSON
-                    output = result["output"]
-                    if isinstance(output, str) and output.startswith('Action:'):
-                        try:
-                            # Parse the action JSON
-                            action_json = json.loads(output.replace('Action:', '').strip())
-                            if action_json.get("action") == "Final Answer":
-                                final_response = action_json.get("action_input", "")
+            # Extract the final response
+            if isinstance(result, dict) and "output" in result:
+                output = result["output"]
+                
+                # Check if it's an action string
+                if isinstance(output, str) and "action" in output:
+                    try:
+                        # Clean the action string (remove potential markdown formatting)
+                        clean_output = output.replace('```', '').strip()
+                        if clean_output.startswith('Action:'):
+                            clean_output = clean_output.replace('Action:', '', 1).strip()
+                        
+                        # Parse the action
+                        action_data = json.loads(clean_output)
+                        
+                        # Handle Final Answer
+                        if action_data.get("action") == "Final Answer":
+                            final_response = action_data.get("action_input", "")
+                            self.logger.info(f"Final Answer: {final_response}")
+                            return final_response
+                        
+                        # Handle tool action
+                        tool_name = action_data.get("action")
+                        tool_input = action_data.get("action_input", "")
+                        
+                        # Find and execute the tool
+                        tool = next((t for t in self.tools if t.name == tool_name), None)
+                        if tool:
+                            self.logger.info(f"Executing tool: {tool_name} with input: {tool_input}")
+                            if asyncio.iscoroutinefunction(tool.func):
+                                tool_result = await tool.func(tool_input)
                             else:
-                                # If it's a tool action, get the tool result
-                                tool_name = action_json.get("action")
-                                tool_input = action_json.get("action_input")
-                                self.logger.info(f"Executing tool: {tool_name} with input: {tool_input}")
-                                
-                                # Find and execute the appropriate tool
-                                tool = next((t for t in self.tools if t.name == tool_name), None)
-                                if tool:
-                                    if asyncio.iscoroutinefunction(tool.func):
-                                        tool_result = await tool.func(tool_input)
-                                    else:
-                                        tool_result = tool.func(tool_input)
-                                    final_response = tool_result
-                                else:
-                                    final_response = "*looks confused* I couldn't find the right tool for that task."
-                        except json.JSONDecodeError:
-                            final_response = output
-                    else:
-                        final_response = output
-                else:
-                    final_response = "*tilts head* I didn't get a clear answer from my thinking process."
-            else:
-                final_response = "*looks puzzled* I received an unexpected response format."
-
-            self.logger.info(f"Final response: {final_response}")
+                                tool_result = tool.func(tool_input)
+                            return tool_result
+                        
+                    except json.JSONDecodeError as e:
+                        self.logger.error(f"Error parsing action JSON: {e}")
+                        return "*looks confused* I had trouble understanding my own response. Could you try again?"
+                
+                # If not an action, return the output directly
+                return output
             
-            # Store the final response in memory
-            if isinstance(self.memory, DiscordConversationMemory):
-                self.memory.chat_memory.add_ai_message(final_response)
-
-            return final_response
+            return "*tilts head* I didn't get a clear answer. Could you try asking in a different way?"
 
         except Exception as e:
             self.logger.error(f"Error in process_query: {str(e)}", exc_info=True)
