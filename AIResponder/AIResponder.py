@@ -708,7 +708,6 @@ class AIResponder(commands.Cog):
         """Initialize or update LangChain components."""
         try:
             # Initialize LLM
-            self.logger.info(f"Initializing DeepInfra LLM with model: {await self.config.model()}")
             self.llm = ChatOpenAI(
                 model=await self.config.model(),
                 api_key=await self.config.api_key(),
@@ -716,12 +715,10 @@ class AIResponder(commands.Cog):
                 temperature=0.7,
                 streaming=True
             )
-            self.logger.info("LLM initialized successfully")
-
-            # Initialize tools
+            
+            # Setup tools
             self.tools = await self.setup_tools()
-            self.logger.info(f"Tools initialized: {[tool.name for tool in self.tools]}")
-
+            
             # Initialize memory
             self.memory = DiscordConversationMemory(
                 logger=self.logger,
@@ -731,50 +728,46 @@ class AIResponder(commands.Cog):
                 memory_key="chat_history",
                 k=5
             )
-            self.logger.info("Memory initialized successfully")
-
-            # Create combined planner prompt
-            planner_system_prompt = (
-                f"{PromptTemplates.get_base_system_prompt()}\n\n"
-                f"{PromptTemplates.get_planner_prompt()}"
-            )
-
-            # Initialize planner with combined prompt
+            
+            # Create planner with custom prompt
+            planner_prompt = ChatPromptTemplate.from_messages([
+                ("system", PromptTemplates.get_base_system_prompt()),
+                ("system", PromptTemplates.get_planner_prompt()),
+                MessagesPlaceholder(variable_name="messages")
+            ])
+            
             planner = load_chat_planner(
                 llm=self.llm,
-                system_prompt=planner_system_prompt
+                system_prompt=planner_prompt
             )
-            self.logger.info("Planner initialized successfully")
-
-            # Create executor prompt template
+            
+            # Create executor with custom prompt
             executor_prompt = ChatPromptTemplate.from_messages([
                 ("system", PromptTemplates.get_base_system_prompt()),
                 ("system", PromptTemplates.get_executor_prompt()),
-                ("human", "{input}"),
-                MessagesPlaceholder(variable_name="agent_scratchpad"),
+                MessagesPlaceholder(variable_name="messages")
             ])
-
-            # Initialize executor with updated configuration
+            
             executor = load_agent_executor(
                 llm=self.llm,
                 tools=self.tools,
-                verbose=True,
-                agent=executor_prompt  # Changed from agent_kwargs to agent
+                prompt=executor_prompt,
+                verbose=True
             )
-            self.logger.info("Executor initialized successfully")
             
             # Create Plan-and-Execute agent
             self.agent_executor = PlanAndExecute(
                 planner=planner,
                 executor=executor,
+                memory=self.memory,
                 verbose=True
             )
-            self.logger.info("Plan-and-Execute agent created successfully")
             
+            self.logger.info("LangChain components initialized successfully")
             return True
-
+            
         except Exception as e:
-            self.logger.error(f"Error creating Plan-and-Execute agent: {str(e)}")
+            self.logger.error(f"Error initializing LangChain components: {str(e)}")
             return False
 
     @commands.Cog.listener()
