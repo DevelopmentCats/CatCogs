@@ -586,12 +586,13 @@ class AIResponder(commands.Cog):
     async def get_current_date_time_cst(self, *args, **kwargs) -> str:
         """Get the current date and time in CST."""
         try:
+            # Use timezone-aware datetime
             current_time = datetime.now(timezone(timedelta(hours=-6)))  # CST is UTC-6
-            formatted_time = current_time.strftime('%A, %Y-%m-%d %H:%M:%S %Z')
-            return f"Current date and time in CST: {formatted_time}"
+            formatted_time = current_time.strftime('%A, %B %d, %Y %I:%M:%S %p CST')
+            return f"*checks internal clock* The current time is {formatted_time}"
         except Exception as e:
             self.logger.error(f"Error getting time: {str(e)}")
-            return f"Error: Unable to fetch current date and time. ({str(e)})"
+            return f"*hisses at clock* Sorry, I had trouble checking the time. ({str(e)})"
 
     @commands.group(name="air")
     @commands.guild_only()
@@ -993,7 +994,7 @@ class AIResponder(commands.Cog):
             self.logger.error(f"Error retrieving channel history: {str(e)}", exc_info=True)
             return f"Error: Unable to retrieve chat history. {str(e)}"
 
-    def process_tool_result(self, tool_name: str, result: Any) -> dict:
+    async def process_tool_result(self, tool_name: str, result: Any) -> dict:
         """Process and clean tool results for better response generation."""
         try:
             # Convert result to string if it's not already
@@ -1009,14 +1010,22 @@ class AIResponder(commands.Cog):
                 "metadata": {}
             }
 
-            # Remove debug information and clean result
-            cleaned_result = re.sub(r'\[DEBUG:.*?\]', '', result)
-            cleaned_result = cleaned_result.strip()
+            # Clean the result first
+            cleaned_result = re.sub(r'\[DEBUG:.*?\]', '', result).strip()
 
-            # Truncate long results
-            if len(cleaned_result) > 1500:
-                cleaned_result = cleaned_result[:1497] + "..."
+            # Special handling for Current Date and Time tool
+            if tool_name == "Current Date and Time (CST)":
+                processed_result.update({
+                    "type": "datetime",
+                    "formatted_result": cleaned_result,
+                    "metadata": {
+                        "source": "system_clock",
+                        "timezone": "CST"
+                    }
+                })
+                return processed_result
 
+            # Keep existing DuckDuckGo processing logic
             if tool_name == "DuckDuckGo Search":
                 # Keep existing DuckDuckGo processing logic
                 search_metadata = {
