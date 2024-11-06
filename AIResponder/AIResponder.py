@@ -757,9 +757,7 @@ class AIResponder(commands.Cog):
             
             # Create planner and executor
             planner = load_chat_planner(
-                llm=self.llm,
-                system_message=PromptTemplates.get_base_system_prompt(),
-                stop=["\nStep"]  # Stop generation at new steps for cleaner plans
+                llm=self.llm
             )
             
             executor = load_agent_executor(
@@ -767,7 +765,7 @@ class AIResponder(commands.Cog):
                 tools=self.tools,
                 prompt=executor_prompt,
                 verbose=True,
-                handle_parsing_errors=True  # Enable better error handling
+                handle_parsing_errors=True
             )
             
             # Create Plan-and-Execute agent with re-planning capabilities
@@ -778,7 +776,7 @@ class AIResponder(commands.Cog):
                 verbose=True,
                 max_iterations=3,  # Allow up to 3 planning attempts
                 max_execution_time=300,  # 5 minutes max execution time
-                return_intermediate_steps=True,  # Return all steps for better monitoring
+                return_intermediate_steps=True  # Return all steps for better monitoring
             )
             
             self.logger.info("LangChain components initialized successfully")
