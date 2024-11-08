@@ -104,6 +104,7 @@ Rules:
     ]:
         """Plan next actions based on messages."""
         logger.info(format_log("AGENT", "Starting new conversation planning", LogColors.INFO))
+        logger.debug(format_log("INPUT", f"Messages history length: {len(messages)}", LogColors.SUCCESS))
         logger.debug(format_log("INPUT", f"Last message: {messages[-1].content}", LogColors.SUCCESS))
 
         if not messages:
@@ -128,7 +129,7 @@ Rules:
                 
                 logger.info(format_log("MODEL", "Getting model response", LogColors.THOUGHT))
                 response = await self._get_model_response(prompt_messages)
-                logger.debug(format_log("RESPONSE", f"Raw response: {response}", LogColors.SUCCESS))
+                logger.debug(format_log("RESPONSE", f"Raw model response: {response}", LogColors.SUCCESS))
                 
                 action_or_finish = await self._process_response(
                     response, messages
@@ -136,6 +137,9 @@ Rules:
                 
                 if action_or_finish:
                     if isinstance(action_or_finish, AgentAction):
+                        logger.info(format_log("PLAN", 
+                            f"Thought: {action_or_finish.log}", 
+                            LogColors.THOUGHT))
                         logger.info(format_log("ACTION", 
                             f"Tool: {action_or_finish.tool}, Input: {action_or_finish.tool_input}", 
                             LogColors.TOOL))
@@ -144,6 +148,8 @@ Rules:
                             raise ValidationError(f"Invalid arguments for tool: {action_or_finish.tool}")
                     else:
                         logger.info(format_log("FINISH", "Agent completed with final answer", LogColors.SUCCESS))
+                        logger.info(format_log("THOUGHT", f"Final thought: {action_or_finish.log}", LogColors.THOUGHT))
+                        logger.info(format_log("ANSWER", f"Final answer: {action_or_finish.return_values['output']}", LogColors.SUCCESS))
                     
                     yield action_or_finish
                     if isinstance(action_or_finish, AgentFinish):
