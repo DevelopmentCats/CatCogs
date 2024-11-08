@@ -132,13 +132,17 @@ class LlamaAgent(BaseAgent):
         """Get response from model with timeout."""
         response = ""
         try:
-            async with asyncio.timeout(self.TOOL_TIMEOUT):
+            # Use asyncio.wait_for instead of timeout context manager
+            async def get_response():
                 async for chunk in self.model.generate_response(
                     str(prompt_messages[-1].content),
                     context=str(prompt_messages[:-1])
                 ):
+                    nonlocal response
                     response += chunk
-            return response
+                return response
+
+            return await asyncio.wait_for(get_response(), timeout=self.TOOL_TIMEOUT)
         except asyncio.TimeoutError:
             raise ModelGenerationError("Model response timeout exceeded")
         except Exception as e:
@@ -256,7 +260,8 @@ class LlamaAgent(BaseAgent):
     async def _check_rate_limits(self) -> None:
         """Check rate limits with proper error handling."""
         try:
-            await self.rate_limiter.check_rate_limit()
+            # Use a default user ID for agent rate limiting
+            await self.rate_limiter.check_rate_limit("agent")
         except Exception as e:
             logger.warning(f"Rate limit check failed: {str(e)}")
             # Still allow execution but with a warning
