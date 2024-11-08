@@ -29,6 +29,9 @@ class ConfigManager:
         
         Args:
             api_key: API key to set, or 'clear' to remove
+        
+        Raises:
+            ConfigError: If setting the API key fails
         """
         try:
             if api_key.lower() == 'clear':
@@ -39,7 +42,9 @@ class ConfigManager:
                     raise ConfigError("API key cannot be empty")
                 await self.config.api_key.set(api_key.strip())
         except Exception as e:
-            raise ConfigError(f"Failed to set API key: {str(e)}")
+            if isinstance(e, ConfigError):
+                raise
+            raise ConfigError(f"Failed to set API key: {str(e)}", original_error=e)
     
     async def get_model_name(self) -> str:
         """Get model name."""
