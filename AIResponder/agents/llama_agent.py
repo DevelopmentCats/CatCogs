@@ -14,6 +14,8 @@ import asyncio
 from ..utils.logging import setup_logger, format_log, LogColors
 from ..responses.rate_limiter import RateLimiter
 from colorama import Fore, Style, init
+from datetime import datetime
+import pytz
 
 # Initialize colorama for cross-platform color support
 init()
@@ -51,9 +53,21 @@ class LlamaAgent(BaseAgent):
         if len(tool_names) != len(set(tool_names)):
             raise ValidationError("Tool names must be unique")
 
+    def _get_current_time_info(self) -> str:
+        """Get formatted current date and time information."""
+        cst = pytz.timezone('America/Chicago')
+        now = datetime.now(cst)
+        
+        return f"""Current Time Information:
+- Date: {now.strftime('%B %d, %Y')}
+- Day: {now.strftime('%A')}
+- Time: {now.strftime('%I:%M %p')} CST"""
+
     def _create_prompt(self) -> ChatPromptTemplate:
         """Create the agent prompt template."""
         system_template = """You are a helpful AI assistant with access to various tools.
+
+{current_time}
 
 Available tools:
 {tool_descriptions}
@@ -314,7 +328,9 @@ Output: "*stretches languidly* I suppose you'll be pleased to know it will be 75
     def _prepare_prompt_messages(self, tool_descriptions: str, messages: List[BaseMessage]) -> List[BaseMessage]:
         """Prepare messages for the prompt."""
         try:
+            current_time = self._get_current_time_info()
             return self.prompt.format_messages(
+                current_time=current_time,
                 tool_descriptions=tool_descriptions,
                 chat_history=messages[:-1],
                 input=messages[-1].content
