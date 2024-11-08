@@ -90,10 +90,12 @@ class AIResponder(commands.Cog):
                 self.cleanup_task = asyncio.create_task(self._cleanup_loop())
                 
         except Exception as e:
-            log.error(f"Failed to initialize: {e}")
+            log.error(f"Failed to initialize: {str(e)}")
             if self.model:
                 await self.model.cleanup()
                 self.model = None
+            # Re-raise as AIResponderError with proper message
+            raise AIResponderError(f"Initialization failed: {str(e)}")
 
     async def _cleanup_loop(self) -> None:
         """Periodically clean up expired conversations."""
