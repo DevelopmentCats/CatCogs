@@ -53,6 +53,10 @@ class ToolManager:
             ToolError: If tool initialization fails
         """
         try:
+            # Check if tool is already initialized
+            if tool_class.name in self.tools:
+                return
+                
             tool = tool_class(self.bot)
             if hasattr(tool, 'initialize'):
                 await tool.initialize()
