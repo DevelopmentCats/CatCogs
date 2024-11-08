@@ -33,10 +33,8 @@ class ConfigManager:
     async def initialize(self) -> None:
         """Initialize configuration with defaults."""
         try:
-            await self.config.register_global()
-            for key, value in self._defaults.items():
-                if not await self.config.get_raw(key, default=None):
-                    await self.config.set_raw(key, value=value)
+            # Register all defaults at once
+            await self.config.register_global(**self._defaults)
         except Exception as e:
             raise ConfigError(f"Failed to initialize config: {str(e)}")
     
