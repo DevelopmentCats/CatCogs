@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, AsyncGenerator, Optional, Type
+from typing import List, Dict, Any, AsyncGenerator, Optional, Type, Union
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
