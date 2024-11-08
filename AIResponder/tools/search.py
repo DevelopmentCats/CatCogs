@@ -67,6 +67,19 @@ class WebSearch(AIResponderTool):
         if any(pattern in query.lower() for pattern in harmful_patterns):
             raise ToolError(self.name, "Query contains invalid patterns")
             
+    async def _process_response_text(self, response_text: str) -> Dict[str, Any]:
+        """Process DuckDuckGo response text into usable data."""
+        try:
+            # Remove any JSONP wrapper if present
+            text = response_text.strip()
+            if text.startswith('ddg('):
+                text = text[4:-2]  # Remove ddg( and );
+                
+            # Parse the JSON data
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ToolError(self.name, f"Failed to parse search results: {str(e)}")
+            
     def _process_results(self, data: Dict[str, Any]) -> List[str]:
         """Process and format search results.
         
@@ -137,12 +150,16 @@ class WebSearch(AIResponderTool):
                     params={
                         "q": query,
                         "format": "json",
+                        "no_redirect": 1,
                         "no_html": 1,
                         "skip_disambig": 1,
-                        "no_redirect": 1,
+                        "t": "AIResponderBot",  # User agent identifier
                         **({"appid": self.api_key} if self.api_key else {})
                     },
-                    timeout=self.TIMEOUT
+                    headers={
+                        "Accept": "application/json, application/javascript",
+                        "User-Agent": "AIResponderBot/1.0"
+                    }
                 ) as response:
                     if response.status == 429:  # Rate limited
                         if attempt < self.MAX_RETRIES - 1:
@@ -156,11 +173,10 @@ class WebSearch(AIResponderTool):
                             f"API request failed: {response.status}"
                         )
                         
-                    try:
-                        data = await response.json()
-                    except json.JSONDecodeError:
-                        raise ToolError(self.name, "Invalid response from search API")
-                        
+                    # Get response text and process it
+                    response_text = await response.text()
+                    data = await self._process_response_text(response_text)
+                    
                     # Process results
                     results = self._process_results(data)
                     
