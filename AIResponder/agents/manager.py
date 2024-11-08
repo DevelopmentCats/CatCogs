@@ -126,10 +126,24 @@ class AgentManager:
                         logger.info(format_log("MANAGER", f"Tool result: {result[:100]}...", Fore.GREEN))
                         yield f"Tool result: {result}\n"
                         
-                        # Add tool result to messages with special flag
+                        # Create analysis message for the tool result
+                        analysis_prompt = (
+                            f"Tool '{step.tool}' returned the following result:\n\n{result}\n\n"
+                            "Please analyze this information and determine if it:"
+                            "\n1. Fully answers the original question"
+                            "\n2. Requires additional information from other tools"
+                            "\n3. Is sufficient for a final response"
+                        )
+                        
+                        # Add tool result and analysis prompt to messages
                         tool_message = AIMessage(content=result)
                         setattr(tool_message, 'tool_result', True)
+                        setattr(tool_message, 'tool_name', step.tool)
+                        setattr(tool_message, 'tool_input', step.tool_input)
                         messages.append(tool_message)
+                        
+                        analysis_message = HumanMessage(content=analysis_prompt)
+                        messages.append(analysis_message)
                     else:
                         error_msg = f"Tool not found: {step.tool}"
                         logger.error(format_log("MANAGER", error_msg, Fore.RED))
