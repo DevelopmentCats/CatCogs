@@ -11,7 +11,7 @@ from ..utils.errors import (
 )
 import json
 import asyncio
-import logging
+from ..utils.logging import setup_logger, format_log, LogColors
 from ..responses.rate_limiter import RateLimiter
 from colorama import Fore, Style, init
 
@@ -19,28 +19,7 @@ from colorama import Fore, Style, init
 init()
 
 # Configure root logger
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s [%(name)s] %(message)s',
-    datefmt='[%H:%M:%S]'
-)
-
-# Get logger for this module
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-# Ensure handler is added only once
-if not logger.handlers:
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter(
-        '%(asctime)s %(levelname)s [%(name)s] %(message)s',
-        '[%H:%M:%S]'
-    ))
-    logger.addHandler(console_handler)
-
-def format_log(category: str, message: str, color: str = Fore.WHITE) -> str:
-    """Format log message with consistent styling."""
-    return f"{color}[{category}]{Style.RESET_ALL} {message}"
+logger = setup_logger(__name__)
 
 class LlamaAgent(BaseAgent):
     """Agent implementation for Llama models."""
@@ -124,14 +103,14 @@ Rules:
         Union[AgentAction, AgentFinish], None
     ]:
         """Plan next actions based on messages."""
-        logger.info(format_log("AGENT", "Starting new conversation planning", Fore.CYAN))
-        logger.debug(format_log("INPUT", f"Last message: {messages[-1].content}", Fore.GREEN))
+        logger.info(format_log("AGENT", "Starting new conversation planning", LogColors.INFO))
+        logger.debug(format_log("INPUT", f"Last message: {messages[-1].content}", LogColors.SUCCESS))
 
         if not messages:
             raise ValidationError("Messages list cannot be empty")
             
         if len(messages) > self.MAX_HISTORY_LENGTH:
-            logger.info(format_log("HISTORY", f"Truncating history from {len(messages)} to {self.MAX_HISTORY_LENGTH}", Fore.YELLOW))
+            logger.info(format_log("HISTORY", f"Truncating history from {len(messages)} to {self.MAX_HISTORY_LENGTH}", LogColors.WARNING))
             messages = messages[-self.MAX_HISTORY_LENGTH:]
             
         tool_descriptions = self._get_tool_descriptions()
@@ -142,14 +121,14 @@ Rules:
                 await self._check_rate_limits()
                 self._increment_iteration()
                 
-                logger.debug(format_log("PROMPT", "Preparing prompt messages", Fore.BLUE))
+                logger.debug(format_log("PROMPT", "Preparing prompt messages", LogColors.TOOL))
                 prompt_messages = self._prepare_prompt_messages(
                     tool_descriptions, messages
                 )
                 
-                logger.info(format_log("MODEL", "Getting model response", Fore.MAGENTA))
+                logger.info(format_log("MODEL", "Getting model response", LogColors.THOUGHT))
                 response = await self._get_model_response(prompt_messages)
-                logger.debug(format_log("RESPONSE", f"Raw response: {response}", Fore.GREEN))
+                logger.debug(format_log("RESPONSE", f"Raw response: {response}", LogColors.SUCCESS))
                 
                 action_or_finish = await self._process_response(
                     response, messages
@@ -159,12 +138,12 @@ Rules:
                     if isinstance(action_or_finish, AgentAction):
                         logger.info(format_log("ACTION", 
                             f"Tool: {action_or_finish.tool}, Input: {action_or_finish.tool_input}", 
-                            Fore.YELLOW))
+                            LogColors.TOOL))
                         
                         if not await self.validate_tool_args(action_or_finish):
                             raise ValidationError(f"Invalid arguments for tool: {action_or_finish.tool}")
                     else:
-                        logger.info(format_log("FINISH", "Agent completed with final answer", Fore.GREEN))
+                        logger.info(format_log("FINISH", "Agent completed with final answer", LogColors.SUCCESS))
                     
                     yield action_or_finish
                     if isinstance(action_or_finish, AgentFinish):
@@ -174,10 +153,10 @@ Rules:
                 retry_count += 1
                 logger.warning(format_log("RETRY", 
                     f"Attempt {retry_count}/{self.MAX_RETRIES}: {str(e)}", 
-                    Fore.RED))
+                    LogColors.WARNING))
                 
                 if retry_count >= self.MAX_RETRIES:
-                    logger.error(format_log("ERROR", f"Max retries reached: {str(e)}", Fore.RED))
+                    logger.error(format_log("ERROR", f"Max retries reached: {str(e)}", LogColors.ERROR))
                     raise
                 
                 messages.append(AIMessage(content=f"Error occurred: {str(e)}. Retrying..."))
@@ -223,19 +202,19 @@ Rules:
         self, tool: AIResponderTool, action_input: str
     ) -> str:
         """Execute tool with timeout and error handling."""
-        logger.info(format_log("TOOL", f"Executing {tool.name} with input: {action_input}", Fore.CYAN))
+        logger.info(format_log("TOOL", f"Executing {tool.name} with input: {action_input}", LogColors.TOOL))
         try:
             async with asyncio.timeout(self.TOOL_TIMEOUT):
                 result = await tool._arun(action_input)
-                logger.info(format_log("TOOL", f"Success: {tool.name}", Fore.GREEN))
+                logger.info(format_log("TOOL", f"Success: {tool.name}", LogColors.SUCCESS))
                 return result
         except asyncio.TimeoutError:
-            logger.error(format_log("TIMEOUT", f"Tool {tool.name} exceeded {self.TOOL_TIMEOUT}s", Fore.RED))
+            logger.error(format_log("TIMEOUT", f"Tool {tool.name} exceeded {self.TOOL_TIMEOUT}s", LogColors.ERROR))
             raise ToolExecutionError(
                 tool.name, "Tool execution timeout exceeded"
             )
         except Exception as e:
-            logger.error(format_log("ERROR", f"Tool {tool.name} failed: {str(e)}", Fore.RED))
+            logger.error(format_log("ERROR", f"Tool {tool.name} failed: {str(e)}", LogColors.ERROR))
             raise ToolExecutionError(
                 tool.name, str(e), original_error=e
             )
