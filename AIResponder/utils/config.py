@@ -25,14 +25,17 @@ class ConfigManager:
         Args:
             bot_config: Red bot Config instance
         """
+        if not isinstance(bot_config, Config):
+            raise ConfigError("Invalid config object provided")
         self.config = bot_config
-        self._defaults = defaults
+        self._defaults = defaults.copy()
         
     async def initialize(self) -> None:
         """Initialize configuration with defaults."""
         try:
-            defaults_copy = self._defaults.copy()
-            await self.config.register_global(**defaults_copy)
+            if not hasattr(self.config, "register_global"):
+                raise ConfigError("Config object not properly initialized")
+            await self.config.register_global(**self._defaults)
         except Exception as e:
             raise ConfigError(f"Failed to initialize config: {str(e)}")
     
