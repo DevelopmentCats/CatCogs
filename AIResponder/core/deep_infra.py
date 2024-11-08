@@ -40,24 +40,25 @@ class DeepInfraModel(BaseModel):
                     "Content-Type": "application/json"
                 }
             )
-            # Test connection with a simple model info request
-            async with self.session.get(
-                "https://api.deepinfra.com/v1/models"
+            # Test connection with a simple inference request
+            test_payload = {
+                "input": "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\ntest<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+                "stream": False,
+                "max_new_tokens": 1
+            }
+            async with self.session.post(
+                self._api_endpoint,
+                json=test_payload
             ) as response:
                 if response.status != 200:
+                    error_body = await response.text()
                     raise ModelInitializationError(
-                        f"API connection test failed: {response.status}"
-                    )
-                
-                # Validate model availability
-                models = await response.json()
-                if not any(self._model_name in model.get("id", "") for model in models):
-                    raise ModelInitializationError(
-                        f"Model {self._model_name} not found in available models"
+                        f"API connection test failed: {response.status} - {error_body}"
                     )
         except Exception as e:
             if self.session:
                 await self.session.close()
+                self.session = None
             raise ModelInitializationError(f"Failed to initialize: {str(e)}")
     
     def _prepare_request_payload(
