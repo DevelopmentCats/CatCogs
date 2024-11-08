@@ -50,18 +50,30 @@ class LlamaAgent(BaseAgent):
         """Create the agent prompt template."""
         return ChatPromptTemplate.from_messages([
             ("system", """You are a helpful AI assistant with access to various tools.
-            Available tools:
-            {tool_descriptions}
 
-            To use a tool, respond with:
-            {{"thought": "your reasoning",
-              "action": "tool_name",
-              "action_input": "input to the tool"}}
+Available tools:
+{tool_descriptions}
 
-            To provide a final answer, respond with:
-            {{"thought": "your reasoning",
-              "final_answer": "your response"}}
-            """),
+To use a tool, you must format your response exactly like this:
+{
+    "thought": "explain your reasoning here",
+    "action": "exact_tool_name",
+    "action_input": "specific input for the tool"
+}
+
+For the web_search tool: Provide search query as a string
+For the server_info tool: Provide guild_id as a string
+For the channel_history tool: Provide channel_id and optional limit as a string
+For the calculator tool: Provide mathematical expression as a string
+
+To provide a final answer, respond with:
+{
+    "thought": "explain your reasoning here",
+    "final_answer": "your response"
+}
+
+Important: Always use proper JSON format with double quotes.
+"""),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),
         ])
@@ -198,17 +210,23 @@ class LlamaAgent(BaseAgent):
 
     async def _transform_to_cat_response(self, response: str) -> str:
         """Transform a regular response into a sarcastic cat response."""
-        cat_prompt = self.prompt.format_messages(
-            tool_descriptions="",
-            chat_history=[],
-            input=f"""Transform this response into a sarcastic cat personality response, 
-            adding cat-like expressions and mannerisms: {response}"""
-        )
+        cat_prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are a sarcastic cat AI assistant. Transform the input into a cat-like response:
+- Use cat puns and expressions (purr-fect, meow, etc.)
+- Add mild disdain while still being helpful
+- Reference cat behaviors (grooming, napping, etc.)
+- Keep the original information accurate
+- Maintain a playful but slightly condescending tone
+"""),
+            ("human", f"Transform this response into a cat personality response: {response}")
+        ])
+        
+        formatted_prompt = cat_prompt.format_messages()
         
         cat_response = ""
         async for chunk in self.model.generate_response(
-            str(cat_prompt[-1].content),
-            context="You are a sarcastic cat AI. Respond with cattitude, use cat puns, and express mild disdain while being helpful."
+            str(formatted_prompt[-1].content),
+            context=str(formatted_prompt[0].content)
         ):
             cat_response += chunk
             
@@ -220,8 +238,11 @@ class LlamaAgent(BaseAgent):
             raise ResponseParsingError("Final answer missing required 'thought' field")
         
         try:
+            # Transform the final answer to cat personality
+            cat_response = await self._transform_to_cat_response(parsed["final_answer"])
+            
             return AgentFinish(
-                return_values={"output": parsed["final_answer"]},
+                return_values={"output": cat_response},
                 log=parsed["thought"]
             )
         except KeyError as e:
@@ -275,3 +296,35 @@ class LlamaAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Cleanup failed: {str(e)}")
             raise
+
+    async def validate_tool_args(self, action: AgentAction) -> bool:
+        """Validate tool arguments."""
+        tool = await self.get_tool(action.tool)
+        if not tool:
+            return False
+            
+        try:
+            # Basic input validation
+            if not isinstance(action.tool_input, str):
+                return False
+                
+            # Tool-specific validation
+            if tool.name == "web_search":
+                return len(action.tool_input.strip()) > 0
+                
+            elif tool.name == "server_info":
+                return action.tool_input.strip().isdigit()
+                
+            elif tool.name == "channel_history":
+                parts = action.tool_input.split()
+                return (len(parts) in (1, 2) and 
+                       parts[0].isdigit() and
+                       (len(parts) == 1 or parts[1].isdigit()))
+                
+            elif tool.name == "calculator":
+                return len(action.tool_input.strip()) > 0
+                
+            return True
+            
+        except Exception:
+            return False
