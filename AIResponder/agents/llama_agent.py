@@ -87,10 +87,10 @@ When you can answer directly, respond with a JSON object containing:
 - final_answer: Your complete response
 
 Example tool use:
-{{"thought": "I need to search for current information", "action": "web_search", "action_input": "latest news"}}
+{{"thought": "I need current information", "action": "web_search", "action_input": "search query"}}
 
 Example direct answer:
-{{"thought": "Based on the search results showing flooding in St. Louis", "final_answer": "Here is what's happening..."}}
+{{"thought": "Based on the search results", "final_answer": "Here is a concise summary..."}}
 
 Rules:
 1. Use tools ONLY when you need external information
@@ -99,7 +99,8 @@ Rules:
 4. Every response must be valid JSON with double quotes
 5. No additional text before or after the JSON
 6. Don't repeat searches for similar information
-7. Combine all available information before making additional searches"""
+7. Combine all available information before making additional searches
+8. Keep responses clear and concise when possible"""
 
         return ChatPromptTemplate.from_messages([
             ("system", system_template),
@@ -318,16 +319,18 @@ Guidelines for the transformation:
 - Include mild sarcasm and playful condescension where appropriate
 - Keep the original message's information and intent completely intact
 - Avoid overusing cat puns or making the response feel forced
+- Prefer concise responses while maintaining clarity
+- Break naturally into multiple messages if response length exceeds 1800 characters
 
 Remember: Your goal is a natural transformation that feels like it comes from an intelligent, slightly sarcastic cat who happens to be sharing their knowledge.
 
-Bad example (too forced):
-Input: "The temperature will be 75°F tomorrow"
-Output: "*paw-sitively excited* Purr-fect weather fur tomorrow! *meow meow* It'll be 75°F! Time fur a cat nap in the sun! Meow!"
+Bad example (too verbose):
+Input: "The weather report"
+Output: "*lengthy dramatic monologue about the weather with excessive detail*"
 
-Good example (natural and sophisticated):
-Input: "The temperature will be 75°F tomorrow"
-Output: "*stretches languidly* I suppose you'll be pleased to know it will be 75°F tomorrow. Perfect for my afternoon sunbathing ritual... not that I'm sharing my spot."""),
+Good example (concise):
+Input: "The weather report"
+Output: "*glances out window* Sunny and 75°F. Adequate for my sunbathing needs."""),
             ("human", f"Transform this response while preserving its exact meaning: {response}")
         ])
         
@@ -351,8 +354,11 @@ Output: "*stretches languidly* I suppose you'll be pleased to know it will be 75
             # Transform the final answer to cat personality
             cat_response = await self._transform_to_cat_response(parsed["final_answer"])
             
+            # Split response if needed
+            response_chunks = self._split_response(cat_response)
+            
             return AgentFinish(
-                return_values={"output": cat_response},
+                return_values={"output": response_chunks},
                 log=parsed["thought"]
             )
         except KeyError as e:
@@ -440,3 +446,37 @@ Output: "*stretches languidly* I suppose you'll be pleased to know it will be 75
             
         except Exception:
             return False
+
+    def _split_response(self, response: str, max_length: int = 1900) -> List[str]:
+        """Split response into chunks that respect message boundaries."""
+        if len(response) <= max_length:
+            return [response]
+            
+        chunks = []
+        current_chunk = ""
+        
+        # Split on sentence boundaries
+        sentences = response.replace("\n", " \n ").split(". ")
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+                
+            # Add period back if it was removed during split
+            if not sentence.endswith((".","!","?")):
+                sentence += "."
+                
+            test_chunk = current_chunk + " " + sentence if current_chunk else sentence
+            
+            if len(test_chunk) > max_length:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = sentence
+            else:
+                current_chunk = test_chunk
+                
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+            
+        return chunks
