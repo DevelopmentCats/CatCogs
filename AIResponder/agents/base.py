@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, AsyncGenerator, Optional
+from typing import AsyncGenerator, List, Optional, Union
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import BaseMessage
-from ..tools import AIResponderTool
+from ..utils.errors import AgentError
 
 class BaseAgent(ABC):
     """Base class for AI Responder agents.
@@ -11,14 +11,14 @@ class BaseAgent(ABC):
     for AI agents that can process messages, plan actions, and handle tool interactions.
     
     Attributes:
-        tools (List[AIResponderTool]): Available tools for the agent to use
+        tools (List['AIResponderTool']): Available tools for the agent to use
         model (Any): The underlying language model for the agent
         max_iterations (int): Maximum number of action iterations before forcing completion
         memory_key (str): Key used for storing memory context
     """
     
     def __init__(self, 
-                 tools: List[AIResponderTool], 
+                 tools: List['AIResponderTool'], 
                  model: Any,
                  max_iterations: int = 10,
                  memory_key: str = "chat_history"):
@@ -30,7 +30,7 @@ class BaseAgent(ABC):
         
     @abstractmethod
     async def plan(self, messages: List[BaseMessage]) -> AsyncGenerator[
-        AgentAction | AgentFinish, None
+        Union[AgentAction, AgentFinish], None
     ]:
         """Plan next actions based on messages.
         
@@ -76,7 +76,7 @@ class BaseAgent(ABC):
         if self._iteration_count >= self.max_iterations:
             raise RuntimeError(f"Agent exceeded maximum iterations ({self.max_iterations})")
     
-    async def get_tool(self, tool_name: str) -> Optional[AIResponderTool]:
+    async def get_tool(self, tool_name: str) -> Optional['AIResponderTool']:
         """Get a tool by name.
         
         Args:
