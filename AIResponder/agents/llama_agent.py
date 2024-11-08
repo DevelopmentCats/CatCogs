@@ -55,11 +55,11 @@ Available tools:
 {tool_descriptions}
 
 To use a tool, you must format your response exactly like this:
-{
+{{
     "thought": "explain your reasoning here",
     "action": "exact_tool_name",
     "action_input": "specific input for the tool"
-}
+}}
 
 For the web_search tool: Provide search query as a string
 For the server_info tool: Provide guild_id as a string
@@ -67,10 +67,10 @@ For the channel_history tool: Provide channel_id and optional limit as a string
 For the calculator tool: Provide mathematical expression as a string
 
 To provide a final answer, respond with:
-{
+{{
     "thought": "explain your reasoning here",
     "final_answer": "your response"
-}
+}}
 
 Important: Always use proper JSON format with double quotes.
 """),
