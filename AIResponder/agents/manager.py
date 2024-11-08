@@ -125,6 +125,11 @@ class AgentManager:
                         result = await tool._arun(step.tool_input)
                         logger.info(format_log("MANAGER", f"Tool result: {result[:100]}...", Fore.GREEN))
                         yield f"Tool result: {result}\n"
+                        
+                        # Add tool result to messages with special flag
+                        tool_message = AIMessage(content=result)
+                        setattr(tool_message, 'tool_result', True)
+                        messages.append(tool_message)
                     else:
                         error_msg = f"Tool not found: {step.tool}"
                         logger.error(format_log("MANAGER", error_msg, Fore.RED))
