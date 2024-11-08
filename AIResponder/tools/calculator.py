@@ -19,6 +19,13 @@ class Calculator(AIResponderTool):
         'exp', 'log', 'log10', 'pow', 'round'
     }
     
+    @classmethod
+    def __init_subclass__(cls, **kwargs):
+        """Prevent duplicate registration of calculator tools."""
+        super().__init_subclass__(**kwargs)
+        if any(tool.__name__ == "Calculator" for tool in ToolRegistry._tools.values()):
+            return
+    
     def __init__(self):
         """Initialize calculator with math functions."""
         super().__init__()
