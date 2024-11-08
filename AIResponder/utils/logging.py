@@ -4,18 +4,23 @@ import logging
 # Initialize colorama for cross-platform color support
 init()
 
-def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
-    """Configure and return a logger with consistent formatting."""
+def setup_logger(name: str) -> logging.Logger:
+    """Setup module logger with proper formatting and handlers."""
     logger = logging.getLogger(name)
-    logger.setLevel(level)
     
-    if not logger.handlers:
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(logging.Formatter(
-            '%(asctime)s %(levelname)s [%(name)s] %(message)s',
-            '[%H:%M:%S]'
-        ))
-        logger.addHandler(console_handler)
+    # Clear any existing handlers to prevent duplicates
+    logger.handlers = []
+    
+    # Only add handler if none exist at root level
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            '%(asctime)s %(levelname)-8s %(name)s %(message)s',
+            datefmt='[%H:%M:%S]'
+        )
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
     
     return logger
 
