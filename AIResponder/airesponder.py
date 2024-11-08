@@ -58,16 +58,26 @@ class AIResponder(commands.Cog):
         
     async def initialize(self) -> None:
         """Initialize the cog."""
-        await self.config_manager.initialize()
-        api_key = await self.config_manager.get_api_key()
-        max_history = await self.config_manager.get_max_history()
-        
-        if not api_key:
-            log.warning("No API key configured for AIResponder")
-            return
-            
         try:
-            self.model = DeepInfraModel(api_key)
+            await self.config_manager.initialize()
+            api_key = await self.config_manager.get_api_key()
+            
+            # Clean up existing model if any
+            if self.model:
+                await self.model.cleanup()
+                self.model = None
+                
+            if not api_key:
+                log.warning("No API key configured for AIResponder")
+                return
+                
+            model_name = await self.config_manager.get_model_name()
+            max_history = await self.config_manager.get_max_history()
+            
+            self.model = DeepInfraModel(
+                api_key=api_key,
+                model_name=model_name
+            )
             await self.model.initialize()
             
             self.conversation_manager = ConversationManager(max_history=max_history)
@@ -75,10 +85,15 @@ class AIResponder(commands.Cog):
             await self.tool_manager.initialize_tools()
             
             self.agent_manager = AgentManager(self.model, self.tool_manager)
-            self.cleanup_task = asyncio.create_task(self._cleanup_loop())
+            
+            if not self.cleanup_task:
+                self.cleanup_task = asyncio.create_task(self._cleanup_loop())
+                
         except Exception as e:
             log.error(f"Failed to initialize: {e}")
-            self.model = None
+            if self.model:
+                await self.model.cleanup()
+                self.model = None
 
     async def _cleanup_loop(self) -> None:
         """Periodically clean up expired conversations."""
