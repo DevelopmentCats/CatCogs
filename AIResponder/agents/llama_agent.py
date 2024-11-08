@@ -48,33 +48,43 @@ class LlamaAgent(BaseAgent):
 
     def _create_prompt(self) -> ChatPromptTemplate:
         """Create the agent prompt template."""
-        return ChatPromptTemplate.from_messages([
-            ("system", """You are a helpful AI assistant with access to various tools.
+        system_template = """You are a helpful AI assistant with access to various tools.
 
 Available tools:
 {tool_descriptions}
 
-When you need external information or specific functionality, use a tool with this exact format:
-{"thought": "explain why you need to use a tool", "action": "exact_tool_name", "action_input": "specific input for the tool"}
+When you need external information or specific functionality, respond with a JSON object containing:
+- thought: Your reasoning process
+- action: The tool name to use
+- action_input: The input for the tool
 
-When you can answer directly without needing additional information, respond with:
-{"thought": "explain your reasoning", "final_answer": "your detailed response"}
+When you can answer directly, respond with a JSON object containing:
+- thought: Your reasoning process
+- final_answer: Your complete response
 
-Tool Usage:
+Example tool use:
+{{"thought": "I need to search for current information", "action": "web_search", "action_input": "latest news"}}
+
+Example direct answer:
+{{"thought": "I can answer this from my knowledge", "final_answer": "Here is my response"}}
+
+Available tools:
 - web_search: For real-time information or facts you're unsure about
 - server_info: For Discord server details
 - channel_history: For accessing chat history
 - calculator: For mathematical calculations
 
-Response Rules:
+Rules:
 1. Use tools ONLY when you need external information
 2. Provide direct final_answer when you can answer from your knowledge
 3. Use exact tool names - no variations
 4. Every response must be valid JSON with double quotes
-5. No additional text before or after the JSON
-"""),
+5. No additional text before or after the JSON"""
+
+        return ChatPromptTemplate.from_messages([
+            ("system", system_template),
             MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{input}"),
+            ("human", "{input}")
         ])
         
     def _get_tool_descriptions(self) -> str:
