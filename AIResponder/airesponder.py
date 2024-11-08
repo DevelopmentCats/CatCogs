@@ -19,15 +19,14 @@ class AIResponder(commands.Cog):
     
     def __init__(self, bot: Red):
         """Initialize the cog."""
+        super().__init__()
         self.bot = bot
-        self.config = ConfigManager(
-            Config.get_conf(
-                self,
-                identifier=987654321,
-                force_registration=True,
-                cog_name="AIResponder"
-            )
+        config = Config.get_conf(
+            self,
+            identifier=987654321,
+            force_registration=True
         )
+        self.config = ConfigManager(config)
         self.model: Optional[DeepInfraModel] = None
         self.conversation_manager: Optional[ConversationManager] = None
         self.tool_manager: Optional[ToolManager] = None
