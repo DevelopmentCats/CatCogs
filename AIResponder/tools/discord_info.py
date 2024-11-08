@@ -11,6 +11,13 @@ class ServerInfo(AIResponderTool):
     name = "server_info"
     description = "Get detailed information about the current Discord server"
     
+    @classmethod
+    def __init_subclass__(cls, **kwargs):
+        """Prevent duplicate registration of server info tools."""
+        super().__init_subclass__(**kwargs)
+        if any(tool.__name__ == "ServerInfo" for tool in ToolRegistry._tools.values()):
+            return
+            
     async def _arun(self, guild_id: str) -> str:
         """Get comprehensive server information.
         
@@ -72,6 +79,13 @@ class ChannelHistory(AIResponderTool):
     name = "channel_history"
     description = "Get recent message history from a Discord channel"
     
+    @classmethod
+    def __init_subclass__(cls, **kwargs):
+        """Prevent duplicate registration of channel history tools."""
+        super().__init_subclass__(**kwargs)
+        if any(tool.__name__ == "ChannelHistory" for tool in ToolRegistry._tools.values()):
+            return
+            
     async def _arun(self, channel_id: str, limit: int = 5) -> str:
         """Get channel message history.
         
