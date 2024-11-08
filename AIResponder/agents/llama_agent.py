@@ -126,10 +126,11 @@ Rules:
                 prompt_messages = self._prepare_prompt_messages(
                     tool_descriptions, messages
                 )
+                logger.debug(format_log("PROMPT", f"Final prompt: {prompt_messages[-1].content}", LogColors.TOOL))
                 
                 logger.info(format_log("MODEL", "Getting model response", LogColors.THOUGHT))
                 response = await self._get_model_response(prompt_messages)
-                logger.debug(format_log("RESPONSE", f"Raw model response: {response}", LogColors.SUCCESS))
+                logger.info(format_log("RESPONSE", f"Raw model response: {response}", LogColors.SUCCESS))
                 
                 action_or_finish = await self._process_response(
                     response, messages
@@ -138,18 +139,18 @@ Rules:
                 if action_or_finish:
                     if isinstance(action_or_finish, AgentAction):
                         logger.info(format_log("PLAN", 
-                            f"Thought: {action_or_finish.log}", 
+                            f"Thought process: {action_or_finish.log}", 
                             LogColors.THOUGHT))
                         logger.info(format_log("ACTION", 
-                            f"Tool: {action_or_finish.tool}, Input: {action_or_finish.tool_input}", 
+                            f"Selected tool: {action_or_finish.tool}\nInput: {action_or_finish.tool_input}", 
                             LogColors.TOOL))
                         
                         if not await self.validate_tool_args(action_or_finish):
                             raise ValidationError(f"Invalid arguments for tool: {action_or_finish.tool}")
                     else:
-                        logger.info(format_log("FINISH", "Agent completed with final answer", LogColors.SUCCESS))
-                        logger.info(format_log("THOUGHT", f"Final thought: {action_or_finish.log}", LogColors.THOUGHT))
-                        logger.info(format_log("ANSWER", f"Final answer: {action_or_finish.return_values['output']}", LogColors.SUCCESS))
+                        logger.info(format_log("FINISH", "Agent completed planning", LogColors.SUCCESS))
+                        logger.info(format_log("THOUGHT", f"Final reasoning: {action_or_finish.log}", LogColors.THOUGHT))
+                        logger.info(format_log("ANSWER", f"Final response: {action_or_finish.return_values['output']}", LogColors.SUCCESS))
                     
                     yield action_or_finish
                     if isinstance(action_or_finish, AgentFinish):
@@ -165,8 +166,7 @@ Rules:
                     logger.error(format_log("ERROR", f"Max retries reached: {str(e)}", LogColors.ERROR))
                     raise
                 
-                messages.append(AIMessage(content=f"Error occurred: {str(e)}. Retrying..."))
-                await asyncio.sleep(1)
+                await asyncio.sleep(self.RETRY_DELAY)
 
     async def _get_model_response(self, prompt_messages: List[BaseMessage]) -> str:
         """Get response from model with timeout."""
