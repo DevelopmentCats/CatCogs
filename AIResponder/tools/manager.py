@@ -36,9 +36,8 @@ class ToolManager:
                     initialization_errors.append(f"{tool_class.__name__}: {str(e)}")
                     
             if initialization_errors:
-                raise ToolInitializationError(
-                    f"Failed to initialize tools:\n" + "\n".join(initialization_errors)
-                )
+                error_message = "Failed to initialize tools:\n" + "\n".join(initialization_errors)
+                raise ToolInitializationError(error_message)
                 
         finally:
             self._initializing = False
