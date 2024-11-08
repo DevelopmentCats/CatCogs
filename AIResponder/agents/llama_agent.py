@@ -78,6 +78,10 @@ When you need external information or specific functionality, respond with a JSO
 - action: The tool name to use
 - action_input: The input for the tool
 
+When you receive tool results, analyze them and either:
+1. Provide a final answer if the information is sufficient
+2. Use another tool only if critically needed for different information
+
 When you can answer directly, respond with a JSON object containing:
 - thought: Your reasoning process
 - final_answer: Your complete response
@@ -86,20 +90,16 @@ Example tool use:
 {{"thought": "I need to search for current information", "action": "web_search", "action_input": "latest news"}}
 
 Example direct answer:
-{{"thought": "I can answer this from my knowledge", "final_answer": "Here is my response"}}
-
-Available tools:
-- web_search: For real-time information or facts you're unsure about
-- server_info: For Discord server details
-- channel_history: For accessing chat history
-- calculator: For mathematical calculations
+{{"thought": "Based on the search results showing flooding in St. Louis", "final_answer": "Here is what's happening..."}}
 
 Rules:
 1. Use tools ONLY when you need external information
-2. Provide direct final_answer when you can answer from your knowledge
+2. ALWAYS analyze tool results before using another tool
 3. Use exact tool names - no variations
 4. Every response must be valid JSON with double quotes
-5. No additional text before or after the JSON"""
+5. No additional text before or after the JSON
+6. Don't repeat searches for similar information
+7. Combine all available information before making additional searches"""
 
         return ChatPromptTemplate.from_messages([
             ("system", system_template),
@@ -212,26 +212,33 @@ Rules:
         except json.JSONDecodeError as e:
             raise ResponseParsingError(f"Invalid JSON response: {str(e)}")
 
+        # Get recent tool results
+        tool_results = [
+            msg for msg in messages[-5:]
+            if hasattr(msg, 'tool_result') and hasattr(msg, 'tool_name')
+        ]
+
         if "final_answer" in parsed:
             return await self._handle_final_answer(parsed)
         elif "action" in parsed:
-            # Check if we've already used this tool with similar input recently
-            recent_actions = [
-                msg for msg in messages[-5:] 
-                if hasattr(msg, 'tool_result') and hasattr(msg, 'tool_name')
-            ]
-            
-            # Prevent redundant tool usage
-            for action in recent_actions:
-                if (action.tool_name == parsed["action"] and 
-                    self._similar_inputs(action.tool_input, parsed["action_input"])):
-                    # If we have recent results, format a final answer instead
+            # Check if we already have relevant results
+            for result in tool_results:
+                if (result.tool_name == parsed["action"] and 
+                    self._similar_inputs(result.tool_input, parsed["action_input"])):
+                    # Force a final answer using existing results
                     return AgentFinish(
-                        return_values={"output": self._format_tool_results(recent_actions)},
-                        log=f"Using existing results from {parsed['action']}"
+                        return_values={"output": self._format_tool_results(tool_results)},
+                        log="Using existing search results"
                     )
-                    
-            # If tool hasn't been used recently or input is significantly different
+            
+            # If we have multiple similar web searches, force a final answer
+            web_searches = [r for r in tool_results if r.tool_name == "web_search"]
+            if len(web_searches) >= 2:
+                return AgentFinish(
+                    return_values={"output": self._format_tool_results(web_searches)},
+                    log="Combining existing search results"
+                )
+            
             return await self._handle_action(parsed, messages)
         else:
             raise ResponseParsingError("Response missing required fields")
