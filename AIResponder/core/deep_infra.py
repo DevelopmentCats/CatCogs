@@ -29,7 +29,7 @@ class DeepInfraModel(BaseModel):
         self.api_key = api_key
         self._model_name = model_name
         self.session: Optional[aiohttp.ClientSession] = None
-        self._api_endpoint = f"{self.API_BASE}/{model_name}"
+        self._api_endpoint = f"https://api.deepinfra.com/v1/inference/{model_name}"
         
     async def initialize(self) -> None:
         """Initialize API session."""
@@ -40,13 +40,24 @@ class DeepInfraModel(BaseModel):
                     "Content-Type": "application/json"
                 }
             )
-            # Test connection
-            async with self.session.get(f"{self.API_BASE}/health") as response:
+            # Test connection with a simple model info request
+            async with self.session.get(
+                "https://api.deepinfra.com/v1/models"
+            ) as response:
                 if response.status != 200:
                     raise ModelInitializationError(
-                        f"API health check failed: {response.status}"
+                        f"API connection test failed: {response.status}"
+                    )
+                
+                # Validate model availability
+                models = await response.json()
+                if not any(self._model_name in model.get("id", "") for model in models):
+                    raise ModelInitializationError(
+                        f"Model {self._model_name} not found in available models"
                     )
         except Exception as e:
+            if self.session:
+                await self.session.close()
             raise ModelInitializationError(f"Failed to initialize: {str(e)}")
     
     def _prepare_request_payload(
@@ -56,20 +67,37 @@ class DeepInfraModel(BaseModel):
         **kwargs: Any
     ) -> Dict[str, Any]:
         """Prepare the request payload."""
+        # Format input according to Deep Infra requirements
+        formatted_input = "<|begin_of_text|>"
+        
+        # Add system context if provided
+        if context:
+            formatted_input += "<|start_header_id|>system<|end_header_id|>\n\n"
+            formatted_input += f"{context}<|eot_id|>"
+        
+        # Add user message
+        formatted_input += "<|start_header_id|>user<|end_header_id|>\n\n"
+        formatted_input += f"{prompt}<|eot_id|>"
+        
+        # Add assistant header for response
+        formatted_input += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+        
         payload = {
-            "input": context + "\n" + prompt if context else prompt,
+            "input": formatted_input,
             "stream": True,
             "temperature": self.config.temperature,
             "top_p": self.config.top_p,
             "top_k": self.config.top_k,
-            "repeat_penalty": self.config.repeat_penalty
+            "repeat_penalty": self.config.repeat_penalty,
+            "stop": [
+                "<|eot_id|>",
+                "<|end_of_text|>",
+                "<|eom_id|>"
+            ]
         }
         
         if self.config.max_new_tokens:
             payload["max_new_tokens"] = self.config.max_new_tokens
-            
-        if self.config.stop_sequences:
-            payload["stop"] = self.config.stop_sequences
             
         # Add any additional model-specific parameters
         payload.update({k: v for k, v in kwargs.items() if v is not None})
