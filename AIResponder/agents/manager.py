@@ -7,7 +7,17 @@ from ..utils.errors import AgentError, ToolExecutionError
 import logging
 import asyncio
 
+# Configure manager logger
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+if not logger.handlers:
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s [%(name)s] %(message)s',
+        '[%H:%M:%S]'
+    ))
+    logger.addHandler(console_handler)
 
 class AgentManager:
     """Manages agent creation and execution."""
@@ -103,33 +113,40 @@ class AgentManager:
         messages: List[BaseMessage]
     ) -> AsyncGenerator[str, None]:
         """Process agent steps and handle tool execution."""
+        logger.info(format_log("MANAGER", f"Processing message: {messages[-1].content}", Fore.CYAN))
         try:
             async for step in agent.plan(messages):
                 if isinstance(step, AgentFinish):
+                    logger.info(format_log("MANAGER", "Agent finished with response", Fore.GREEN))
                     yield step.return_values["output"]
                     break
                     
                 # For actions, yield thoughts and execute tools
+                logger.info(format_log("MANAGER", f"Agent thought: {step.log}", Fore.YELLOW))
                 yield f"Thinking: {step.log}\n"
+                logger.info(format_log("MANAGER", f"Using tool: {step.tool}", Fore.BLUE))
                 yield f"Using tool: {step.tool}\n"
                 
                 try:
                     tool = await agent.get_tool(step.tool)
                     if tool:
+                        logger.info(format_log("MANAGER", f"Executing tool: {step.tool}", Fore.MAGENTA))
                         result = await tool._arun(step.tool_input)
+                        logger.info(format_log("MANAGER", f"Tool result: {result[:100]}...", Fore.GREEN))
                         yield f"Tool result: {result}\n"
                     else:
                         error_msg = f"Tool not found: {step.tool}"
+                        logger.error(format_log("MANAGER", error_msg, Fore.RED))
                         yield f"Error: {error_msg}\n"
-                        logger.error(error_msg)
                         
                 except ToolExecutionError as e:
                     error_msg = await agent.handle_tool_error(e, step)
+                    logger.error(format_log("MANAGER", f"Tool error: {error_msg}", Fore.RED))
                     yield f"Tool error: {error_msg}\n"
                     
         except Exception as e:
             error_msg = f"Error in agent execution: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(format_log("MANAGER", error_msg, Fore.RED), exc_info=True)
             yield f"Error: {error_msg}"
 
     async def _cleanup_agent(self, session_id: str) -> None:
