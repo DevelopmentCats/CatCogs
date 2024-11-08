@@ -32,6 +32,10 @@ class ModelGenerationError(ModelError):
     """Raised when model generation fails."""
     pass
 
+class ModelResponseError(ModelError):
+    """Raised when model response processing fails."""
+    pass
+
 class ResponseError(AIResponderError):
     """Base class for response-related errors."""
     pass
