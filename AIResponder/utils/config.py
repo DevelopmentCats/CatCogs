@@ -25,9 +25,19 @@ class ConfigManager:
         return await self.config.api_key()
     
     async def set_api_key(self, api_key: str) -> None:
-        """Set API key."""
+        """Set API key.
+        
+        Args:
+            api_key: API key to set, or 'clear' to remove
+        """
         try:
-            await self.config.api_key.set(api_key)
+            if api_key.lower() == 'clear':
+                await self.config.api_key.set(None)
+            else:
+                # Validate API key format
+                if not api_key.strip():
+                    raise ConfigError("API key cannot be empty")
+                await self.config.api_key.set(api_key.strip())
         except Exception as e:
             raise ConfigError(f"Failed to set API key: {str(e)}")
     
