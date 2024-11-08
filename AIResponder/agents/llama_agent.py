@@ -29,6 +29,7 @@ class LlamaAgent(BaseAgent):
     MAX_RETRIES = 3
     TOOL_TIMEOUT = 30  # seconds
     MAX_HISTORY_LENGTH = 100
+    RETRY_DELAY = 2  # seconds
     
     def __init__(self, tools: List[AIResponderTool], model: Any):
         self._validate_inputs(tools, model)
