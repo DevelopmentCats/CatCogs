@@ -11,6 +11,13 @@ class WebSearch(AIResponderTool):
     name = "web_search"
     description = "Search the web for information using DuckDuckGo"
     
+    @classmethod
+    def __init_subclass__(cls, **kwargs):
+        """Prevent duplicate registration of web search tools."""
+        super().__init_subclass__(**kwargs)
+        if any(tool.__name__ == "WebSearch" for tool in ToolRegistry._tools.values()):
+            return
+            
     # Constants
     API_URL = "https://api.duckduckgo.com/"
     MAX_RETRIES = 3
