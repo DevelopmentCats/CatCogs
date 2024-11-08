@@ -2,8 +2,11 @@ from typing import AsyncGenerator, Optional, Dict, Any, List
 import aiohttp
 import json
 import asyncio
+import logging
 from .base_model import BaseModel, ModelConfig
 from ..utils.errors import ModelError, ModelInitializationError, ModelGenerationError
+
+logger = logging.getLogger(__name__)
 
 class DeepInfraModel(BaseModel):
     """Deep Infra API model implementation."""
@@ -11,6 +14,8 @@ class DeepInfraModel(BaseModel):
     API_BASE = "https://api.deepinfra.com/v1/inference"
     DEFAULT_MODEL = "meta-llama/Llama-3.2-11B-Vision-Instruct"
     CHUNK_SIZE = 1024
+    MAX_RETRIES = 3
+    RETRY_DELAY = 5  # seconds
     
     def __init__(
         self, 
@@ -32,34 +37,50 @@ class DeepInfraModel(BaseModel):
         self._api_endpoint = f"https://api.deepinfra.com/v1/inference/{model_name}"
         
     async def initialize(self) -> None:
-        """Initialize API session."""
-        try:
-            self.session = aiohttp.ClientSession(
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
+        """Initialize API session with retries."""
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < self.MAX_RETRIES:
+            try:
+                if self.session:
+                    await self.session.close()
+                
+                self.session = aiohttp.ClientSession(
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    }
+                )
+                
+                # Test connection with a simple inference request
+                test_payload = {
+                    "input": "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\ntest<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+                    "stream": False,
+                    "max_new_tokens": 1
                 }
-            )
-            # Test connection with a simple inference request
-            test_payload = {
-                "input": "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\ntest<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
-                "stream": False,
-                "max_new_tokens": 1
-            }
-            async with self.session.post(
-                self._api_endpoint,
-                json=test_payload
-            ) as response:
-                if response.status != 200:
-                    error_body = await response.text()
-                    raise ModelInitializationError(
-                        f"API connection test failed: {response.status} - {error_body}"
-                    )
-        except Exception as e:
-            if self.session:
-                await self.session.close()
-                self.session = None
-            raise ModelInitializationError(f"Failed to initialize: {str(e)}")
+                async with self.session.post(
+                    self._api_endpoint,
+                    json=test_payload
+                ) as response:
+                    if response.status != 200:
+                        error_body = await response.text()
+                        raise ModelInitializationError(
+                            f"API connection test failed: {response.status} - {error_body}"
+                        )
+                self._is_initialized = True
+                return
+            except Exception as e:
+                retry_count += 1
+                last_error = str(e)
+                if retry_count >= self.MAX_RETRIES:
+                    if self.session:
+                        await self.session.close()
+                        self.session = None
+                    raise ModelInitializationError(f"Failed to initialize after {self.MAX_RETRIES} attempts: {last_error}")
+                
+                logger.warning(f"Initialization failed (attempt {retry_count}/{self.MAX_RETRIES}), retrying in {self.RETRY_DELAY}s...")
+                await asyncio.sleep(self.RETRY_DELAY)
     
     def _prepare_request_payload(
         self,
