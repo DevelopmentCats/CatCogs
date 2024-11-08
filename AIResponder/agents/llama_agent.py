@@ -73,14 +73,19 @@ class LlamaAgent(BaseAgent):
 Available tools:
 {tool_descriptions}
 
+When analyzing tool results:
+1. Carefully review the information provided
+2. Determine if it fully answers the user's question
+3. Identify if additional information is needed
+4. Decide whether to:
+   - Provide a final answer if sufficient
+   - Use another tool for missing information
+   - Ask for clarification if unclear
+
 When you need external information or specific functionality, respond with a JSON object containing:
 - thought: Your reasoning process
 - action: The tool name to use
 - action_input: The input for the tool
-
-When you receive tool results, analyze them and either:
-1. Provide a final answer if the information is sufficient
-2. Use another tool only if critically needed for different information
 
 When you can answer directly, respond with a JSON object containing:
 - thought: Your reasoning process
@@ -213,44 +218,24 @@ Rules:
         except json.JSONDecodeError as e:
             raise ResponseParsingError(f"Invalid JSON response: {str(e)}")
 
-        # Get recent messages including tool results
-        recent_messages = messages[-5:]
-        tool_results = [
-            msg for msg in recent_messages
-            if hasattr(msg, 'tool_result') and hasattr(msg, 'tool_name')
-        ]
-
         if "final_answer" in parsed:
             return await self._handle_final_answer(parsed)
         elif "action" in parsed:
-            # First validate the action is legitimate
-            if not await self.validate_tool_args(AgentAction(
+            # Validate the action is legitimate
+            action = AgentAction(
                 tool=parsed["action"],
                 tool_input=parsed["action_input"],
                 log=parsed.get("thought", "")
-            )):
-                # If invalid action, force agent to reconsider with existing info
+            )
+            
+            if not await self.validate_tool_args(action):
+                # Return error message for invalid action
                 return AgentFinish(
-                    return_values={"output": "I need to reconsider my approach. Let me analyze the information we already have."},
+                    return_values={"output": "I apologize, but I need to reconsider my approach as the tool action was invalid."},
                     log="Invalid tool action, reconsidering approach"
                 )
-
-            # Check if we have relevant tool results that haven't been analyzed
-            unanalyzed_results = []
-            for result in tool_results:
-                if not hasattr(result, 'analyzed'):
-                    unanalyzed_results.append(result)
-                    setattr(result, 'analyzed', True)
-
-            if unanalyzed_results:
-                # Force agent to analyze existing results before new tool use
-                combined_results = "\n\n".join(msg.content for msg in unanalyzed_results)
-                return AgentFinish(
-                    return_values={"output": f"Let me analyze the information I just received:\n\n{combined_results}"},
-                    log="Analyzing recent tool results before continuing"
-                )
-
-            return await self._handle_action(parsed, messages)
+                
+            return action
         else:
             raise ResponseParsingError("Response missing required fields")
 
