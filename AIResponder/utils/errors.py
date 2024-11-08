@@ -18,7 +18,8 @@ class ToolExecutionError(ToolError):
 
 class ToolInitializationError(ToolError):
     """Raised when tool initialization fails."""
-    pass
+    def __init__(self, message: str):
+        super().__init__("initialization", message)
 
 class ModelError(AIResponderError):
     """Base class for model-related errors."""
