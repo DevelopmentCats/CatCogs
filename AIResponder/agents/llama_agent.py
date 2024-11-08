@@ -74,7 +74,7 @@ class LlamaAgent(BaseAgent):
         ])
         
     async def plan(self, messages: List[BaseMessage]) -> AsyncGenerator[
-        AgentAction | AgentFinish, None
+        Union[AgentAction, AgentFinish], None
     ]:
         """Plan next actions based on messages."""
         if not messages:
@@ -146,7 +146,7 @@ class LlamaAgent(BaseAgent):
 
     async def _process_response(
         self, response: str, messages: List[BaseMessage]
-    ) -> Optional[AgentAction | AgentFinish]:
+    ) -> Optional[Union[AgentAction, AgentFinish]]:
         """Process and validate model response."""
         try:
             parsed = json.loads(response)
