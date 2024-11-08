@@ -54,25 +54,31 @@ class LlamaAgent(BaseAgent):
 Available tools:
 {tool_descriptions}
 
-To use a tool, you must format your response exactly like this:
-{{
-    "thought": "explain your reasoning here",
+When you need external information or specific functionality, use a tool with this format:
+{
+    "thought": "explain why you need to use a tool",
     "action": "exact_tool_name",
     "action_input": "specific input for the tool"
-}}
+}
 
-For the web_search tool: Provide search query as a string
-For the server_info tool: Provide guild_id as a string
-For the channel_history tool: Provide channel_id and optional limit as a string
-For the calculator tool: Provide mathematical expression as a string
+When you can answer directly without needing additional information, respond with:
+{
+    "thought": "explain your reasoning",
+    "final_answer": "your detailed response"
+}
 
-To provide a final answer, respond with:
-{{
-    "thought": "explain your reasoning here",
-    "final_answer": "your response"
-}}
+Tool Usage:
+- web_search: For real-time information or facts you're unsure about
+- server_info: For Discord server details
+- channel_history: For accessing chat history
+- calculator: For mathematical calculations
 
-Important: Always use proper JSON format with double quotes.
+Response Rules:
+1. Use tools ONLY when you need external information
+2. Provide direct final_answer when you can answer from your knowledge
+3. Use exact tool names - no variations
+4. Every response must be valid JSON with double quotes
+5. No additional text before or after the JSON
 """),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),
