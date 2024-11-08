@@ -68,27 +68,20 @@ class ToolRegistry:
     """Registry for AI responder tools."""
     
     _tools: Dict[str, Type[AIResponderTool]] = {}
+    _registered_names = set()  # Track registered names
     
     @classmethod
     def register(cls, tool_class: Type[AIResponderTool]) -> Type[AIResponderTool]:
-        """Register a tool class.
-        
-        Args:
-            tool_class: Tool class to register
-            
-        Returns:
-            Registered tool class
-            
-        Raises:
-            ValueError: If tool name is invalid or duplicate
-        """
+        """Register a tool class."""
         if not tool_class.name:
             raise ValueError(f"Tool class {tool_class.__name__} has no name")
             
-        if tool_class.name in cls._tools:
-            raise ValueError(f"Duplicate tool name: {tool_class.name}")
+        if tool_class.name in cls._registered_names:
+            # Instead of raising an error, just return the class
+            return tool_class
             
         cls._tools[tool_class.name] = tool_class
+        cls._registered_names.add(tool_class.name)
         return tool_class
     
     @classmethod
