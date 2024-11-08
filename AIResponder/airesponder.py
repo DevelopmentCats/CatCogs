@@ -177,12 +177,18 @@ class AIResponder(commands.Cog):
         model_name = await self.config_manager.get_model_name()
         rate_limits = await self.config_manager.get_rate_limit_config()
         
+        # Get tool count properly by awaiting the coroutine
+        tool_count = 0
+        if self.tool_manager:
+            tools = await self.tool_manager.get_all_tools()
+            tool_count = len(tools)
+        
         status = [
             "**AI Responder Status**",
             f"Model: {model_name}",
             f"Initialized: {self.model is not None}",
             f"Rate Limits: {rate_limits['requests']}/min (burst: {rate_limits['burst']})",
-            f"Tools Loaded: {len(self.tool_manager.get_all_tools()) if self.tool_manager else 0}"
+            f"Tools Loaded: {tool_count}"
         ]
         
         await ctx.send("\n".join(status))
