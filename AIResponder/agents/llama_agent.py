@@ -213,60 +213,46 @@ Rules:
         except json.JSONDecodeError as e:
             raise ResponseParsingError(f"Invalid JSON response: {str(e)}")
 
-        # Get recent tool results
+        # Get recent messages including tool results
+        recent_messages = messages[-5:]
         tool_results = [
-            msg for msg in messages[-5:]
+            msg for msg in recent_messages
             if hasattr(msg, 'tool_result') and hasattr(msg, 'tool_name')
         ]
 
         if "final_answer" in parsed:
             return await self._handle_final_answer(parsed)
         elif "action" in parsed:
-            # Check if we already have relevant results
-            for result in tool_results:
-                if (result.tool_name == parsed["action"] and 
-                    self._similar_inputs(result.tool_input, parsed["action_input"])):
-                    # Force a final answer using existing results
-                    return AgentFinish(
-                        return_values={"output": self._format_tool_results(tool_results)},
-                        log="Using existing search results"
-                    )
-            
-            # If we have multiple similar web searches, force a final answer
-            web_searches = [r for r in tool_results if r.tool_name == "web_search"]
-            if len(web_searches) >= 2:
+            # First validate the action is legitimate
+            if not await self.validate_tool_args(AgentAction(
+                tool=parsed["action"],
+                tool_input=parsed["action_input"],
+                log=parsed.get("thought", "")
+            )):
+                # If invalid action, force agent to reconsider with existing info
                 return AgentFinish(
-                    return_values={"output": self._format_tool_results(web_searches)},
-                    log="Combining existing search results"
+                    return_values={"output": "I need to reconsider my approach. Let me analyze the information we already have."},
+                    log="Invalid tool action, reconsidering approach"
                 )
-            
+
+            # Check if we have relevant tool results that haven't been analyzed
+            unanalyzed_results = []
+            for result in tool_results:
+                if not hasattr(result, 'analyzed'):
+                    unanalyzed_results.append(result)
+                    setattr(result, 'analyzed', True)
+
+            if unanalyzed_results:
+                # Force agent to analyze existing results before new tool use
+                combined_results = "\n\n".join(msg.content for msg in unanalyzed_results)
+                return AgentFinish(
+                    return_values={"output": f"Let me analyze the information I just received:\n\n{combined_results}"},
+                    log="Analyzing recent tool results before continuing"
+                )
+
             return await self._handle_action(parsed, messages)
         else:
             raise ResponseParsingError("Response missing required fields")
-
-    def _similar_inputs(self, input1: str, input2: str) -> bool:
-        """Check if two tool inputs are similar enough to be considered redundant."""
-        # Convert to lowercase and remove common words
-        common_words = {'the', 'in', 'at', 'to', 'for', 'of', 'and', 'or'}
-        words1 = set(w.lower() for w in input1.split() if w.lower() not in common_words)
-        words2 = set(w.lower() for w in input2.split() if w.lower() not in common_words)
-        
-        # Calculate Jaccard similarity
-        intersection = len(words1.intersection(words2))
-        union = len(words1.union(words2))
-        
-        return intersection / union > 0.5 if union > 0 else False
-
-    def _format_tool_results(self, actions: List[BaseMessage]) -> str:
-        """Format multiple tool results into a coherent response."""
-        results = []
-        for action in actions:
-            if hasattr(action, 'content'):
-                results.append(action.content)
-        
-        # Combine and deduplicate results
-        combined = "\n\n".join(results)
-        return f"Based on the available information:\n\n{combined}"
 
     async def _handle_tool_execution(
         self, tool: AIResponderTool, action_input: str
