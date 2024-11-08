@@ -6,7 +6,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from ..tools import AIResponderTool
 from .base import BaseAgent
 from ..utils.errors import (
-    ToolExecutionError, ModelResponseError, 
+    ToolExecutionError, ModelGenerationError, 
     ResponseParsingError, ValidationError
 )
 import json
@@ -140,9 +140,9 @@ class LlamaAgent(BaseAgent):
                     response += chunk
             return response
         except asyncio.TimeoutError:
-            raise ModelResponseError("Model response timeout exceeded")
+            raise ModelGenerationError("Model response timeout exceeded")
         except Exception as e:
-            raise ModelResponseError(f"Model response failed: {str(e)}")
+            raise ModelGenerationError(f"Model response failed: {str(e)}")
 
     async def _process_response(
         self, response: str, messages: List[BaseMessage]
