@@ -328,8 +328,11 @@ Output: "*glances out window* Sunny and 75°F. Adequate for my sunbathing needs.
             # Split response if needed
             response_chunks = self._split_response(cat_response)
             
+            # Join chunks with newlines if multiple chunks exist
+            final_response = "\n".join(response_chunks) if isinstance(response_chunks, list) else response_chunks
+            
             return AgentFinish(
-                return_values={"output": response_chunks},
+                return_values={"output": final_response},
                 log=parsed["thought"]
             )
         except KeyError as e:
