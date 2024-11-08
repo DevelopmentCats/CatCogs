@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, List, Optional, Union
+from typing import List, Dict, Any, AsyncGenerator, Optional, Union
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import BaseMessage
 from ..utils.errors import AgentError
