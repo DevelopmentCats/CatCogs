@@ -26,11 +26,13 @@ class ConfigManager:
             bot_config: Red bot Config instance
         """
         self.config = bot_config
+        self._defaults = defaults
         
     async def initialize(self) -> None:
         """Initialize configuration with defaults."""
         try:
-            await self.config.register_global(**defaults)
+            defaults_copy = self._defaults.copy()
+            await self.config.register_global(**defaults_copy)
         except Exception as e:
             raise ConfigError(f"Failed to initialize config: {str(e)}")
     
