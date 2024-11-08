@@ -112,11 +112,9 @@ class AgentManager:
                     yield step.return_values["output"]
                     break
                     
-                # For actions, yield thoughts and execute tools
+                # For actions, only log the steps but don't yield
                 logger.info(format_log("MANAGER", f"Agent thought: {step.log}", Fore.YELLOW))
-                yield f"Thinking: {step.log}\n"
                 logger.info(format_log("MANAGER", f"Using tool: {step.tool}", Fore.BLUE))
-                yield f"Using tool: {step.tool}\n"
                 
                 try:
                     tool = await agent.get_tool(step.tool)
@@ -124,7 +122,6 @@ class AgentManager:
                         logger.info(format_log("MANAGER", f"Executing tool: {step.tool}", Fore.MAGENTA))
                         result = await tool._arun(step.tool_input)
                         logger.info(format_log("MANAGER", f"Tool result: {result[:100]}...", Fore.GREEN))
-                        yield f"Tool result: {result}\n"
                         
                         # Create analysis message for the tool result
                         analysis_prompt = (
@@ -147,12 +144,10 @@ class AgentManager:
                     else:
                         error_msg = f"Tool not found: {step.tool}"
                         logger.error(format_log("MANAGER", error_msg, Fore.RED))
-                        yield f"Error: {error_msg}\n"
                         
                 except ToolExecutionError as e:
                     error_msg = await agent.handle_tool_error(e, step)
                     logger.error(format_log("MANAGER", f"Tool error: {error_msg}", Fore.RED))
-                    yield f"Tool error: {error_msg}\n"
                     
         except Exception as e:
             error_msg = f"Error in agent execution: {str(e)}"
