@@ -13,8 +13,34 @@ import json
 import asyncio
 import logging
 from ..responses.rate_limiter import RateLimiter
+from colorama import Fore, Style, init
 
+# Initialize colorama for cross-platform color support
+init()
+
+# Configure root logger
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s [%(name)s] %(message)s',
+    datefmt='[%H:%M:%S]'
+)
+
+# Get logger for this module
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Ensure handler is added only once
+if not logger.handlers:
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s [%(name)s] %(message)s',
+        '[%H:%M:%S]'
+    ))
+    logger.addHandler(console_handler)
+
+def format_log(category: str, message: str, color: str = Fore.WHITE) -> str:
+    """Format log message with consistent styling."""
+    return f"{color}[{category}]{Style.RESET_ALL} {message}"
 
 class LlamaAgent(BaseAgent):
     """Agent implementation for Llama models."""
@@ -98,11 +124,14 @@ Rules:
         Union[AgentAction, AgentFinish], None
     ]:
         """Plan next actions based on messages."""
+        logger.info(format_log("AGENT", "Starting new conversation planning", Fore.CYAN))
+        logger.debug(format_log("INPUT", f"Last message: {messages[-1].content}", Fore.GREEN))
+
         if not messages:
             raise ValidationError("Messages list cannot be empty")
             
-        # Truncate history if too long
         if len(messages) > self.MAX_HISTORY_LENGTH:
+            logger.info(format_log("HISTORY", f"Truncating history from {len(messages)} to {self.MAX_HISTORY_LENGTH}", Fore.YELLOW))
             messages = messages[-self.MAX_HISTORY_LENGTH:]
             
         tool_descriptions = self._get_tool_descriptions()
@@ -110,44 +139,49 @@ Rules:
         
         while True:
             try:
-                # Check rate limits
                 await self._check_rate_limits()
-                
-                # Increment iteration counter from base class
                 self._increment_iteration()
                 
-                # Prepare and validate prompt
+                logger.debug(format_log("PROMPT", "Preparing prompt messages", Fore.BLUE))
                 prompt_messages = self._prepare_prompt_messages(
                     tool_descriptions, messages
                 )
                 
-                # Get model response with timeout
+                logger.info(format_log("MODEL", "Getting model response", Fore.MAGENTA))
                 response = await self._get_model_response(prompt_messages)
+                logger.debug(format_log("RESPONSE", f"Raw response: {response}", Fore.GREEN))
                 
-                # Parse and process response
                 action_or_finish = await self._process_response(
                     response, messages
                 )
                 
                 if action_or_finish:
                     if isinstance(action_or_finish, AgentAction):
-                        # Validate tool arguments before yielding
+                        logger.info(format_log("ACTION", 
+                            f"Tool: {action_or_finish.tool}, Input: {action_or_finish.tool_input}", 
+                            Fore.YELLOW))
+                        
                         if not await self.validate_tool_args(action_or_finish):
                             raise ValidationError(f"Invalid arguments for tool: {action_or_finish.tool}")
+                    else:
+                        logger.info(format_log("FINISH", "Agent completed with final answer", Fore.GREEN))
                     
                     yield action_or_finish
                     if isinstance(action_or_finish, AgentFinish):
                         break
-                        
+
             except Exception as e:
                 retry_count += 1
+                logger.warning(format_log("RETRY", 
+                    f"Attempt {retry_count}/{self.MAX_RETRIES}: {str(e)}", 
+                    Fore.RED))
+                
                 if retry_count >= self.MAX_RETRIES:
-                    logger.error(f"Max retries reached: {str(e)}")
+                    logger.error(format_log("ERROR", f"Max retries reached: {str(e)}", Fore.RED))
                     raise
-                    
-                logger.warning(f"Error in plan execution (attempt {retry_count}): {str(e)}")
+                
                 messages.append(AIMessage(content=f"Error occurred: {str(e)}. Retrying..."))
-                await asyncio.sleep(1)  # Brief delay before retry
+                await asyncio.sleep(1)
 
     async def _get_model_response(self, prompt_messages: List[BaseMessage]) -> str:
         """Get response from model with timeout."""
@@ -189,14 +223,19 @@ Rules:
         self, tool: AIResponderTool, action_input: str
     ) -> str:
         """Execute tool with timeout and error handling."""
+        logger.info(format_log("TOOL", f"Executing {tool.name} with input: {action_input}", Fore.CYAN))
         try:
             async with asyncio.timeout(self.TOOL_TIMEOUT):
-                return await tool._arun(action_input)
+                result = await tool._arun(action_input)
+                logger.info(format_log("TOOL", f"Success: {tool.name}", Fore.GREEN))
+                return result
         except asyncio.TimeoutError:
+            logger.error(format_log("TIMEOUT", f"Tool {tool.name} exceeded {self.TOOL_TIMEOUT}s", Fore.RED))
             raise ToolExecutionError(
                 tool.name, "Tool execution timeout exceeded"
             )
         except Exception as e:
+            logger.error(format_log("ERROR", f"Tool {tool.name} failed: {str(e)}", Fore.RED))
             raise ToolExecutionError(
                 tool.name, str(e), original_error=e
             )
