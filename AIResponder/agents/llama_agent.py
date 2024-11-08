@@ -213,6 +213,14 @@ Rules:
             raise ResponseParsingError(f"Invalid JSON response: {str(e)}")
 
         if "final_answer" in parsed:
+            # Check if we have recent tool results to incorporate
+            tool_results = [msg for msg in messages if getattr(msg, 'tool_result', False)]
+            if tool_results:
+                # Use the most recent tool result
+                latest_result = tool_results[-1].content
+                # Modify the final answer to include the tool results
+                parsed["final_answer"] = f"Based on my search, here's what's happening in St. Louis:\n\n{latest_result}"
+            
             return await self._handle_final_answer(parsed)
         elif "action" in parsed:
             return await self._handle_action(parsed, messages)
