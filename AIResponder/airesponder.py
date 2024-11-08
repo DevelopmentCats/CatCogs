@@ -21,12 +21,31 @@ class AIResponder(commands.Cog):
         """Initialize the cog."""
         super().__init__()
         self.bot = bot
-        config = Config.get_conf(
+        self.config = Config.get_conf(
             self,
             identifier=987654321,
-            force_registration=True
+            force_registration=True,
+            cog_name="AIResponder"
         )
-        self.config = ConfigManager(config)
+        
+        # Register global defaults first
+        defaults = {
+            "api_key": None,
+            "model_name": "meta-llama/Llama-3.2-11B-Vision-Instruct",
+            "max_history": 10,
+            "history_expiry_hours": 24,
+            "disabled_channels": [],
+            "disabled_servers": [],
+            "rate_limit_requests": 5,
+            "rate_limit_burst": 2,
+            "rate_limit_cooldown": 30,
+            "max_response_chunks": 5,
+            "tool_configs": {}
+        }
+        self.config.register_global(**defaults)
+        
+        # Now create config manager with initialized config
+        self.config_manager = ConfigManager(self.config)
         self.model: Optional[DeepInfraModel] = None
         self.conversation_manager: Optional[ConversationManager] = None
         self.tool_manager: Optional[ToolManager] = None
@@ -39,9 +58,9 @@ class AIResponder(commands.Cog):
         
     async def initialize(self) -> None:
         """Initialize the cog."""
-        await self.config.initialize()
-        api_key = await self.config.get_api_key()
-        max_history = await self.config.get_max_history()
+        await self.config_manager.initialize()
+        api_key = await self.config_manager.get_api_key()
+        max_history = await self.config_manager.get_max_history()
         
         if not api_key:
             log.warning("No API key configured for AIResponder")
@@ -97,7 +116,7 @@ class AIResponder(commands.Cog):
     async def air_setkey(self, ctx: commands.Context, api_key: str):
         """Set the API key for the AI model."""
         try:
-            await self.config.set_api_key(api_key)
+            await self.config_manager.set_api_key(api_key)
             await ctx.send("API key updated successfully.")
             await self.initialize()
         except ConfigError as e:
@@ -119,7 +138,7 @@ class AIResponder(commands.Cog):
     async def air_togglechannel(self, ctx: commands.Context):
         """Toggle AI responses in the current channel."""
         try:
-            is_disabled = await self.config.toggle_channel(ctx.channel.id)
+            is_disabled = await self.config_manager.toggle_channel(ctx.channel.id)
             status = "disabled" if is_disabled else "enabled"
             await ctx.send(f"AI responses are now {status} in this channel.")
         except ConfigError as e:
@@ -129,7 +148,7 @@ class AIResponder(commands.Cog):
     async def air_setmodel(self, ctx: commands.Context, model_name: str):
         """Set the AI model to use."""
         try:
-            await self.config.set_model_name(model_name)
+            await self.config_manager.set_model_name(model_name)
             await ctx.send(f"Model updated to: {model_name}")
             await self.initialize()
         except ConfigError as e:
@@ -138,8 +157,8 @@ class AIResponder(commands.Cog):
     @air.command(name="status")
     async def air_status(self, ctx: commands.Context):
         """Show the current status of the AI responder."""
-        model_name = await self.config.get_model_name()
-        rate_limits = await self.config.get_rate_limit_config()
+        model_name = await self.config_manager.get_model_name()
+        rate_limits = await self.config_manager.get_rate_limit_config()
         
         status = [
             "**AI Responder Status**",
@@ -160,7 +179,7 @@ class AIResponder(commands.Cog):
         if self.bot.user not in message.mentions:
             return
             
-        if await self.config.is_channel_disabled(message.channel.id):
+        if await self.config_manager.is_channel_disabled(message.channel.id):
             return
             
         if not self.model or not self.conversation_manager:
