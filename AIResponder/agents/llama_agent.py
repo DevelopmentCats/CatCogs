@@ -54,18 +54,11 @@ class LlamaAgent(BaseAgent):
 Available tools:
 {tool_descriptions}
 
-When you need external information or specific functionality, use a tool with this format:
-{
-    "thought": "explain why you need to use a tool",
-    "action": "exact_tool_name",
-    "action_input": "specific input for the tool"
-}
+When you need external information or specific functionality, use a tool with this exact format:
+{"thought": "explain why you need to use a tool", "action": "exact_tool_name", "action_input": "specific input for the tool"}
 
 When you can answer directly without needing additional information, respond with:
-{
-    "thought": "explain your reasoning",
-    "final_answer": "your detailed response"
-}
+{"thought": "explain your reasoning", "final_answer": "your detailed response"}
 
 Tool Usage:
 - web_search: For real-time information or facts you're unsure about
