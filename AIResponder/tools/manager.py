@@ -102,12 +102,17 @@ class ToolManager:
         """
         return self.tools.get(name)
         
-    def get_all_tools(self) -> List[AIResponderTool]:
+    async def get_all_tools(self) -> List[AIResponderTool]:
         """Get all initialized tools.
         
         Returns:
-            List of initialized tool instances
+            List of initialized tools
+            
+        Raises:
+            ToolError: If tools are not initialized
         """
+        if not self.tools:
+            raise ToolError("manager", "Tools not initialized")
         return list(self.tools.values())
         
     def is_tool_available(self, name: str) -> bool:
