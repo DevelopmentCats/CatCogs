@@ -15,6 +15,13 @@ class AIResponderTool(ABC):
     name: str = ""
     description: str = ""
     
+    @classmethod
+    def __init_subclass__(cls, **kwargs):
+        """Prevent duplicate registration of tools."""
+        super().__init_subclass__(**kwargs)
+        if any(tool.__name__ == cls.__name__ for tool in ToolRegistry._tools.values()):
+            return
+            
     def __init__(self, bot: Optional[Red] = None):
         """Initialize tool.
         
