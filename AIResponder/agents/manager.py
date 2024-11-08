@@ -4,20 +4,11 @@ from langchain_core.agents import AgentAction, AgentFinish
 from ..tools import ToolManager
 from .llama_agent import LlamaAgent
 from ..utils.errors import AgentError, ToolExecutionError
-import logging
-import asyncio
+from ..utils.logging import setup_logger, format_log, LogColors
+from colorama import Fore
 
 # Configure manager logger
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-if not logger.handlers:
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter(
-        '%(asctime)s %(levelname)s [%(name)s] %(message)s',
-        '[%H:%M:%S]'
-    ))
-    logger.addHandler(console_handler)
+logger = setup_logger(__name__)
 
 class AgentManager:
     """Manages agent creation and execution."""
