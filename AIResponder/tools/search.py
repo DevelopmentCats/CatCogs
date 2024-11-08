@@ -1,8 +1,11 @@
 from typing import Optional, List, Dict, Any
 import aiohttp
 import json
+import asyncio
+from datetime import datetime, timedelta
 from . import AIResponderTool, ToolRegistry
-from ..utils.errors import ToolError
+from ..utils.errors import ToolError, ToolExecutionError
+from ..responses.rate_limiter import RateLimiter
 
 @ToolRegistry.register
 class WebSearch(AIResponderTool):
@@ -11,18 +14,14 @@ class WebSearch(AIResponderTool):
     name = "web_search"
     description = "Search the web for information using DuckDuckGo"
     
-    @classmethod
-    def __init_subclass__(cls, **kwargs):
-        """Prevent duplicate registration of web search tools."""
-        super().__init_subclass__(**kwargs)
-        if any(tool.__name__ == "WebSearch" for tool in ToolRegistry._tools.values()):
-            return
-            
     # Constants
     API_URL = "https://api.duckduckgo.com/"
     MAX_RETRIES = 3
     TIMEOUT = 30
     MAX_QUERY_LENGTH = 500
+    MAX_RESULTS = 5
+    RATE_LIMIT_REQUESTS = 10  # Requests per minute
+    RATE_LIMIT_BURST = 3
     
     def __init__(self, bot=None, api_key: Optional[str] = None):
         """Initialize web search tool.
@@ -34,28 +33,26 @@ class WebSearch(AIResponderTool):
         super().__init__(bot)
         self.api_key = api_key
         self.session: Optional[aiohttp.ClientSession] = None
+        self.rate_limiter = RateLimiter(
+            requests_per_minute=self.RATE_LIMIT_REQUESTS,
+            burst_limit=self.RATE_LIMIT_BURST
+        )
         
     async def initialize(self) -> None:
         """Initialize the search tool with session."""
         if not self.session:
             timeout = aiohttp.ClientTimeout(total=self.TIMEOUT)
             self.session = aiohttp.ClientSession(timeout=timeout)
-    
+            
     async def cleanup(self) -> None:
         """Cleanup resources."""
         if self.session:
             await self.session.close()
             self.session = None
+        await self.rate_limiter.cleanup()
             
     def _validate_query(self, query: str) -> None:
-        """Validate search query.
-        
-        Args:
-            query: Search query to validate
-            
-        Raises:
-            ToolError: If query is invalid
-        """
+        """Validate search query."""
         if not query or not query.strip():
             raise ToolError(self.name, "Search query cannot be empty")
             
@@ -64,11 +61,55 @@ class WebSearch(AIResponderTool):
                 self.name,
                 f"Query too long (max {self.MAX_QUERY_LENGTH} characters)"
             )
-    
+            
+        # Check for potentially harmful queries
+        harmful_patterns = ['javascript:', 'data:', 'file:', 'vbscript:']
+        if any(pattern in query.lower() for pattern in harmful_patterns):
+            raise ToolError(self.name, "Query contains invalid patterns")
+            
+    def _process_results(self, data: Dict[str, Any]) -> List[str]:
+        """Process and format search results.
+        
+        Args:
+            data: Raw API response data
+            
+        Returns:
+            List of formatted result strings
+        """
+        results = []
+        
+        # Add instant answer if available
+        if abstract := data.get("AbstractText"):
+            source = data.get("AbstractSource", "")
+            url = data.get("AbstractURL", "")
+            results.append(f"📚 Summary ({source}): {abstract}")
+            if url:
+                results.append(f"Source: {url}")
+                
+        # Add definition if available
+        if definition := data.get("Definition"):
+            source = data.get("DefinitionSource", "")
+            results.append(f"📖 Definition ({source}): {definition}")
+            
+        # Process related topics
+        if related := data.get("RelatedTopics"):
+            topics = []
+            for topic in related[:self.MAX_RESULTS]:
+                if text := topic.get("Text"):
+                    url = topic.get("FirstURL", "")
+                    topics.append(f"• {text}")
+                    if url:
+                        topics.append(f"  Link: {url}")
+            if topics:
+                results.append("\n🔍 Related Information:")
+                results.extend(topics)
+                
+        return results
+        
     def _run(self, query: str) -> str:
         """Synchronous operation not supported."""
         raise NotImplementedError("This tool only supports async operation")
-    
+        
     async def _arun(self, query: str) -> str:
         """Perform web search.
         
@@ -83,6 +124,9 @@ class WebSearch(AIResponderTool):
         """
         self._validate_query(query)
         
+        # Check rate limits
+        await self.rate_limiter.check_rate_limit("search")
+        
         if not self.session:
             await self.initialize()
             
@@ -95,47 +139,53 @@ class WebSearch(AIResponderTool):
                         "format": "json",
                         "no_html": 1,
                         "skip_disambig": 1,
+                        "no_redirect": 1,
                         **({"appid": self.api_key} if self.api_key else {})
-                    }
+                    },
+                    timeout=self.TIMEOUT
                 ) as response:
+                    if response.status == 429:  # Rate limited
+                        if attempt < self.MAX_RETRIES - 1:
+                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                            continue
+                        raise ToolError(self.name, "Rate limited by search API")
+                        
                     if response.status != 200:
                         raise ToolError(
                             self.name,
                             f"API request failed: {response.status}"
                         )
                         
-                    data = await response.json()
-                    
-                    # Process search results
-                    results = []
-                    
-                    # Add abstract if available
-                    if abstract := data.get("AbstractText"):
-                        results.append(f"Summary: {abstract}")
+                    try:
+                        data = await response.json()
+                    except json.JSONDecodeError:
+                        raise ToolError(self.name, "Invalid response from search API")
                         
-                    # Add definition if available
-                    if definition := data.get("Definition"):
-                        results.append(f"Definition: {definition}")
-                        
-                    # Add related topics
-                    if related := data.get("RelatedTopics"):
-                        topics = [topic.get("Text") for topic in related[:3] if topic.get("Text")]
-                        if topics:
-                            results.append("\nRelated Information:")
-                            results.extend(f"- {topic}" for topic in topics)
+                    # Process results
+                    results = self._process_results(data)
                     
                     if not results:
                         return "No relevant information found."
                         
                     return "\n\n".join(results)
                     
+            except asyncio.TimeoutError:
+                if attempt == self.MAX_RETRIES - 1:
+                    raise ToolError(self.name, "Search request timed out")
+                continue
+                
             except aiohttp.ClientError as e:
                 if attempt == self.MAX_RETRIES - 1:
                     raise ToolError(self.name, f"Network error: {str(e)}")
                 continue
                 
-            except json.JSONDecodeError:
-                raise ToolError(self.name, "Invalid response from search API")
-                
             except Exception as e:
                 raise ToolError(self.name, f"Search failed: {str(e)}")
+                
+        raise ToolError(self.name, "Maximum retry attempts exceeded")
+
+    @property
+    def error_handling_hint(self) -> str:
+        """Provide error handling hint for the agent."""
+        return ("Try rephrasing your search query or breaking it into smaller parts. "
+                "If the issue persists, consider using alternative information sources.")
