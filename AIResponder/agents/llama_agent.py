@@ -213,40 +213,76 @@ Rules:
             raise ResponseParsingError(f"Invalid JSON response: {str(e)}")
 
         if "final_answer" in parsed:
-            # Check if we have recent tool results to incorporate
-            tool_results = [msg for msg in messages if getattr(msg, 'tool_result', False)]
-            if tool_results:
-                # Use the most recent tool result
-                latest_result = tool_results[-1].content
-                # Modify the final answer to include the tool results
-                parsed["final_answer"] = f"Based on my search, here's what's happening in St. Louis:\n\n{latest_result}"
-            
             return await self._handle_final_answer(parsed)
         elif "action" in parsed:
+            # Check if we've already used this tool with similar input recently
+            recent_actions = [
+                msg for msg in messages[-5:] 
+                if hasattr(msg, 'tool_result') and hasattr(msg, 'tool_name')
+            ]
+            
+            # Prevent redundant tool usage
+            for action in recent_actions:
+                if (action.tool_name == parsed["action"] and 
+                    self._similar_inputs(action.tool_input, parsed["action_input"])):
+                    # If we have recent results, format a final answer instead
+                    return AgentFinish(
+                        return_values={"output": self._format_tool_results(recent_actions)},
+                        log=f"Using existing results from {parsed['action']}"
+                    )
+                    
+            # If tool hasn't been used recently or input is significantly different
             return await self._handle_action(parsed, messages)
         else:
             raise ResponseParsingError("Response missing required fields")
 
+    def _similar_inputs(self, input1: str, input2: str) -> bool:
+        """Check if two tool inputs are similar enough to be considered redundant."""
+        # Convert to lowercase and remove common words
+        common_words = {'the', 'in', 'at', 'to', 'for', 'of', 'and', 'or'}
+        words1 = set(w.lower() for w in input1.split() if w.lower() not in common_words)
+        words2 = set(w.lower() for w in input2.split() if w.lower() not in common_words)
+        
+        # Calculate Jaccard similarity
+        intersection = len(words1.intersection(words2))
+        union = len(words1.union(words2))
+        
+        return intersection / union > 0.5 if union > 0 else False
+
+    def _format_tool_results(self, actions: List[BaseMessage]) -> str:
+        """Format multiple tool results into a coherent response."""
+        results = []
+        for action in actions:
+            if hasattr(action, 'content'):
+                results.append(action.content)
+        
+        # Combine and deduplicate results
+        combined = "\n\n".join(results)
+        return f"Based on the available information:\n\n{combined}"
+
     async def _handle_tool_execution(
         self, tool: AIResponderTool, action_input: str
-    ) -> str:
+    ) -> AIMessage:
         """Execute tool with timeout and error handling."""
         logger.info(format_log("TOOL", f"Executing {tool.name} with input: {action_input}", LogColors.TOOL))
         try:
             async with asyncio.timeout(self.TOOL_TIMEOUT):
                 result = await tool._arun(action_input)
                 logger.info(format_log("TOOL", f"Success: {tool.name}", LogColors.SUCCESS))
-                return result
+                
+                # Create message with tool metadata
+                message = AIMessage(content=result)
+                setattr(message, 'tool_result', True)
+                setattr(message, 'tool_name', tool.name)
+                setattr(message, 'tool_input', action_input)
+                return message
+                
         except asyncio.TimeoutError:
             logger.error(format_log("TIMEOUT", f"Tool {tool.name} exceeded {self.TOOL_TIMEOUT}s", LogColors.ERROR))
-            raise ToolExecutionError(
-                tool.name, "Tool execution timeout exceeded"
-            )
+            raise ToolExecutionError(tool.name, "Tool execution timeout exceeded")
         except Exception as e:
             logger.error(format_log("ERROR", f"Tool {tool.name} failed: {str(e)}", LogColors.ERROR))
-            raise ToolExecutionError(
-                tool.name, str(e), original_error=e
-            )
+            raise ToolExecutionError(tool.name, str(e), original_error=e)
 
     async def handle_tool_error(self, error: Exception, action: AgentAction) -> str:
         """Handle tool execution errors."""
