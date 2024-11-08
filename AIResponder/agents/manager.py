@@ -129,10 +129,10 @@ class AgentManager:
                         # Create analysis message for the tool result
                         analysis_prompt = (
                             f"Tool '{step.tool}' returned the following result:\n\n{result}\n\n"
-                            "Please analyze this information and determine if it:"
-                            "\n1. Fully answers the original question"
-                            "\n2. Requires additional information from other tools"
-                            "\n3. Is sufficient for a final response"
+                            "Analyze this information and decide:"
+                            "\n1. Does it provide useful information for the user's question?"
+                            "\n2. Can you form a helpful response with what you know?"
+                            "\nIf the information is useful, provide a final answer. Only search again if truly necessary."
                         )
                         
                         # Add tool result and analysis prompt to messages
