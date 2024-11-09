@@ -38,6 +38,7 @@ from .formatting import (
 )
 
 from .config import ConfigManager
+from .logging import setup_logger, format_log, LogColors
 
 __all__ = [
     # Errors
@@ -71,7 +72,12 @@ __all__ = [
     "escape_markdown",
     
     # Configuration
-    "ConfigManager"
+    "ConfigManager",
+    
+    # Logging utilities
+    "setup_logger",
+    "format_log",
+    "LogColors"
 ]
 
 # Version information
