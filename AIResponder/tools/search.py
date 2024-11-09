@@ -1,107 +1,135 @@
-from typing import Optional, List, Dict, Any
-import asyncio
-from langchain_community.tools import DuckDuckGoSearchRun
+from typing import Optional, List, Dict, Any, Union
+import aiohttp
+import json
 from . import AIResponderTool, ToolRegistry
 from ..utils.errors import ToolError
-from ..responses.rate_limiter import RateLimiter
+from datetime import datetime, timedelta
 
 @ToolRegistry.register
 class WebSearch(AIResponderTool):
-    """Web search tool using DuckDuckGo API."""
+    """Advanced web search tool using DuckDuckGo API."""
     
     name = "web_search"
-    description = "Search the web for information using DuckDuckGo"
+    description = "Search the web for current information using DuckDuckGo. Supports time-based, region-based, and safe search options."
     
     # Constants
+    API_URL = "https://api.duckduckgo.com/"
     MAX_RETRIES = 3
     TIMEOUT = 30
     MAX_QUERY_LENGTH = 500
-    MAX_RESULTS = 5
-    RATE_LIMIT_REQUESTS = 10  # Requests per minute
-    RATE_LIMIT_BURST = 3
+    MAX_RESULTS = 10
     
-    def __init__(self, bot=None):
+    # Search Parameters
+    TIME_FILTERS = {
+        "recent": "d",  # Past day
+        "week": "w",    # Past week
+        "month": "m",   # Past month
+        "year": "y"     # Past year
+    }
+    
+    def __init__(self, bot=None, api_key: Optional[str] = None):
         super().__init__(bot)
-        self.search_tool = DuckDuckGoSearchRun()
-        self.rate_limiter = RateLimiter(
-            requests_per_minute=self.RATE_LIMIT_REQUESTS,
-            burst_limit=self.RATE_LIMIT_BURST
-        )
+        self.api_key = api_key
+        self.session: Optional[aiohttp.ClientSession] = None
         
-    def _validate_query(self, query: str) -> None:
-        if not query or not query.strip():
-            raise ToolError(self.name, "Search query cannot be empty")
+    def parse_input(self, query: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Parse and validate search input."""
+        if isinstance(query, str):
+            return {"query": query}
             
-        if len(query) > self.MAX_QUERY_LENGTH:
-            raise ToolError(
-                self.name,
-                f"Query too long (max {self.MAX_QUERY_LENGTH} characters)"
-            )
+        if not isinstance(query, dict):
+            raise ToolError(self.name, "Invalid input format")
             
-        harmful_patterns = ['javascript:', 'data:', 'file:', 'vbscript:']
-        if any(pattern in query.lower() for pattern in harmful_patterns):
-            raise ToolError(self.name, "Query contains invalid patterns")
-            
-    def _format_results(self, results: str) -> str:
-        """Format search results."""
-        if not results or results.strip() == "":
-            return "No relevant information found."
-            
-        # Split into paragraphs and limit length
-        paragraphs = results.split('\n\n')[:self.MAX_RESULTS]
-        formatted = []
-        
-        for i, para in enumerate(paragraphs, 1):
-            if para.strip():
-                formatted.append(f"{i}. {para.strip()}")
-                
-        if not formatted:
-            return "No relevant information found."
-            
-        return "\n\n".join(formatted)
-        
-    def _run(self, query: str) -> str:
-        raise NotImplementedError("This tool only supports async operation")
-        
-    async def _arun(self, query: str) -> str:
-        """Perform web search.
+        return {
+            "query": query.get("query", ""),
+            "time_filter": query.get("time_filter", ""),
+            "region": query.get("region", "wt-wt"),  # Default to worldwide
+            "safe_search": query.get("safe_search", True)
+        }
+
+    async def _arun(self, query: Union[str, Dict[str, Any]]) -> str:
+        """Perform advanced web search.
         
         Args:
-            query: Search query
+            query: Search query string or dict with advanced parameters
             
         Returns:
-            Search results
-            
-        Raises:
-            ToolError: If search fails
+            Formatted search results
         """
-        self._validate_query(query)
-        await self.rate_limiter.check_rate_limit("search")
+        params = self.parse_input(query)
+        self._validate_query(params["query"])
         
+        if not self.session:
+            await self.initialize()
+            
+        search_params = {
+            "q": params["query"],
+            "format": "json",
+            "no_html": 1,
+            "skip_disambig": 1,
+            "t": "AIResponderBot",
+            "kl": params["region"],
+            "safe": "1" if params["safe_search"] else "-1",
+            **({"appid": self.api_key} if self.api_key else {})
+        }
+        
+        # Add time filter if specified
+        if params.get("time_filter") in self.TIME_FILTERS:
+            search_params["df"] = self.TIME_FILTERS[params["time_filter"]]
+
         for attempt in range(self.MAX_RETRIES):
             try:
-                # Run search in thread pool to avoid blocking
-                loop = asyncio.get_event_loop()
-                results = await loop.run_in_executor(
-                    None, 
-                    self.search_tool.run,
-                    query
-                )
-                
-                return self._format_results(results)
-                
-            except Exception as e:
+                async with self.session.get(
+                    self.API_URL,
+                    params=search_params
+                ) as response:
+                    if response.status != 200:
+                        raise ToolError(
+                            self.name,
+                            f"API request failed: {response.status}"
+                        )
+                        
+                    data = await response.json()
+                    return self._process_results(data)
+                    
+            except aiohttp.ClientError as e:
                 if attempt == self.MAX_RETRIES - 1:
-                    raise ToolError(self.name, f"Search failed: {str(e)}")
-                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    raise ToolError(self.name, f"Network error: {str(e)}")
                 continue
                 
-        raise ToolError(self.name, "Maximum retry attempts exceeded")
-
-    @property
-    def error_handling_hint(self) -> str:
-        return ("Try rephrasing your search query or breaking it into smaller parts. "
-                "If the issue persists, consider using alternative information sources.")
-
-    async def cleanup(self) -> None:
-        await self.rate_limiter.cleanup()
+    def _process_results(self, data: Dict[str, Any]) -> str:
+        """Process and format search results."""
+        results = []
+        
+        # Add instant answer if available
+        if abstract := data.get("AbstractText"):
+            source = data.get("AbstractSource", "")
+            url = data.get("AbstractURL", "")
+            results.append(f"Summary from {source}:\n{abstract}")
+            if url:
+                results.append(f"Source: {url}\n")
+                
+        # Add definition if available
+        if definition := data.get("Definition"):
+            source = data.get("DefinitionSource", "")
+            results.append(f"Definition from {source}:\n{definition}\n")
+            
+        # Add related topics
+        if related := data.get("RelatedTopics"):
+            topics = []
+            for topic in related[:self.MAX_RESULTS]:
+                if text := topic.get("Text"):
+                    url = topic.get("FirstURL", "")
+                    topics.append(f"• {text}")
+                    if url:
+                        topics.append(f"  Source: {url}")
+            
+            if topics:
+                results.append("Related Information:")
+                results.extend(topics)
+                
+        # Handle no results
+        if not results:
+            return "No relevant information found."
+            
+        return "\n\n".join(results)

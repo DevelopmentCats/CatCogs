@@ -72,10 +72,6 @@ class ServerInfo(AIResponderTool):
         except Exception as e:
             raise ToolError(self.name, f"Error retrieving server info: {str(e)}")
 
-    def _run(self, *args: Any, **kwargs: Any) -> str:
-        """Synchronous execution not supported for Discord tools."""
-        raise NotImplementedError("Discord tools only support async execution")
-
 @ToolRegistry.register
 class ChannelHistory(AIResponderTool):
     """Tool for retrieving channel message history."""
@@ -137,7 +133,3 @@ class ChannelHistory(AIResponderTool):
             
         except Exception as e:
             raise ToolError(self.name, f"Error retrieving channel history: {str(e)}")
-
-    def _run(self, *args: Any, **kwargs: Any) -> str:
-        """Synchronous execution not supported for Discord tools."""
-        raise NotImplementedError("Discord tools only support async execution")

@@ -91,21 +91,14 @@ class BaseAgent(ABC):
         return None
     
     async def validate_tool_args(self, action: AgentAction) -> bool:
-        """Validate that an action's arguments match its tool's requirements.
-        
-        Args:
-            action: The agent action to validate
-            
-        Returns:
-            bool: True if arguments are valid, False otherwise
-        """
+        """Validate that an action's arguments match its tool's requirements."""
         tool = await self.get_tool(action.tool)
         if not tool:
             return False
             
         try:
-            # Attempt to parse the tool input
-            tool.parse_input(action.tool_input)
+            if hasattr(tool, 'parse_input'):
+                tool.parse_input(action.tool_input)
             return True
         except Exception:
             return False

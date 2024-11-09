@@ -36,8 +36,9 @@ class ToolManager:
                     initialization_errors.append(f"{tool_class.__name__}: {str(e)}")
                     
             if initialization_errors:
-                error_message = "Failed to initialize tools:\n" + "\n".join(initialization_errors)
-                raise ToolInitializationError(error_message)
+                raise ToolInitializationError(
+                    f"Failed to initialize tools:\n" + "\n".join(initialization_errors)
+                )
                 
         finally:
             self._initializing = False
@@ -53,21 +54,15 @@ class ToolManager:
         """
         try:
             # Check if tool is already initialized
-            if not hasattr(tool_class, 'name') or not tool_class.name:
-                raise ToolError(tool_class.__name__, "Tool has no name defined")
-                
             if tool_class.name in self.tools:
                 return
                 
             tool = tool_class(self.bot)
-            await tool.initialize()
-            self.tools[tool_class.name] = tool
-            
+            if hasattr(tool, 'initialize'):
+                await tool.initialize()
+            self.tools[tool.name] = tool
         except Exception as e:
-            raise ToolError(
-                tool_class.__name__ if hasattr(tool_class, '__name__') else 'Unknown',
-                f"Initialization failed: {str(e)}"
-            )
+            raise ToolError(tool_class.__name__, f"Initialization failed: {str(e)}")
             
     async def cleanup_tools(self) -> None:
         """Cleanup all tools.
@@ -102,17 +97,12 @@ class ToolManager:
         """
         return self.tools.get(name)
         
-    async def get_all_tools(self) -> List[AIResponderTool]:
+    def get_all_tools(self) -> List[AIResponderTool]:
         """Get all initialized tools.
         
         Returns:
-            List of initialized tools
-            
-        Raises:
-            ToolError: If tools are not initialized
+            List of initialized tool instances
         """
-        if not self.tools:
-            raise ToolError("manager", "Tools not initialized")
         return list(self.tools.values())
         
     def is_tool_available(self, name: str) -> bool:

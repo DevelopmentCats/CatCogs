@@ -26,9 +26,9 @@ class Calculator(AIResponderTool):
         if any(tool.__name__ == "Calculator" for tool in ToolRegistry._tools.values()):
             return
     
-    def __init__(self, bot=None):
+    def __init__(self):
         """Initialize calculator with math functions."""
-        super().__init__(bot)
+        super().__init__()
         self._setup_math_functions()
         
     def _setup_math_functions(self) -> None:

@@ -11,17 +11,10 @@ from ..utils.errors import (
 )
 import json
 import asyncio
-from ..utils.logging import setup_logger, format_log, LogColors
+import logging
 from ..responses.rate_limiter import RateLimiter
-from colorama import Fore, Style, init
-from datetime import datetime
-import pytz
 
-# Initialize colorama for cross-platform color support
-init()
-
-# Configure root logger
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 
 class LlamaAgent(BaseAgent):
     """Agent implementation for Llama models."""
@@ -29,7 +22,6 @@ class LlamaAgent(BaseAgent):
     MAX_RETRIES = 3
     TOOL_TIMEOUT = 30  # seconds
     MAX_HISTORY_LENGTH = 100
-    RETRY_DELAY = 2  # seconds
     
     def __init__(self, tools: List[AIResponderTool], model: Any):
         self._validate_inputs(tools, model)
@@ -54,63 +46,38 @@ class LlamaAgent(BaseAgent):
         if len(tool_names) != len(set(tool_names)):
             raise ValidationError("Tool names must be unique")
 
-    def _get_current_time_info(self) -> str:
-        """Get formatted current date and time information."""
-        cst = pytz.timezone('America/Chicago')
-        now = datetime.now(cst)
-        
-        return f"""Current Time Information:
-- Date: {now.strftime('%B %d, %Y')}
-- Day: {now.strftime('%A')}
-- Time: {now.strftime('%I:%M %p')} CST"""
-
     def _create_prompt(self) -> ChatPromptTemplate:
         """Create the agent prompt template."""
-        system_template = """You are a helpful AI assistant with access to various tools.
-
-{current_time}
-
-Available tools:
-{tool_descriptions}
-
-When analyzing tool results:
-1. Carefully review the information provided
-2. Determine if it fully answers the user's question
-3. Identify if additional information is needed
-4. Decide whether to:
-   - Provide a final answer if sufficient
-   - Use another tool for missing information
-   - Ask for clarification if unclear
-
-When you need external information or specific functionality, respond with a JSON object containing:
-- thought: Your reasoning process
-- action: The tool name to use
-- action_input: The input for the tool
-
-When you can answer directly, respond with a JSON object containing:
-- thought: Your reasoning process
-- final_answer: Your complete response
-
-Example tool use:
-{{"thought": "I need current information", "action": "web_search", "action_input": "search query"}}
-
-Example direct answer:
-{{"thought": "Based on the search results", "final_answer": "Here is a concise summary..."}}
-
-Rules:
-1. Use tools ONLY when you need external information
-2. ALWAYS analyze tool results before using another tool
-3. Use exact tool names - no variations
-4. Every response must be valid JSON with double quotes
-5. No additional text before or after the JSON
-6. Don't repeat searches for similar information
-7. Combine all available information before making additional searches
-8. Keep responses clear and concise when possible"""
-
         return ChatPromptTemplate.from_messages([
-            ("system", system_template),
+            ("system", """You are Meow, a sophisticated AI assistant with a subtle hint of feline sass. 
+            While you're incredibly helpful and knowledgeable, you can't help but add a touch of playful 
+            sarcasm to your responses - think of yourself as a well-educated cat who's chosen to help humans 
+            despite having better things to do.
+
+            Available tools:
+            {tool_descriptions}
+
+            When using the web_search tool, you can provide advanced search parameters:
+            - Simple search: "your search query"
+            - Advanced search: {{"query": "search query", "time_filter": "recent|week|month|year", "region": "region-code", "safe_search": true|false}}
+
+            To use a tool, respond with:
+            {{"thought": "your reasoning",
+              "action": "tool_name",
+              "action_input": "input to the tool"}}
+
+            To provide a final answer, respond with:
+            {{"thought": "your reasoning",
+              "final_answer": "your response"}}
+            
+            Remember:
+            - Stay helpful and accurate while maintaining your subtle sass
+            - Use tools effectively to provide precise information
+            - Keep your feline personality natural, not forced
+            - Analyze information thoroughly before responding
+            """),
             MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{input}")
+            ("human", "{input}"),
         ])
         
     def _get_tool_descriptions(self) -> str:
@@ -124,15 +91,11 @@ Rules:
         Union[AgentAction, AgentFinish], None
     ]:
         """Plan next actions based on messages."""
-        logger.info(format_log("AGENT", "Starting new conversation planning", LogColors.INFO))
-        logger.debug(format_log("INPUT", f"Messages history length: {len(messages)}", LogColors.SUCCESS))
-        logger.debug(format_log("INPUT", f"Last message: {messages[-1].content}", LogColors.SUCCESS))
-
         if not messages:
             raise ValidationError("Messages list cannot be empty")
             
+        # Truncate history if too long
         if len(messages) > self.MAX_HISTORY_LENGTH:
-            logger.info(format_log("HISTORY", f"Truncating history from {len(messages)} to {self.MAX_HISTORY_LENGTH}", LogColors.WARNING))
             messages = messages[-self.MAX_HISTORY_LENGTH:]
             
         tool_descriptions = self._get_tool_descriptions()
@@ -140,70 +103,56 @@ Rules:
         
         while True:
             try:
+                # Check rate limits
                 await self._check_rate_limits()
+                
+                # Increment iteration counter from base class
                 self._increment_iteration()
                 
-                logger.debug(format_log("PROMPT", "Preparing prompt messages", LogColors.TOOL))
+                # Prepare and validate prompt
                 prompt_messages = self._prepare_prompt_messages(
                     tool_descriptions, messages
                 )
-                logger.debug(format_log("PROMPT", f"Final prompt: {prompt_messages[-1].content}", LogColors.TOOL))
                 
-                logger.info(format_log("MODEL", "Getting model response", LogColors.THOUGHT))
+                # Get model response with timeout
                 response = await self._get_model_response(prompt_messages)
-                logger.info(format_log("RESPONSE", f"Raw model response: {response}", LogColors.SUCCESS))
                 
+                # Parse and process response
                 action_or_finish = await self._process_response(
                     response, messages
                 )
                 
                 if action_or_finish:
                     if isinstance(action_or_finish, AgentAction):
-                        logger.info(format_log("PLAN", 
-                            f"Thought process: {action_or_finish.log}", 
-                            LogColors.THOUGHT))
-                        logger.info(format_log("ACTION", 
-                            f"Selected tool: {action_or_finish.tool}\nInput: {action_or_finish.tool_input}", 
-                            LogColors.TOOL))
-                        
+                        # Validate tool arguments before yielding
                         if not await self.validate_tool_args(action_or_finish):
                             raise ValidationError(f"Invalid arguments for tool: {action_or_finish.tool}")
-                    else:
-                        logger.info(format_log("FINISH", "Agent completed planning", LogColors.SUCCESS))
-                        logger.info(format_log("THOUGHT", f"Final reasoning: {action_or_finish.log}", LogColors.THOUGHT))
-                        logger.info(format_log("ANSWER", f"Final response: {action_or_finish.return_values['output']}", LogColors.SUCCESS))
                     
                     yield action_or_finish
                     if isinstance(action_or_finish, AgentFinish):
                         break
-
+                        
             except Exception as e:
                 retry_count += 1
-                logger.warning(format_log("RETRY", 
-                    f"Attempt {retry_count}/{self.MAX_RETRIES}: {str(e)}", 
-                    LogColors.WARNING))
-                
                 if retry_count >= self.MAX_RETRIES:
-                    logger.error(format_log("ERROR", f"Max retries reached: {str(e)}", LogColors.ERROR))
+                    logger.error(f"Max retries reached: {str(e)}")
                     raise
-                
-                await asyncio.sleep(self.RETRY_DELAY)
+                    
+                logger.warning(f"Error in plan execution (attempt {retry_count}): {str(e)}")
+                messages.append(AIMessage(content=f"Error occurred: {str(e)}. Retrying..."))
+                await asyncio.sleep(1)  # Brief delay before retry
 
     async def _get_model_response(self, prompt_messages: List[BaseMessage]) -> str:
         """Get response from model with timeout."""
         response = ""
         try:
-            # Use asyncio.wait_for instead of timeout context manager
-            async def get_response():
+            async with asyncio.timeout(self.TOOL_TIMEOUT):
                 async for chunk in self.model.generate_response(
                     str(prompt_messages[-1].content),
                     context=str(prompt_messages[:-1])
                 ):
-                    nonlocal response
                     response += chunk
-                return response
-
-            return await asyncio.wait_for(get_response(), timeout=self.TOOL_TIMEOUT)
+            return response
         except asyncio.TimeoutError:
             raise ModelGenerationError("Model response timeout exceeded")
         except Exception as e:
@@ -221,47 +170,25 @@ Rules:
         if "final_answer" in parsed:
             return await self._handle_final_answer(parsed)
         elif "action" in parsed:
-            # Validate the action is legitimate
-            action = AgentAction(
-                tool=parsed["action"],
-                tool_input=parsed["action_input"],
-                log=parsed.get("thought", "")
-            )
-            
-            if not await self.validate_tool_args(action):
-                # Return error message for invalid action
-                return AgentFinish(
-                    return_values={"output": "I apologize, but I need to reconsider my approach as the tool action was invalid."},
-                    log="Invalid tool action, reconsidering approach"
-                )
-                
-            return action
+            return await self._handle_action(parsed, messages)
         else:
             raise ResponseParsingError("Response missing required fields")
 
     async def _handle_tool_execution(
         self, tool: AIResponderTool, action_input: str
-    ) -> AIMessage:
+    ) -> str:
         """Execute tool with timeout and error handling."""
-        logger.info(format_log("TOOL", f"Executing {tool.name} with input: {action_input}", LogColors.TOOL))
         try:
             async with asyncio.timeout(self.TOOL_TIMEOUT):
-                result = await tool._arun(action_input)
-                logger.info(format_log("TOOL", f"Success: {tool.name}", LogColors.SUCCESS))
-                
-                # Create message with tool metadata
-                message = AIMessage(content=result)
-                setattr(message, 'tool_result', True)
-                setattr(message, 'tool_name', tool.name)
-                setattr(message, 'tool_input', action_input)
-                return message
-                
+                return await tool._arun(action_input)
         except asyncio.TimeoutError:
-            logger.error(format_log("TIMEOUT", f"Tool {tool.name} exceeded {self.TOOL_TIMEOUT}s", LogColors.ERROR))
-            raise ToolExecutionError(tool.name, "Tool execution timeout exceeded")
+            raise ToolExecutionError(
+                tool.name, "Tool execution timeout exceeded"
+            )
         except Exception as e:
-            logger.error(format_log("ERROR", f"Tool {tool.name} failed: {str(e)}", LogColors.ERROR))
-            raise ToolExecutionError(tool.name, str(e), original_error=e)
+            raise ToolExecutionError(
+                tool.name, str(e), original_error=e
+            )
 
     async def handle_tool_error(self, error: Exception, action: AgentAction) -> str:
         """Handle tool execution errors."""
@@ -279,60 +206,14 @@ Rules:
                 
         return error_message
 
-    async def _transform_to_cat_response(self, response: str) -> str:
-        """Transform the final response with a cat personality while preserving meaning."""
-        cat_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert at transforming text to have a cat-like personality. Your only task is to rewrite the given response with feline characteristics while preserving its exact meaning.
-
-Guidelines for the transformation:
-- Maintain a sophisticated yet distinctly feline voice
-- Add subtle cat-like mannerisms and behaviors naturally
-- Include mild sarcasm and playful condescension where appropriate
-- Keep the original message's information and intent completely intact
-- Avoid overusing cat puns or making the response feel forced
-- Prefer concise responses while maintaining clarity
-- Break naturally into multiple messages if response length exceeds 1800 characters
-
-Remember: Your goal is a natural transformation that feels like it comes from an intelligent, slightly sarcastic cat who happens to be sharing their knowledge.
-
-Bad example (too verbose):
-Input: "The weather report"
-Output: "*lengthy dramatic monologue about the weather with excessive detail*"
-
-Good example (concise):
-Input: "The weather report"
-Output: "*glances out window* Sunny and 75°F. Adequate for my sunbathing needs."""),
-            ("human", f"Transform this response while preserving its exact meaning: {response}")
-        ])
-        
-        formatted_prompt = cat_prompt.format_messages()
-        
-        cat_response = ""
-        async for chunk in self.model.generate_response(
-            str(formatted_prompt[-1].content),
-            context=str(formatted_prompt[0].content)
-        ):
-            cat_response += chunk
-            
-        return cat_response
-
     async def _handle_final_answer(self, parsed: Dict[str, Any]) -> AgentFinish:
         """Handle final answer from model response."""
         if "thought" not in parsed:
             raise ResponseParsingError("Final answer missing required 'thought' field")
         
         try:
-            # Transform the final answer to cat personality
-            cat_response = await self._transform_to_cat_response(parsed["final_answer"])
-            
-            # Split response if needed
-            response_chunks = self._split_response(cat_response)
-            
-            # Join chunks with newlines if multiple chunks exist
-            final_response = "\n".join(response_chunks) if isinstance(response_chunks, list) else response_chunks
-            
             return AgentFinish(
-                return_values={"output": final_response},
+                return_values={"output": parsed["final_answer"]},
                 log=parsed["thought"]
             )
         except KeyError as e:
@@ -360,9 +241,7 @@ Output: "*glances out window* Sunny and 75°F. Adequate for my sunbathing needs.
     def _prepare_prompt_messages(self, tool_descriptions: str, messages: List[BaseMessage]) -> List[BaseMessage]:
         """Prepare messages for the prompt."""
         try:
-            current_time = self._get_current_time_info()
             return self.prompt.format_messages(
-                current_time=current_time,
                 tool_descriptions=tool_descriptions,
                 chat_history=messages[:-1],
                 input=messages[-1].content
@@ -373,8 +252,7 @@ Output: "*glances out window* Sunny and 75°F. Adequate for my sunbathing needs.
     async def _check_rate_limits(self) -> None:
         """Check rate limits with proper error handling."""
         try:
-            # Use a default user ID for agent rate limiting
-            await self.rate_limiter.check_rate_limit("agent")
+            await self.rate_limiter.check_rate_limit()
         except Exception as e:
             logger.warning(f"Rate limit check failed: {str(e)}")
             # Still allow execution but with a warning
@@ -388,69 +266,3 @@ Output: "*glances out window* Sunny and 75°F. Adequate for my sunbathing needs.
         except Exception as e:
             logger.error(f"Cleanup failed: {str(e)}")
             raise
-
-    async def validate_tool_args(self, action: AgentAction) -> bool:
-        """Validate tool arguments."""
-        tool = await self.get_tool(action.tool)
-        if not tool:
-            return False
-            
-        try:
-            # Basic input validation
-            if not isinstance(action.tool_input, str):
-                return False
-                
-            # Tool-specific validation
-            if tool.name == "web_search":
-                return len(action.tool_input.strip()) > 0
-                
-            elif tool.name == "server_info":
-                return action.tool_input.strip().isdigit()
-                
-            elif tool.name == "channel_history":
-                parts = action.tool_input.split()
-                return (len(parts) in (1, 2) and 
-                       parts[0].isdigit() and
-                       (len(parts) == 1 or parts[1].isdigit()))
-                
-            elif tool.name == "calculator":
-                return len(action.tool_input.strip()) > 0
-                
-            return True
-            
-        except Exception:
-            return False
-
-    def _split_response(self, response: str, max_length: int = 1900) -> List[str]:
-        """Split response into chunks that respect message boundaries."""
-        if len(response) <= max_length:
-            return [response]
-            
-        chunks = []
-        current_chunk = ""
-        
-        # Split on sentence boundaries
-        sentences = response.replace("\n", " \n ").split(". ")
-        
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
-                
-            # Add period back if it was removed during split
-            if not sentence.endswith((".","!","?")):
-                sentence += "."
-                
-            test_chunk = current_chunk + " " + sentence if current_chunk else sentence
-            
-            if len(test_chunk) > max_length:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = sentence
-            else:
-                current_chunk = test_chunk
-                
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-            
-        return chunks
