@@ -37,11 +37,7 @@ class ConfigManager:
             if self._initialized:
                 return
                 
-            await self._config.register_global()
-            for key, value in self._defaults.items():
-                if not await self._config.get_raw(key, default=None):
-                    await self._config.set_raw(key, value=value)
-            
+            await self._config.register_global(**self._defaults)
             self._initialized = True
             
         except Exception as e:
