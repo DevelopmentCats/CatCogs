@@ -21,31 +21,12 @@ class AIResponder(commands.Cog):
         """Initialize the cog."""
         super().__init__()
         self.bot = bot
-        self.config = Config.get_conf(
+        config = Config.get_conf(
             self,
             identifier=987654321,
-            force_registration=True,
-            cog_name="AIResponder"
+            force_registration=True
         )
-        
-        # Register global defaults first
-        defaults = {
-            "api_key": None,
-            "model_name": "meta-llama/Llama-3.2-11B-Vision-Instruct",
-            "max_history": 10,
-            "history_expiry_hours": 24,
-            "disabled_channels": [],
-            "disabled_servers": [],
-            "rate_limit_requests": 5,
-            "rate_limit_burst": 2,
-            "rate_limit_cooldown": 30,
-            "max_response_chunks": 5,
-            "tool_configs": {}
-        }
-        self.config.register_global(**defaults)
-        
-        # Now create config manager with initialized config
-        self.config_manager = ConfigManager(self.config)
+        self.config = ConfigManager(config)
         self.model: Optional[DeepInfraModel] = None
         self.conversation_manager: Optional[ConversationManager] = None
         self.tool_manager: Optional[ToolManager] = None
@@ -58,26 +39,16 @@ class AIResponder(commands.Cog):
         
     async def initialize(self) -> None:
         """Initialize the cog."""
+        await self.config.initialize()
+        api_key = await self.config.get_api_key()
+        max_history = await self.config.get_max_history()
+        
+        if not api_key:
+            log.warning("No API key configured for AIResponder")
+            return
+            
         try:
-            await self.config_manager.initialize()
-            api_key = await self.config_manager.get_api_key()
-            
-            # Clean up existing model if any
-            if self.model:
-                await self.model.cleanup()
-                self.model = None
-                
-            if not api_key:
-                log.warning("No API key configured for AIResponder")
-                return
-                
-            model_name = await self.config_manager.get_model_name()
-            max_history = await self.config_manager.get_max_history()
-            
-            self.model = DeepInfraModel(
-                api_key=api_key,
-                model_name=model_name
-            )
+            self.model = DeepInfraModel(api_key)
             await self.model.initialize()
             
             self.conversation_manager = ConversationManager(max_history=max_history)
@@ -85,17 +56,10 @@ class AIResponder(commands.Cog):
             await self.tool_manager.initialize_tools()
             
             self.agent_manager = AgentManager(self.model, self.tool_manager)
-            
-            if not self.cleanup_task:
-                self.cleanup_task = asyncio.create_task(self._cleanup_loop())
-                
+            self.cleanup_task = asyncio.create_task(self._cleanup_loop())
         except Exception as e:
-            log.error(f"Failed to initialize: {str(e)}")
-            if self.model:
-                await self.model.cleanup()
-                self.model = None
-            # Re-raise as AIResponderError with proper message
-            raise AIResponderError(f"Initialization failed: {str(e)}")
+            log.error(f"Failed to initialize: {e}")
+            self.model = None
 
     async def _cleanup_loop(self) -> None:
         """Periodically clean up expired conversations."""
@@ -133,7 +97,7 @@ class AIResponder(commands.Cog):
     async def air_setkey(self, ctx: commands.Context, api_key: str):
         """Set the API key for the AI model."""
         try:
-            await self.config_manager.set_api_key(api_key)
+            await self.config.set_api_key(api_key)
             await ctx.send("API key updated successfully.")
             await self.initialize()
         except ConfigError as e:
@@ -155,7 +119,7 @@ class AIResponder(commands.Cog):
     async def air_togglechannel(self, ctx: commands.Context):
         """Toggle AI responses in the current channel."""
         try:
-            is_disabled = await self.config_manager.toggle_channel(ctx.channel.id)
+            is_disabled = await self.config.toggle_channel(ctx.channel.id)
             status = "disabled" if is_disabled else "enabled"
             await ctx.send(f"AI responses are now {status} in this channel.")
         except ConfigError as e:
@@ -165,7 +129,7 @@ class AIResponder(commands.Cog):
     async def air_setmodel(self, ctx: commands.Context, model_name: str):
         """Set the AI model to use."""
         try:
-            await self.config_manager.set_model_name(model_name)
+            await self.config.set_model_name(model_name)
             await ctx.send(f"Model updated to: {model_name}")
             await self.initialize()
         except ConfigError as e:
@@ -174,21 +138,15 @@ class AIResponder(commands.Cog):
     @air.command(name="status")
     async def air_status(self, ctx: commands.Context):
         """Show the current status of the AI responder."""
-        model_name = await self.config_manager.get_model_name()
-        rate_limits = await self.config_manager.get_rate_limit_config()
-        
-        # Get tool count properly by awaiting the coroutine
-        tool_count = 0
-        if self.tool_manager:
-            tools = await self.tool_manager.get_all_tools()
-            tool_count = len(tools)
+        model_name = await self.config.get_model_name()
+        rate_limits = await self.config.get_rate_limit_config()
         
         status = [
             "**AI Responder Status**",
             f"Model: {model_name}",
             f"Initialized: {self.model is not None}",
             f"Rate Limits: {rate_limits['requests']}/min (burst: {rate_limits['burst']})",
-            f"Tools Loaded: {tool_count}"
+            f"Tools Loaded: {len(self.tool_manager.get_all_tools()) if self.tool_manager else 0}"
         ]
         
         await ctx.send("\n".join(status))
@@ -202,7 +160,7 @@ class AIResponder(commands.Cog):
         if self.bot.user not in message.mentions:
             return
             
-        if await self.config_manager.is_channel_disabled(message.channel.id):
+        if await self.config.is_channel_disabled(message.channel.id):
             return
             
         if not self.model or not self.conversation_manager:
@@ -217,42 +175,43 @@ class AIResponder(commands.Cog):
             return
             
         try:
-            await self.conversation_manager.add_message(
-                message.author.id,
-                message.channel.id,
-                message.content,
-                "user"
-            )
-            
-            history = await self.conversation_manager.get_conversation_history(
-                message.author.id,
-                message.channel.id
-            )
-            
-            current_response = ""
-            async for response_chunk in self.agent_manager.process_message(
-                message.content,
-                history
-            ):
-                current_response += response_chunk
+            async with message.channel.typing():
+                await self.conversation_manager.add_message(
+                    message.author.id,
+                    message.channel.id,
+                    message.content,
+                    "user"
+                )
                 
-            is_valid, error_message = await self.validator.validate(current_response)
-            if not is_valid:
-                await message.channel.send(f"Error: {error_message}")
-                return
+                history = await self.conversation_manager.get_conversation_history(
+                    message.author.id,
+                    message.channel.id
+                )
                 
-            formatted_response = self.formatter.format_response(current_response)
-            
-            async for chunk in self.chunker.chunk_response(formatted_response):
-                await message.channel.send(chunk)
+                current_response = ""
+                async for response_chunk in self.agent_manager.process_message(
+                    message.content,
+                    history
+                ):
+                    current_response += response_chunk
+                    
+                is_valid, error_message = await self.validator.validate(current_response)
+                if not is_valid:
+                    await message.channel.send(f"Error: {error_message}")
+                    return
+                    
+                formatted_response = self.formatter.format_response(current_response)
                 
-            await self.conversation_manager.add_message(
-                message.author.id,
-                message.channel.id,
-                current_response,
-                "assistant"
-            )
-            
+                async for chunk in self.chunker.chunk_response(formatted_response):
+                    await message.channel.send(chunk)
+                    
+                await self.conversation_manager.add_message(
+                    message.author.id,
+                    message.channel.id,
+                    current_response,
+                    "assistant"
+                )
+
         except AIResponderError as e:
             await message.channel.send(f"Error: {str(e)}")
             log.error(f"AIResponder error: {e}")
