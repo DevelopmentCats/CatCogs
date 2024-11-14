@@ -115,8 +115,8 @@ Rules:
 
 Example Conversation:
 Human: What time is it?
-Assistant: {{"thought": "I need to check the current time", "action": "server_info", "action_input": "time"}}
-Server: Current time is 2:30 PM CST
+Assistant: {{"thought": "I need to check the current time", "action": "current_time", "action_input": ""}}
+Tool: The current time is 2:30 PM CST
 Assistant: {{"thought": "I have the current time information", "final_answer": "It is currently 2:30 PM CST"}}"""
 
         return ChatPromptTemplate.from_messages([
@@ -169,67 +169,63 @@ Assistant: {{"thought": "I have the current time information", "final_answer": "
             messages = messages[-self.MAX_HISTORY_LENGTH:]
             
         tool_descriptions = self._get_tool_descriptions()
-        retry_count = 0
         
         while True:
             try:
                 await self._check_rate_limits()
                 self._increment_iteration()
                 
-                logger.debug(format_log("PROMPT", "Preparing prompt messages", LogColors.TOOL))
-                prompt_messages = self._prepare_prompt_messages(
-                    tool_descriptions, messages
-                )
-                logger.debug(format_log("PROMPT", f"Final prompt: {prompt_messages[-1].content}", LogColors.TOOL))
+                # Prepare prompt with current messages and tool descriptions
+                prompt_messages = self._prepare_prompt_messages(tool_descriptions, messages)
                 
-                logger.info(format_log("MODEL", "Getting model response", LogColors.THOUGHT))
+                # Get model's next action
                 response = await self._get_model_response(prompt_messages)
-                logger.info(format_log("RESPONSE", f"Raw model response: {response}", LogColors.SUCCESS))
+                action_or_finish = await self._process_response(response, messages)
                 
-                action_or_finish = await self._process_response(
-                    response, messages
-                )
-                
-                if action_or_finish:
-                    if isinstance(action_or_finish, AgentAction):
-                        logger.info(format_log("PLAN", 
-                            f"Thought process: {getattr(action_or_finish, 'log', '')}", 
-                            LogColors.THOUGHT))
-                        logger.info(format_log("ACTION", 
-                            f"Selected tool: {action_or_finish.tool}\nInput: {action_or_finish.tool_input}", 
-                            LogColors.TOOL))
-                        
-                        if not await self.validate_tool_args(action_or_finish):
-                            raise ValidationError(f"Invalid arguments for tool: {action_or_finish.tool}")
-                    elif isinstance(action_or_finish, AgentFinish):
-                        logger.info(format_log("FINISH", "Agent completed planning", LogColors.SUCCESS))
-                        thought = getattr(action_or_finish, 'log', '')
-                        logger.info(format_log("THOUGHT", f"Final reasoning: {thought}", LogColors.THOUGHT))
-                        
-                        # Safely access return_values
-                        if hasattr(action_or_finish, 'return_values') and isinstance(action_or_finish.return_values, dict):
-                            output = action_or_finish.return_values.get('output', 'No output provided')
-                            logger.info(format_log("ANSWER", f"Final response: {output}", LogColors.SUCCESS))
-                        else:
-                            # Handle case where return_values is not properly structured
-                            output = str(action_or_finish)
-                            logger.info(format_log("ANSWER", f"Final response: {output}", LogColors.SUCCESS))
+                if isinstance(action_or_finish, AgentAction):
+                    # Log the thought process and action
+                    logger.info(format_log("PLAN", f"Thought process: {action_or_finish.log}", LogColors.THOUGHT))
+                    logger.info(format_log("ACTION", f"Using tool: {action_or_finish.tool} with input: {action_or_finish.tool_input}", LogColors.TOOL))
                     
+                    # Validate tool arguments
+                    await self.validate_tool_args(action_or_finish)
+                    
+                    # Return the action to be executed
                     yield action_or_finish
-                    if isinstance(action_or_finish, AgentFinish):
-                        break
-
+                    
+                    # Get the observation from the tool execution
+                    observation = yield
+                    
+                    # Add the action and result to message history
+                    messages.extend([
+                        AIMessage(content=json.dumps({
+                            "thought": action_or_finish.log,
+                            "action": action_or_finish.tool,
+                            "action_input": action_or_finish.tool_input
+                        })),
+                        HumanMessage(content=str(observation))
+                    ])
+                    
+                elif isinstance(action_or_finish, AgentFinish):
+                    # Log completion
+                    logger.info(format_log("FINISH", "Agent completed planning", LogColors.SUCCESS))
+                    logger.info(format_log("THOUGHT", f"Final reasoning: {action_or_finish.log}", LogColors.THOUGHT))
+                    
+                    # Return the final answer
+                    if hasattr(action_or_finish, 'return_values'):
+                        output = action_or_finish.return_values.get('output', 'No output provided')
+                        logger.info(format_log("ANSWER", f"Final response: {output}", LogColors.SUCCESS))
+                        yield action_or_finish
+                    else:
+                        raise ValidationError("AgentFinish missing return values")
+                    return
+                    
+                else:
+                    raise ValidationError(f"Invalid response type: {type(action_or_finish)}")
+                    
             except Exception as e:
-                retry_count += 1
-                logger.warning(format_log("RETRY", 
-                    f"Attempt {retry_count}/{self.MAX_RETRIES}: {str(e)}", 
-                    LogColors.WARNING))
-                
-                if retry_count >= self.MAX_RETRIES:
-                    logger.error(format_log("ERROR", f"Max retries reached: {str(e)}", LogColors.ERROR))
-                    raise
-                
-                await asyncio.sleep(self.RETRY_DELAY)
+                logger.error(format_log("ERROR", f"Error in planning: {str(e)}", LogColors.ERROR))
+                raise
 
     async def _get_model_response(self, prompt_messages: List[BaseMessage]) -> str:
         """Get response from model with timeout."""
