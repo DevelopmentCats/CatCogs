@@ -37,7 +37,14 @@ class AgentManager:
             AgentError: If agent creation fails
         """
         try:
+            # Ensure tools are initialized first
+            await self.tool_manager.initialize_tools()
             tools = await self.tool_manager.get_all_tools()
+            
+            if not tools:
+                logger.error("No tools available")
+                raise AgentError("No tools available")
+                
             agent = LlamaAgent(tools, self.model)
             self._active_agents[session_id] = agent
             return agent
