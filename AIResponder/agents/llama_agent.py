@@ -203,11 +203,19 @@ Rules:
                         
                         if not await self.validate_tool_args(action_or_finish):
                             raise ValidationError(f"Invalid arguments for tool: {action_or_finish.tool}")
-                    else:
+                    elif isinstance(action_or_finish, AgentFinish):
                         logger.info(format_log("FINISH", "Agent completed planning", LogColors.SUCCESS))
                         thought = getattr(action_or_finish, 'log', '')
                         logger.info(format_log("THOUGHT", f"Final reasoning: {thought}", LogColors.THOUGHT))
-                        logger.info(format_log("ANSWER", f"Final response: {action_or_finish.return_values['output']}", LogColors.SUCCESS))
+                        
+                        # Safely access return_values
+                        if hasattr(action_or_finish, 'return_values') and isinstance(action_or_finish.return_values, dict):
+                            output = action_or_finish.return_values.get('output', 'No output provided')
+                            logger.info(format_log("ANSWER", f"Final response: {output}", LogColors.SUCCESS))
+                        else:
+                            # Handle case where return_values is not properly structured
+                            output = str(action_or_finish)
+                            logger.info(format_log("ANSWER", f"Final response: {output}", LogColors.SUCCESS))
                     
                     yield action_or_finish
                     if isinstance(action_or_finish, AgentFinish):
@@ -255,7 +263,11 @@ Rules:
             raise ResponseParsingError(f"Invalid JSON response: {str(e)}")
 
         if "final_answer" in parsed:
-            return await self._handle_final_answer(parsed, messages)
+            # Create AgentFinish with proper return_values structure
+            return AgentFinish(
+                return_values={"output": parsed["final_answer"]},
+                log=parsed.get("thought", "")
+            )
         elif "action" in parsed:
             # Validate the action is legitimate
             action = AgentAction(
