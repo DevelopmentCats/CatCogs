@@ -86,6 +86,7 @@ Tool Usage:
 2. NEVER make assumptions about current information - use tools to verify
 3. Each tool execution should have a clear purpose
 4. Wait for and analyze each tool's result before deciding next action
+5. DO NOT use tools for time/date information - this is provided in the prompt
 
 Response Format:
 You must respond in one of two formats:
@@ -112,13 +113,13 @@ Rules:
 6. If a tool fails, try a different approach
 7. Keep responses clear and concise
 8. Include all necessary context in your response
+9. Use time/date information from the prompt instead of tools
 
 Example Conversation:
 Human: What time is it?
-Assistant: {{"thought": "I need to check the current time", "action": "current_time", "action_input": ""}}
-Tool: The current time is 2:30 PM CST
-Assistant: {{"thought": "I have the current time information", "final_answer": "It is currently 2:30 PM CST"}}"""
+Assistant: {{"thought": "I can see the current time information in the prompt", "final_answer": "It is currently 2:30 PM CST"}}
 
+"""
         return ChatPromptTemplate.from_messages([
             ("system", system_template),
             MessagesPlaceholder(variable_name="chat_history"),
