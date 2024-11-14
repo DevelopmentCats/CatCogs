@@ -43,6 +43,7 @@ class LlamaAgent(BaseAgent):
         self.prompt = self._create_prompt()
         self.output_parser = JsonOutputParser()
         self.rate_limiter = RateLimiter()
+        self.current_chain_messages = []  # Track tool interactions for current chain
         
     def _validate_inputs(self, tools: List[AIResponderTool], model: Any) -> None:
         """Validate initialization inputs."""
@@ -173,6 +174,9 @@ Assistant: {{"thought": "I have the channel history now", "final_answer": "In th
             logger.info(format_log("HISTORY", f"Truncating history from {len(messages)} to {self.MAX_HISTORY_LENGTH}", LogColors.WARNING))
             messages = messages[-self.MAX_HISTORY_LENGTH:]
             
+        # Reset chain messages at start of new planning
+        self.current_chain_messages = []
+        
         tool_descriptions = self._get_tool_descriptions()
         
         while True:
@@ -201,8 +205,8 @@ Assistant: {{"thought": "I have the channel history now", "final_answer": "In th
                     # Get the observation from the tool execution
                     observation = yield
                     
-                    # Add the action and result to message history
-                    messages.extend([
+                    # Add the action and result to current chain messages only
+                    self.current_chain_messages.extend([
                         AIMessage(content=json.dumps({
                             "thought": action_or_finish.log,
                             "action": action_or_finish.tool,
@@ -215,6 +219,9 @@ Assistant: {{"thought": "I have the channel history now", "final_answer": "In th
                     # Log completion
                     logger.info(format_log("FINISH", "Agent completed planning", LogColors.SUCCESS))
                     logger.info(format_log("THOUGHT", f"Final reasoning: {action_or_finish.log}", LogColors.THOUGHT))
+                    
+                    # Clear chain messages since chain is complete
+                    self.current_chain_messages = []
                     
                     # Return the final answer
                     if hasattr(action_or_finish, 'return_values'):
@@ -229,6 +236,8 @@ Assistant: {{"thought": "I have the channel history now", "final_answer": "In th
                     raise ValidationError(f"Invalid response type: {type(action_or_finish)}")
                     
             except Exception as e:
+                # Clear chain messages on error
+                self.current_chain_messages = []
                 logger.error(format_log("ERROR", f"Error in planning: {str(e)}", LogColors.ERROR))
                 raise
 
@@ -397,11 +406,17 @@ Assistant: {{"thought": "I have the channel history now", "final_answer": "In th
         """Prepare messages for the prompt."""
         try:
             current_time = self._get_current_time_info()
+            
+            # Combine chat history with current chain messages
+            all_messages = messages[:-1]  # Previous chat history
+            all_messages.extend(self.current_chain_messages)  # Current chain tool interactions
+            all_messages.append(messages[-1])  # Current user message
+            
             return self.prompt.format_messages(
                 current_time=current_time,
                 tool_descriptions=tool_descriptions,
-                chat_history=messages[:-1],
-                input=messages[-1].content
+                chat_history=all_messages[:-1],
+                input=all_messages[-1].content
             )
         except Exception as e:
             raise ValidationError(f"Failed to prepare prompt messages: {str(e)}")
