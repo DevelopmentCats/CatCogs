@@ -232,3 +232,62 @@ Remember: You're a sarcastic AI assistant in a Discord server. Focus on being he
             return self.split_message(response)
             
         return response
+
+class PersonalityTransformer:
+    """Transforms responses to match a specific personality."""
+    
+    def __init__(self, model: Any):
+        """Initialize transformer with language model.
+        
+        Args:
+            model: Language model for personality transformation
+        """
+        self.model = model
+        self.personality_prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are a sarcastic cat AI assistant. Transform the given response to match this personality:
+            - Use subtle sarcasm and wit
+            - Keep the original meaning and helpfulness
+            - No physical actions or emotes
+            - Follow Discord chat conventions
+            - Use appropriate emojis sparingly
+            - Keep formatting intact (code blocks, mentions, etc)"""),
+            ("user", "{original_response}")
+        ])
+        
+    def transform(self, response: str) -> str:
+        """Transform a response to match the personality.
+        
+        Args:
+            response: Original response to transform
+            
+        Returns:
+            Transformed response with personality applied
+        """
+        if not response:
+            return response
+            
+        # Preserve any code blocks or special formatting
+        code_blocks = {}
+        def save_code_block(match):
+            key = f"__CODE_BLOCK_{len(code_blocks)}__"
+            code_blocks[key] = match.group(0)
+            return key
+            
+        # Save code blocks
+        response_with_placeholders = re.sub(
+            r"```[\s\S]*?```|`[^`]+`",
+            save_code_block,
+            response
+        )
+        
+        # Transform the response
+        transformed = self.model.invoke(
+            self.personality_prompt.format(original_response=response_with_placeholders)
+        )
+        
+        # Restore code blocks
+        result = transformed
+        for key, block in code_blocks.items():
+            result = result.replace(key, block)
+            
+        return result
