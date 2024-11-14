@@ -260,6 +260,46 @@ Rules:
         except Exception as e:
             raise ModelGenerationError(f"Model response failed: {str(e)}")
 
+    async def process_final_response(self, response: str, original_question: str = "") -> str:
+        """Process final response through validation, formatting, and personality transformation."""
+        # 1. Validate
+        is_valid, error = await self.response_validator.validate(response)
+        if not is_valid:
+            raise ValidationError(f"Invalid response: {error}")
+            
+        # 2. Check for embedded content markers
+        if "__EMBED__" in response:
+            # Extract embed data and remove the marker
+            embed_start = response.find("__EMBED__") + 9
+            embed_end = response.find("__EMBED__", embed_start)
+            if embed_end == -1:
+                embed_end = len(response)
+            embed_data = response[embed_start:embed_end].strip()
+            response = response[:embed_start-9] + response[embed_end:]
+            
+            # Store embed data for Discord message creation
+            if hasattr(self, 'current_embeds'):
+                self.current_embeds.append(eval(embed_data))
+            else:
+                self.current_embeds = [eval(embed_data)]
+            
+        # 3. Format
+        formatted = self.response_formatter.format_response(response)
+        
+        # 4. Transform personality
+        if self.personality:
+            try:
+                return await self.personality_transformer.transform(
+                    formatted, 
+                    self.personality,
+                    question=original_question
+                )
+            except Exception as e:
+                logger.warning(f"Personality transformation failed: {e}. Returning formatted response.")
+                return formatted
+                
+        return formatted
+
     async def _process_response(
         self, response: str, messages: List[BaseMessage]
     ) -> Optional[Union[AgentAction, AgentFinish]]:
@@ -281,10 +321,9 @@ Rules:
                         (msg.content for msg in reversed(messages) if isinstance(msg, HumanMessage)),
                         ""
                     )
-                    final_answer = await self.personality_transformer.transform(
+                    final_answer = await self.process_final_response(
                         final_answer,
-                        self.personality,
-                        question=original_question
+                        original_question
                     )
                 
                 # Create AgentFinish with proper structure
@@ -293,7 +332,7 @@ Rules:
                     log=thought
                 )
             except Exception as e:
-                logger.warning(f"Personality transformation failed: {str(e)}. Returning formatted response.")
+                logger.warning(f"Final response processing failed: {str(e)}. Returning raw response.")
                 return AgentFinish(
                     return_values={"output": parsed["final_answer"]},
                     log=thought
@@ -463,7 +502,7 @@ Rules:
                 return await self.personality_transformer.transform(
                     formatted, 
                     self.personality,
-                    original_question=original_question
+                    question=original_question
                 )
             except Exception as e:
                 logger.warning(f"Personality transformation failed: {e}. Returning formatted response.")
