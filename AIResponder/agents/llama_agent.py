@@ -7,7 +7,7 @@ from ..tools import AIResponderTool
 from .base import BaseAgent
 from ..utils.errors import (
     ToolExecutionError, ModelGenerationError, 
-    ResponseParsingError, ValidationError
+    ResponseParsingError, ValidationError, ToolError
 )
 import json
 import asyncio
@@ -431,6 +431,30 @@ Rules:
             
         except Exception:
             return False
+
+    async def handle_tool_error(self, error: Exception, action: AgentAction) -> str:
+        """Handle tool execution errors by delegating to ToolManager.
+        
+        Args:
+            error: The exception that occurred
+            action: The agent action that caused the error
+            
+        Returns:
+            str: Error message to be used in the agent's response
+        """
+        # If it's a ToolError, it's already been handled by ToolManager
+        if isinstance(error, ToolError):
+            return str(error)
+            
+        # For other errors, let ToolManager handle it
+        tool_name = action.tool
+        tool_input = action.tool_input
+        
+        # Raise as ToolError for ToolManager to handle
+        raise ToolError(
+            tool_name,
+            f"Error executing tool with input '{tool_input}': {str(error)}"
+        )
 
     def _split_response(self, response: str, max_length: int = 1900) -> List[str]:
         """Split response into chunks that respect message boundaries."""
