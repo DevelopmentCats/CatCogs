@@ -262,124 +262,44 @@ Rules:
         except json.JSONDecodeError as e:
             raise ResponseParsingError(f"Invalid JSON response: {str(e)}")
 
+        thought = parsed.get("thought", "")
+
         if "final_answer" in parsed:
-            # Create AgentFinish with proper return_values structure
-            return AgentFinish(
-                return_values={"output": parsed["final_answer"]},
-                log=parsed.get("thought", "")
-            )
-        elif "action" in parsed:
-            # Validate the action is legitimate
-            action = AgentAction(
-                tool=parsed["action"],
-                tool_input=parsed["action_input"],
-                log=parsed.get("thought", "")
-            )
-            
-            if not await self.validate_tool_args(action):
-                # Return error message for invalid action
+            # Process the final answer through personality transformation if needed
+            try:
+                final_answer = parsed["final_answer"]
+                if self.personality:
+                    # Get the original question
+                    original_question = next(
+                        (msg.content for msg in reversed(messages) if isinstance(msg, HumanMessage)),
+                        ""
+                    )
+                    final_answer = await self.personality_transformer.transform(
+                        final_answer,
+                        self.personality
+                    )
+                
+                # Create AgentFinish with proper structure
                 return AgentFinish(
-                    return_values={"output": "I apologize, but I need to reconsider my approach as the tool action was invalid."},
-                    log="Invalid tool action, reconsidering approach"
+                    return_values={"output": final_answer},
+                    log=thought
+                )
+            except Exception as e:
+                logger.warning(f"Error processing final answer: {str(e)}")
+                return AgentFinish(
+                    return_values={"output": parsed["final_answer"]},
+                    log=thought
                 )
                 
-            return action
+        elif "action" in parsed:
+            # Create AgentAction with proper structure
+            return AgentAction(
+                tool=parsed["action"],
+                tool_input=parsed.get("action_input", ""),
+                log=thought
+            )
         else:
             raise ResponseParsingError("Response missing required fields")
-
-    async def _handle_tool_execution(
-        self, tool: AIResponderTool, action_input: str
-    ) -> str:
-        """Execute tool with timeout and error handling.
-        
-        Args:
-            tool: Tool to execute
-            action_input: Input for the tool
-            
-        Returns:
-            Tool execution result
-            
-        Raises:
-            ToolExecutionError: If tool execution fails
-        """
-        try:
-            # Parse action input as kwargs
-            try:
-                kwargs = json.loads(action_input) if action_input.strip().startswith('{') else {'input': action_input}
-            except json.JSONDecodeError:
-                kwargs = {'input': action_input}
-                
-            # Validate arguments
-            tool.validate_args(kwargs)
-            
-            # Execute with timeout
-            async with asyncio.timeout(self.TOOL_TIMEOUT):
-                result = await tool._arun(**kwargs)
-                
-            if not result:
-                return f"Tool '{tool.name}' returned no result"
-                
-            # Truncate result if too long
-            if len(result) > 2000:
-                return result[:1997] + "..."
-                
-            return result
-            
-        except asyncio.TimeoutError:
-            raise ToolExecutionError(f"Tool '{tool.name}' timed out after {self.TOOL_TIMEOUT} seconds")
-        except Exception as e:
-            raise ToolExecutionError(f"Tool '{tool.name}' failed: {str(e)}")
-
-    async def _handle_final_answer(self, parsed: Dict[str, Any], messages: List[BaseMessage]) -> AgentFinish:
-        """Handle final answer from model response."""
-        if "thought" not in parsed:
-            raise ResponseParsingError("Final answer missing required 'thought' field")
-        
-        try:
-            # Get the original question from the last human message
-            original_question = ""
-            for msg in reversed(messages):
-                if isinstance(msg, HumanMessage):
-                    original_question = msg.content
-                    break
-            
-            # Process the response through the pipeline
-            final_response = await self._process_response(
-                parsed["final_answer"],
-                original_question=original_question
-            )
-            
-            # Split response if needed
-            response_chunks = self._split_response(final_response)
-            
-            # Join chunks with newlines if multiple chunks exist
-            final_output = "\n".join(response_chunks) if isinstance(response_chunks, list) else response_chunks
-            
-            return AgentFinish(
-                return_values={"output": final_output},
-                log=parsed["thought"]
-            )
-        except KeyError as e:
-            raise ResponseParsingError(f"Missing required field in final answer: {e}")
-
-    async def _handle_action(self, parsed: Dict[str, Any], messages: List[BaseMessage]) -> AgentAction:
-        """Handle action from model response."""
-        required_fields = ["thought", "action", "action_input"]
-        missing_fields = [field for field in required_fields if field not in parsed]
-        
-        if missing_fields:
-            raise ResponseParsingError(f"Action missing required fields: {', '.join(missing_fields)}")
-        
-        # Validate tool exists
-        tool_names = [tool.name for tool in self.tools]
-        if parsed["action"] not in tool_names:
-            raise ValidationError(f"Unknown tool: {parsed['action']}")
-            
-        return AgentAction(
-            tool=parsed["action"],
-            tool_input=parsed["action_input"],
-            log=parsed["thought"]
-        )
 
     def _prepare_prompt_messages(self, tool_descriptions: str, messages: List[BaseMessage]) -> List[BaseMessage]:
         """Prepare messages for the prompt."""
