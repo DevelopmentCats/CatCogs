@@ -79,54 +79,45 @@ class LlamaAgent(BaseAgent):
 Available tools:
 {tool_descriptions}
 
-IMPORTANT: For questions about time, dates, or current information, you MUST use appropriate tools rather than making assumptions.
+IMPORTANT INSTRUCTIONS:
 
-When analyzing tool results:
-1. Carefully review the information provided
-2. Determine if it fully answers the user's question
-3. Identify if additional information is needed
-4. If the response would benefit from including a relevant link:
-   - Use the link_handler tool to properly format the link
-   - Consider using embeds for rich content
-   - Ensure links are properly integrated into the response
-5. Decide whether to:
-   - Provide a final answer if sufficient
-   - Use another tool for missing information
-   - Ask for clarification if unclear
+Tool Usage:
+1. ALWAYS use tools when you need external information or functionality
+2. NEVER make assumptions about current information - use tools to verify
+3. Each tool execution should have a clear purpose
+4. Wait for and analyze each tool's result before deciding next action
 
-When you need external information or specific functionality, respond with a JSON object containing:
-- thought: Your reasoning process
-- action: The tool name to use
-- action_input: The input for the tool
+Response Format:
+You must respond in one of two formats:
 
-When you can answer directly (ONLY if you have all necessary information), respond with a JSON object containing:
-- thought: Your reasoning process
-- final_answer: Your complete response
+1. To use a tool:
+{
+    "thought": "Your reasoning for using the tool",
+    "action": "exact_tool_name",
+    "action_input": "tool input"
+}
 
-Example tool use:
-{{"thought": "I need to check the current time", 
-  "action": "time_tool", 
-  "action_input": ""}}
-
-Example direct answer:
-{{"thought": "Based on the time_tool result, I can now provide the current time", 
-  "final_answer": "It is currently 2:30 PM CST"}}
+2. To provide a final answer:
+{
+    "thought": "Your reasoning for giving this answer",
+    "final_answer": "Your complete response"
+}
 
 Rules:
-1. ALWAYS use tools for:
-   - Current time/date information
-   - External data or resources
-   - Link formatting
-   - File operations
-2. NEVER make assumptions about current time or date
-3. ALWAYS analyze tool results before using another tool
-4. Use exact tool names - no variations
-5. Every response must be valid JSON with double quotes
-6. No additional text before or after the JSON
-7. Don't repeat searches for similar information
-8. Combine all available information before making additional searches
-9. Keep responses clear and concise when possible
-10. When relevant, include properly formatted links using the link_handler tool"""
+1. ALWAYS format responses as valid JSON with double quotes
+2. NEVER include text outside the JSON
+3. ALWAYS use exact tool names
+4. ALWAYS analyze tool results before using another tool
+5. NEVER repeat the same tool call without new information
+6. If a tool fails, try a different approach
+7. Keep responses clear and concise
+8. Include all necessary context in your response
+
+Example Conversation:
+Human: What time is it?
+Assistant: {"thought": "I need to check the current time", "action": "server_info", "action_input": "time"}
+Server: Current time is 2:30 PM CST
+Assistant: {"thought": "I have the current time information", "final_answer": "It is currently 2:30 PM CST"}"""
 
         return ChatPromptTemplate.from_messages([
             ("system", system_template),
@@ -310,13 +301,14 @@ Rules:
             raise ResponseParsingError(f"Invalid JSON response: {str(e)}")
 
         thought = parsed.get("thought", "")
+        logger.info(format_log("THOUGHT", thought, LogColors.THOUGHT))
 
         if "final_answer" in parsed:
-            # Process the final answer through personality transformation if needed
-            try:
-                final_answer = parsed["final_answer"]
-                if self.personality:
-                    # Get the original question for context
+            final_answer = parsed["final_answer"]
+            
+            # Only transform final answers, not intermediate steps
+            if self.personality:
+                try:
                     original_question = next(
                         (msg.content for msg in reversed(messages) if isinstance(msg, HumanMessage)),
                         ""
@@ -325,26 +317,31 @@ Rules:
                         final_answer,
                         original_question
                     )
-                
-                # Create AgentFinish with proper structure
-                return AgentFinish(
-                    return_values={"output": final_answer},
-                    log=thought
-                )
-            except Exception as e:
-                logger.warning(f"Final response processing failed: {str(e)}. Returning raw response.")
-                return AgentFinish(
-                    return_values={"output": parsed["final_answer"]},
-                    log=thought
-                )
+                except Exception as e:
+                    logger.warning(f"Final response processing failed: {str(e)}. Returning raw response.")
+            
+            return AgentFinish(
+                return_values={"output": final_answer},
+                log=thought
+            )
                 
         elif "action" in parsed:
-            # Create AgentAction with proper structure
-            return AgentAction(
-                tool=parsed["action"],
+            # Validate the action exists
+            action_name = parsed["action"]
+            if not any(tool.name == action_name for tool in self.tools):
+                raise ValidationError(f"Unknown tool: {action_name}")
+            
+            # Create and validate the action
+            action = AgentAction(
+                tool=action_name,
                 tool_input=parsed.get("action_input", ""),
                 log=thought
             )
+            
+            # Validate tool arguments before returning
+            await self.validate_tool_args(action)
+            return action
+            
         else:
             raise ResponseParsingError("Response must contain either 'final_answer' or 'action'")
 
