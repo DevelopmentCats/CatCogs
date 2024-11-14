@@ -91,17 +91,17 @@ Response Format:
 You must respond in one of two formats:
 
 1. To use a tool:
-{
+{{
     "thought": "Your reasoning for using the tool",
     "action": "exact_tool_name",
     "action_input": "tool input"
-}
+}}
 
 2. To provide a final answer:
-{
+{{
     "thought": "Your reasoning for giving this answer",
     "final_answer": "Your complete response"
-}
+}}
 
 Rules:
 1. ALWAYS format responses as valid JSON with double quotes
@@ -115,9 +115,9 @@ Rules:
 
 Example Conversation:
 Human: What time is it?
-Assistant: {"thought": "I need to check the current time", "action": "server_info", "action_input": "time"}
+Assistant: {{"thought": "I need to check the current time", "action": "server_info", "action_input": "time"}}
 Server: Current time is 2:30 PM CST
-Assistant: {"thought": "I have the current time information", "final_answer": "It is currently 2:30 PM CST"}"""
+Assistant: {{"thought": "I have the current time information", "final_answer": "It is currently 2:30 PM CST"}}"""
 
         return ChatPromptTemplate.from_messages([
             ("system", system_template),
