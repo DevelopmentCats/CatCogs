@@ -267,7 +267,7 @@ class PersonalityTransformer:
             ("user", "Transform this response while keeping its meaning and any technical details intact.")
         ])
         
-    def transform(self, response: str, personality: str, question: str = "") -> str:
+    async def transform(self, response: str, personality: str, question: str = "") -> str:
         """Transform a response to match the personality.
         
         Args:
@@ -295,13 +295,20 @@ class PersonalityTransformer:
             response
         )
         
-        # Transform the response
-        transformed = self.model.invoke(
-            self.personality_prompt.format(
-                original_response=response_with_placeholders,
-                question=question or "No context provided"
-            )
+        # Transform the response using generate_response
+        transformed = ""
+        prompt = self.personality_prompt.format(
+            original_response=response_with_placeholders,
+            question=question or "No context provided"
         )
+        prompt_messages = prompt.format_messages()
+        
+        # Use generate_response instead of invoke
+        async for chunk in self.model.generate_response(
+            str(prompt_messages[-1].content),
+            context=str(prompt_messages[0].content)
+        ):
+            transformed += chunk
         
         # Restore code blocks
         result = transformed
