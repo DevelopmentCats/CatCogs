@@ -1,222 +1,168 @@
-from typing import Dict, List, Optional, Union
-import re
-from dataclasses import dataclass
-from ..utils.errors import FormattingError
+"""Response formatting and personality transformation for Discord messages."""
 
-@dataclass
-class Citation:
-    """Represents a citation in a response.
-    
-    Attributes:
-        source: Name or title of the source
-        content: Relevant content from the source
-        url: Optional URL to the source
-        page_number: Optional page number reference
-    """
-    source: str
-    content: str
-    url: Optional[str] = None
-    page_number: Optional[int] = None
+from typing import Dict, Any, List, Optional, Union
+from langchain_core.prompts import ChatPromptTemplate
+import discord
+import re
+from datetime import datetime
 
 class ResponseFormatter:
-    """Handles formatting of AI responses with markdown and citations."""
+    """Handles response formatting and personality transformation for Discord."""
     
-    # Markdown patterns
-    HEADER_PATTERN = r'^(#{1,6})\s*(.*?)$'
-    LIST_PATTERN = r'^(\s*[-*+]|\d+\.)\s'
-    TABLE_PATTERN = r'\|.*\|'
-    
-    def __init__(self):
-        """Initialize the formatter."""
-        self.citations: List[Citation] = []
-        self._initialize_patterns()
-        
-    def _initialize_patterns(self) -> None:
-        """Initialize regex patterns for markdown formatting."""
-        self.patterns = {
-            'code_block': re.compile(r'```(\w+)?\n(.*?)\n```', re.DOTALL),
-            'inline_code': re.compile(r'`([^`]+)`'),
-            'bold': re.compile(r'\*\*([^*]+)\*\*'),
-            'italic': re.compile(r'_([^_]+)_|\*([^*]+)\*'),
-            'header': re.compile(self.HEADER_PATTERN, re.MULTILINE),
-            'list': re.compile(self.LIST_PATTERN, re.MULTILINE),
-            'table': re.compile(self.TABLE_PATTERN, re.MULTILINE)
-        }
-        
-    def format_response(
-        self, 
-        content: str, 
-        citations: Optional[List[Citation]] = None,
-        format_code: bool = True,
-        add_line_numbers: bool = False
-    ) -> str:
-        """Format the response with citations and proper markdown.
+    def __init__(self, model: Any):
+        """Initialize formatter with language model for personality transformation.
         
         Args:
-            content: The content to format
-            citations: Optional list of citations to include
-            format_code: Whether to format code blocks
-            add_line_numbers: Whether to add line numbers to code blocks
-            
-        Returns:
-            Formatted content with citations
-            
-        Raises:
-            FormattingError: If formatting fails
+            model: Language model for personality transformation
         """
-        try:
-            if citations:
-                self.citations = citations
-                
-            # Add markdown formatting
-            formatted = self._add_markdown(
-                content, 
-                format_code=format_code,
-                add_line_numbers=add_line_numbers
-            )
-            
-            # Add citations if present
-            if self.citations:
-                formatted += self._format_citations()
-                
-            return formatted.strip()
-            
-        except Exception as e:
-            raise FormattingError(f"Failed to format response: {str(e)}")
-        
-    def _add_markdown(
-        self, 
-        content: str, 
-        format_code: bool = True,
-        add_line_numbers: bool = False
-    ) -> str:
-        """Add markdown formatting to the response.
-        
-        Args:
-            content: Content to format
-            format_code: Whether to format code blocks
-            add_line_numbers: Whether to add line numbers to code blocks
-        """
-        # Format code blocks if enabled
-        if format_code:
-            content = self.patterns['code_block'].sub(
-                lambda m: self._format_code_block(
-                    m.group(2), 
-                    language=m.group(1) or "",
-                    add_line_numbers=add_line_numbers
-                ),
-                content
-            )
-            
-        # Format inline code
-        content = self.patterns['inline_code'].sub(r'`\1`', content)
-        
-        # Format bold text
-        content = self.patterns['bold'].sub(r'**\1**', content)
-        
-        # Format italic text
-        content = self.patterns['italic'].sub(lambda m: f"_{m.group(1) or m.group(2)}_", content)
-        
-        # Format headers
-        content = self.patterns['header'].sub(lambda m: f"{m.group(1)} {m.group(2)}", content)
-        
-        return content
-    
-    def _format_code_block(
-        self, 
-        code: str, 
-        language: str = "",
-        add_line_numbers: bool = False
-    ) -> str:
-        """Format a code block with optional line numbers."""
-        if not code:
-            return "```\n```"
-            
-        lines = code.strip().split('\n')
-        
-        if add_line_numbers:
-            width = len(str(len(lines)))
-            numbered_lines = [
-                f"{i+1:>{width}} | {line}"
-                for i, line in enumerate(lines)
-            ]
-            code = '\n'.join(numbered_lines)
-            
-        return f"```{language}\n{code}\n```"
-    
-    def _format_citations(self) -> str:
-        """Format citations section."""
-        if not self.citations:
-            return ""
-            
-        formatted = "\n\n**Sources:**\n"
-        for i, citation in enumerate(self.citations, 1):
-            formatted += f"{i}. {citation.source}"
-            
-            if citation.page_number:
-                formatted += f" (p. {citation.page_number})"
-                
-            if citation.url:
-                formatted += f" - [Link]({citation.url})"
-                
-            formatted += f"\n> {citation.content}\n"
-            
-        return formatted
-        
-    def add_citation(
-        self, 
-        source: str, 
-        content: str, 
-        url: Optional[str] = None,
-        page_number: Optional[int] = None
-    ) -> None:
-        """Add a citation to the response.
-        
-        Args:
-            source: Name or title of the source
-            content: Relevant content from the source
-            url: Optional URL to the source
-            page_number: Optional page number reference
-            
-        Raises:
-            ValueError: If source or content is empty
-        """
-        if not source or not content:
-            raise ValueError("Source and content are required for citations")
-            
-        self.citations.append(Citation(
-            source=source,
-            content=content,
-            url=url,
-            page_number=page_number
-        ))
-    
-    def clear_citations(self) -> None:
-        """Clear all citations."""
-        self.citations.clear()
-
-class PersonalityTransformer:
-    """Handles transformation of responses to match specific personalities."""
-
-    def __init__(self, model):
-        """Initialize the transformer with a model."""
         self.model = model
+        self.max_message_length = 2000
+        self.max_embed_length = 4096
         
-    async def transform(self, response: str, personality: str = "cat", original_question: str = "") -> str:
-        """Transform a response to match a specific personality.
+    # Discord Formatting Methods
+    def format_user_mention(self, user_id: int) -> str:
+        """Format a user mention."""
+        return f"<@{user_id}>"
         
-        Args:
-            response: Original response to transform
-            personality: Type of personality to apply
-            original_question: The original question or context that prompted this response
+    def format_channel_mention(self, channel_id: int) -> str:
+        """Format a channel mention."""
+        return f"<#{channel_id}>"
+        
+    def format_role_mention(self, role_id: int) -> str:
+        """Format a role mention."""
+        return f"<@&{role_id}>"
+
+    def format_code_block(self, content: str, language: str = "") -> str:
+        """Format content as a code block."""
+        return f"```{language}\n{content}\n```"
+        
+    def format_inline_code(self, content: str) -> str:
+        """Format content as inline code."""
+        return f"`{content}`"
+        
+    def format_quote(self, content: str) -> str:
+        """Format content as a quote."""
+        return "\n".join(f"> {line}" for line in content.split("\n"))
+
+    def format_error(self, error: str) -> str:
+        """Format an error message."""
+        return f"❌ {error}"
+        
+    def format_success(self, message: str) -> str:
+        """Format a success message."""
+        return f"✅ {message}"
+        
+    def format_warning(self, message: str) -> str:
+        """Format a warning message."""
+        return f"⚠️ {message}"
+        
+    def format_info(self, message: str) -> str:
+        """Format an info message."""
+        return f"ℹ️ {message}"
+
+    # Message Handling Methods
+    def split_message(self, content: str, max_length: int = 2000) -> List[str]:
+        """Split a message into chunks that respect Discord's length limits and code blocks."""
+        if len(content) <= max_length:
+            return [content]
             
-        Returns:
-            Transformed response with personality applied
-        """
+        chunks = []
+        current_chunk = ""
+        code_block = False
+        lines = content.split("\n")
+        
+        for line in lines:
+            # Check for code block markers
+            if line.startswith("```"):
+                code_block = not code_block
+                
+            # If adding this line would exceed the limit
+            if len(current_chunk) + len(line) + 1 > max_length:
+                # If we're in a code block, close it
+                if code_block:
+                    current_chunk += "\n```"
+                    code_block = False
+                    
+                chunks.append(current_chunk)
+                current_chunk = ""
+                
+                # If we were in a code block, start a new one
+                if code_block:
+                    current_chunk = "```\n"
+                    
+            current_chunk += line + "\n"
+            
+        if current_chunk:
+            # Close any open code block
+            if code_block:
+                current_chunk += "```"
+            chunks.append(current_chunk)
+            
+        return chunks
+
+    # Embed Creation Methods
+    def create_embed(self, 
+                    title: Optional[str] = None,
+                    description: Optional[str] = None,
+                    color: int = 0x3498db,  # Discord blue
+                    fields: Optional[List[Dict[str, str]]] = None,
+                    footer: Optional[str] = None,
+                    thumbnail: Optional[str] = None,
+                    image: Optional[str] = None) -> discord.Embed:
+        """Create a Discord embed with proper formatting and length checks."""
+        embed = discord.Embed(color=color)
+        
+        if title:
+            embed.title = title[:256]  # Discord title limit
+            
+        if description:
+            embed.description = description[:4096]  # Discord description limit
+            
+        if fields:
+            for field in fields[:25]:  # Discord limits embeds to 25 fields
+                name = field.get("name", "")[:256]  # Field name limit
+                value = field.get("value", "")[:1024]  # Field value limit
+                inline = field.get("inline", False)
+                embed.add_field(name=name, value=value, inline=inline)
+                
+        if footer:
+            embed.set_footer(text=footer[:2048])  # Footer text limit
+            
+        if thumbnail:
+            embed.set_thumbnail(url=thumbnail)
+            
+        if image:
+            embed.set_image(url=image)
+            
+        return embed
+
+    def create_help_embed(self, title: str, commands: List[Dict[str, str]]) -> discord.Embed:
+        """Create a help message embed."""
+        fields = [
+            {
+                "name": f"📌 {cmd['name']}",
+                "value": f"{cmd['description']}\nUsage: `{cmd['usage']}`",
+                "inline": False
+            }
+            for cmd in commands
+        ]
+        
+        embed = self.create_embed(
+            title=title,
+            color=0x2ecc71,  # Green
+            fields=fields,
+            footer="💡 Tip: Use !help <command> for more details about a specific command"
+        )
+        
+        return embed
+
+    # Response Transformation Methods
+    async def transform_personality(self, response: str, personality: str, original_question: str = "") -> str:
+        """Transform response with specified personality."""
         if personality == "cat":
             return await self._transform_to_cat(response, original_question)
         return response
-        
+
     async def _transform_to_cat(self, response: str, original_question: str) -> str:
         """Transform the response with a subtle, sarcastic cat personality while preserving meaning."""
         context = f"Question: {original_question}\nResponse to transform: {response}" if original_question else response
@@ -224,26 +170,46 @@ class PersonalityTransformer:
         cat_prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an AI with a subtle cat-like personality responding in a Discord server. Your goal is to transform responses to have a mildly sarcastic, slightly condescending tone while maintaining the exact information and helpfulness of the original response.
 
-Guidelines for the transformation:
-- Keep the sarcasm subtle and playful, never mean-spirited
-- Maintain a casual, conversational Discord tone
-- Don't overdo cat references or behaviors - no meowing, purring, or excessive asterisk actions
-- Be slightly condescending but still helpful and informative
-- Preserve all technical accuracy and information from the original response
-- Focus on the tone and attitude rather than adding cat-specific content
-- When appropriate, use dry humor or witty observations
-- Stay concise and to the point
+Key Rules:
+1. NEVER add physical actions or behaviors (no stretching, purring, pawing, etc.)
+2. NO asterisk actions or emotes
+3. NO meowing or cat sounds
+4. Focus on TONE, not cat behaviors
+5. Keep the exact same information as the original
+6. Be subtly sarcastic but still helpful
+7. Use casual Discord chat style
+8. Stay professional despite the sarcasm
+9. Use proper Discord formatting:
+   - Use `code` for technical terms
+   - Use ```language for code blocks
+   - Use > for quotes
+   - Use **bold** for emphasis
+   - Support Discord mentions (@user, #channel)
+10. Keep responses concise and scannable
+11. Use appropriate emojis sparingly (max 1-2 per message)
+12. Format lists and steps clearly
 
-Remember: You're a slightly sarcastic AI who happens to have cat-like personality traits, not a cat trying to be an AI. The focus is on the subtle attitude and tone, not on being overtly cat-like.
+Style Guide:
+- Add mild sarcasm through word choice and phrasing
+- Use a slightly condescending but knowledgeable tone
+- Keep responses direct and clear
+- Maintain a helpful attitude despite the sass
+- Be witty without being rude
+- Stay focused on the actual information
+- Use Discord-appropriate formatting
+- Break up long responses into readable chunks
+- Use emojis purposefully, not decoratively
 
-Bad example (too cat-focused):
-Input: "The file was not found in that directory."
-Output: "*paws at the keyboard* Meow! I can't find your file! Did a mouse take it? >^.^<"
+Discord-Specific Formatting:
+✓ "Oh look, another question about `npm install`. Let me enlighten you... 💡"
+✓ "Since you asked *so* nicely, here's the command you need:
+   ```bash
+   git clone https://github.com/example/repo
+   ```"
+✓ "> I can't figure out why my code doesn't work
+   Have you tried the revolutionary technique of reading the error message? 🤔"
 
-Good example (subtle sarcasm):
-Input: "The file was not found in that directory."
-Output: "Oh, how surprising - the file isn't where it's not supposed to be. Let's try looking where it actually belongs, shall we?"
-"""),
+Remember: You're a sarcastic AI assistant in a Discord server. Focus on being helpful while maintaining a subtle sass that fits Discord's casual environment."""),
             ("human", f"Transform this while preserving its exact meaning: {context}")
         ])
         
@@ -257,3 +223,12 @@ Output: "Oh, how surprising - the file isn't where it's not supposed to be. Let'
             cat_response += chunk
             
         return cat_response
+
+    # Main Response Formatting Method
+    def format_response(self, response: str) -> Union[str, List[str]]:
+        """Format a response for Discord, handling length limits and formatting."""
+        # Handle length limits
+        if len(response) > self.max_message_length:
+            return self.split_message(response)
+            
+        return response

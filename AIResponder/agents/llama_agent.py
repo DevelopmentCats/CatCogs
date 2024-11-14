@@ -83,7 +83,11 @@ When analyzing tool results:
 1. Carefully review the information provided
 2. Determine if it fully answers the user's question
 3. Identify if additional information is needed
-4. Decide whether to:
+4. If the response would benefit from including a relevant link:
+   - Use the link_handler tool to properly format the link
+   - Consider using embeds for rich content
+   - Ensure links are properly integrated into the response
+5. Decide whether to:
    - Provide a final answer if sufficient
    - Use another tool for missing information
    - Ask for clarification if unclear
@@ -98,10 +102,13 @@ When you can answer directly, respond with a JSON object containing:
 - final_answer: Your complete response
 
 Example tool use:
-{{"thought": "I need current information", "action": "web_search", "action_input": "search query"}}
+{{"thought": "I should include a link to the documentation", 
+  "action": "link_handler", 
+  "action_input": {{"url": "https://example.com/docs", "title": "documentation", "embed": true}}}}
 
 Example direct answer:
-{{"thought": "Based on the search results", "final_answer": "Here is a concise summary..."}}
+{{"thought": "I can provide the information with a helpful link", 
+  "final_answer": "Here's the documentation you need: [Example Docs](https://example.com/docs)"}}
 
 Rules:
 1. Use tools ONLY when you need external information
@@ -111,7 +118,8 @@ Rules:
 5. No additional text before or after the JSON
 6. Don't repeat searches for similar information
 7. Combine all available information before making additional searches
-8. Keep responses clear and concise when possible"""
+8. Keep responses clear and concise when possible
+9. When relevant, include properly formatted links using the link_handler tool"""
 
         return ChatPromptTemplate.from_messages([
             ("system", system_template),
@@ -457,3 +465,43 @@ Rules:
             chunks.append(current_chunk.strip())
             
         return chunks
+
+    async def _process_response(self, response: str, original_question: str = "") -> str:
+        """Process response through validation, formatting, and personality transformation."""
+        # 1. Validate
+        is_valid, error = await self.response_validator.validate(response)
+        if not is_valid:
+            raise ValidationError(f"Invalid response: {error}")
+            
+        # 2. Check for embedded content markers
+        if "__EMBED__" in response:
+            # Extract embed data and remove the marker
+            embed_start = response.find("__EMBED__") + 9
+            embed_end = response.find("__EMBED__", embed_start)
+            if embed_end == -1:
+                embed_end = len(response)
+            embed_data = response[embed_start:embed_end].strip()
+            response = response[:embed_start-9] + response[embed_end:]
+            
+            # Store embed data for Discord message creation
+            if hasattr(self, 'current_embeds'):
+                self.current_embeds.append(eval(embed_data))
+            else:
+                self.current_embeds = [eval(embed_data)]
+            
+        # 3. Format
+        formatted = self.response_formatter.format_response(response)
+        
+        # 4. Transform personality
+        if self.personality:
+            try:
+                return await self.personality_transformer.transform(
+                    formatted, 
+                    self.personality,
+                    original_question=original_question
+                )
+            except Exception as e:
+                logger.warning(f"Personality transformation failed: {e}. Returning formatted response.")
+                return formatted
+                
+        return formatted
