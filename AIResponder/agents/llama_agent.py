@@ -328,7 +328,8 @@ Assistant: {{"thought": "I have the channel history now", "final_answer": "In th
         # 4. Transform personality
         if self.personality:
             try:
-                if hasattr(self.model, 'invoke'):
+                # Check if model has generate_response method instead of invoke
+                if hasattr(self.model, 'generate_response'):
                     formatted = await self.personality_transformer.transform(
                         formatted, 
                         self.personality,
