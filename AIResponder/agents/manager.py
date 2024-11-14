@@ -148,14 +148,13 @@ class AgentManager:
                             error_msg = f"Tool not found: {step.tool}"
                             logger.error(format_log("MANAGER", error_msg, Fore.RED))
                             
-                except ToolExecutionError as e:
-                    error_msg = await agent.handle_tool_error(e, step)
-                    logger.error(format_log("MANAGER", f"Tool error: {error_msg}", Fore.RED))
+                    except ToolExecutionError as e:
+                        error_msg = await agent.handle_tool_error(e, step)
+                        logger.error(format_log("MANAGER", f"Tool error: {error_msg}", Fore.RED))
                     
         except Exception as e:
-            error_msg = f"Error in agent execution: {str(e)}"
-            logger.error(format_log("MANAGER", error_msg, Fore.RED), exc_info=True)
-            yield f"Error: {error_msg}"
+            logger.error(format_log("MANAGER", f"Error in agent execution: {str(e)}", Fore.RED))
+            raise
 
     async def _cleanup_agent(self, session_id: str) -> None:
         """Clean up agent resources."""
