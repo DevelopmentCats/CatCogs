@@ -27,6 +27,10 @@ class LinkHandler(AIResponderTool):
 
     def __init__(self, bot: Optional[Red] = None):
         super().__init__(bot)
+        self.url_pattern = None
+        
+    async def initialize(self) -> None:
+        """Initialize link handler tool."""
         self.url_pattern = re.compile(
             r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
         )

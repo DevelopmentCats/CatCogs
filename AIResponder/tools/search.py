@@ -22,6 +22,11 @@ class WebSearch(AIResponderTool):
     
     def __init__(self, bot=None):
         super().__init__(bot)
+        self.search_tool = None
+        self.rate_limiter = None
+        
+    async def initialize(self) -> None:
+        """Initialize web search tool."""
         self.search_tool = DuckDuckGoSearchRun()
         self.rate_limiter = RateLimiter(
             requests_per_minute=self.RATE_LIMIT_REQUESTS,

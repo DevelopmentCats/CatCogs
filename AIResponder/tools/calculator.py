@@ -29,6 +29,9 @@ class Calculator(AIResponderTool):
     def __init__(self, bot=None):
         """Initialize calculator with math functions."""
         super().__init__(bot)
+        
+    async def initialize(self) -> None:
+        """Initialize calculator tool."""
         self._setup_math_functions()
         
     def _setup_math_functions(self) -> None:

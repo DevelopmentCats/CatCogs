@@ -3,6 +3,7 @@ from discord import TextChannel, Guild, Member, Role, ChannelType
 from . import AIResponderTool, ToolRegistry
 from ..utils.errors import ToolError
 from datetime import datetime
+import json
 
 @ToolRegistry.register
 class ServerInfo(AIResponderTool):
@@ -11,25 +12,20 @@ class ServerInfo(AIResponderTool):
     name = "server_info"
     description = "Get detailed information about the current Discord server"
     
-    @classmethod
-    def __init_subclass__(cls, **kwargs):
-        """Prevent duplicate registration of server info tools."""
-        super().__init_subclass__(**kwargs)
-        if any(tool.__name__ == "ServerInfo" for tool in ToolRegistry._tools.values()):
-            return
-            
-    async def _arun(self, guild_id: str) -> str:
-        """Get comprehensive server information.
+    def __init__(self, bot=None):
+        super().__init__(bot)
         
-        Args:
-            guild_id: ID of the Discord server
+    async def initialize(self) -> None:
+        """Initialize server info tool."""
+        pass
+
+    def _run(self, *args: Any, **kwargs: Any) -> str:
+        raise NotImplementedError("This tool only supports async operation")
+        
+    async def _arun(self, guild_id: str) -> str:
+        if not self.bot:
+            raise ToolError(self.name, "Bot instance required")
             
-        Returns:
-            Formatted server information
-            
-        Raises:
-            ToolError: If server info retrieval fails
-        """
         try:
             guild = self.bot.get_guild(int(guild_id))
             if not guild:
@@ -72,10 +68,6 @@ class ServerInfo(AIResponderTool):
         except Exception as e:
             raise ToolError(self.name, f"Error retrieving server info: {str(e)}")
 
-    def _run(self, *args: Any, **kwargs: Any) -> str:
-        """Synchronous execution not supported for Discord tools."""
-        raise NotImplementedError("Discord tools only support async execution")
-
 @ToolRegistry.register
 class ChannelHistory(AIResponderTool):
     """Tool for retrieving channel message history."""
@@ -83,26 +75,20 @@ class ChannelHistory(AIResponderTool):
     name = "channel_history"
     description = "Get recent message history from a Discord channel"
     
-    @classmethod
-    def __init_subclass__(cls, **kwargs):
-        """Prevent duplicate registration of channel history tools."""
-        super().__init_subclass__(**kwargs)
-        if any(tool.__name__ == "ChannelHistory" for tool in ToolRegistry._tools.values()):
-            return
-            
-    async def _arun(self, channel_id: str, limit: int = 5) -> str:
-        """Get channel message history.
+    def __init__(self, bot=None):
+        super().__init__(bot)
         
-        Args:
-            channel_id: ID of the Discord channel
-            limit: Maximum number of messages to retrieve (default: 5)
+    async def initialize(self) -> None:
+        """Initialize channel history tool."""
+        pass
+
+    def _run(self, *args: Any, **kwargs: Any) -> str:
+        raise NotImplementedError("This tool only supports async operation")
+        
+    async def _arun(self, channel_id: str, limit: int = 5) -> str:
+        if not self.bot:
+            raise ToolError(self.name, "Bot instance required")
             
-        Returns:
-            Formatted message history
-            
-        Raises:
-            ToolError: If history retrieval fails
-        """
         try:
             # Validate input
             if not 1 <= limit <= 50:
@@ -137,7 +123,3 @@ class ChannelHistory(AIResponderTool):
             
         except Exception as e:
             raise ToolError(self.name, f"Error retrieving channel history: {str(e)}")
-
-    def _run(self, *args: Any, **kwargs: Any) -> str:
-        """Synchronous execution not supported for Discord tools."""
-        raise NotImplementedError("Discord tools only support async execution")

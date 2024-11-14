@@ -101,13 +101,13 @@ class AIResponderTool(ABC):
             Tool execution result
         """
         pass
-    
+
     async def initialize(self) -> None:
-        """Initialize tool resources."""
+        """Initialize the tool. Override this method if needed."""
         pass
-    
+
     async def cleanup(self) -> None:
-        """Cleanup tool resources."""
+        """Clean up tool resources. Override this method if needed."""
         pass
 
 class ToolRegistry:
