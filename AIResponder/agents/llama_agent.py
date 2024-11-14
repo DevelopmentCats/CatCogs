@@ -285,7 +285,7 @@ Assistant: {{"thought": "I have the current time information", "final_answer": "
         except Exception as e:
             raise ModelGenerationError(f"Model response failed: {str(e)}")
 
-    async def process_final_response(self, response: str, original_question: str = "") -> str:
+    async def process_final_response(self, response: str, original_question: str = "") -> AgentFinish:
         """Process final response through validation, formatting, and personality transformation."""
         # 1. Validate
         is_valid, error = await self.response_validator.validate(response)
@@ -314,16 +314,21 @@ Assistant: {{"thought": "I have the current time information", "final_answer": "
         # 4. Transform personality
         if self.personality:
             try:
-                return await self.personality_transformer.transform(
-                    formatted, 
-                    self.personality,
-                    question=original_question
-                )
+                if hasattr(self.model, 'invoke'):
+                    formatted = await self.personality_transformer.transform(
+                        formatted, 
+                        self.personality,
+                        question=original_question
+                    )
+                else:
+                    logger.warning("Model does not support personality transformation, skipping")
             except Exception as e:
                 logger.warning(f"Personality transformation failed: {e}. Returning formatted response.")
-                return formatted
                 
-        return formatted
+        return AgentFinish(
+            return_values={"output": formatted},
+            log="Final response processed and formatted"
+        )
 
     async def _process_response(
         self, response: str, messages: List[BaseMessage]
@@ -347,12 +352,16 @@ Assistant: {{"thought": "I have the current time information", "final_answer": "
                         (msg.content for msg in reversed(messages) if isinstance(msg, HumanMessage)),
                         ""
                     )
-                    final_answer = await self.process_final_response(
+                    return await self.process_final_response(
                         final_answer,
                         original_question
                     )
                 except Exception as e:
                     logger.warning(f"Final response processing failed: {str(e)}. Returning raw response.")
+                    return AgentFinish(
+                        return_values={"output": final_answer},
+                        log=thought
+                    )
             
             return AgentFinish(
                 return_values={"output": final_answer},
@@ -530,11 +539,14 @@ Assistant: {{"thought": "I have the current time information", "final_answer": "
         # 4. Transform personality
         if self.personality:
             try:
-                return await self.personality_transformer.transform(
-                    formatted, 
-                    self.personality,
-                    question=original_question
-                )
+                if hasattr(self.model, 'invoke'):
+                    formatted = await self.personality_transformer.transform(
+                        formatted, 
+                        self.personality,
+                        question=original_question
+                    )
+                else:
+                    logger.warning("Model does not support personality transformation, skipping")
             except Exception as e:
                 logger.warning(f"Personality transformation failed: {e}. Returning formatted response.")
                 return formatted
