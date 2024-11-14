@@ -5,6 +5,9 @@ from langchain_core.prompts import ChatPromptTemplate
 import discord
 import re
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ResponseFormatter:
     """Handles response formatting and personality transformation for Discord."""
@@ -18,7 +21,7 @@ class ResponseFormatter:
         self.model = model
         self.max_message_length = 2000
         self.max_embed_length = 4096
-        self.personality_transformer = None
+        self.personality_transformer = None if model is None else PersonalityTransformer(model)
         
     def set_model(self, model: Any) -> None:
         """Set the language model and initialize personality transformer.
@@ -28,6 +31,17 @@ class ResponseFormatter:
         """
         self.model = model
         self.personality_transformer = PersonalityTransformer(model)
+
+    async def transform_personality(self, response: str, personality: str = "cat", question: str = "") -> str:
+        """Transform response with specified personality."""
+        if self.personality_transformer is None:
+            return response
+            
+        try:
+            return await self.personality_transformer.transform(response, personality, question)
+        except Exception as e:
+            logger.warning(f"Personality transformation failed: {e}. Returning original response.")
+            return response
 
     # Discord Formatting Methods
     def format_user_mention(self, user_id: int) -> str:
@@ -166,74 +180,6 @@ class ResponseFormatter:
         
         return embed
 
-    # Response Transformation Methods
-    async def transform_personality(self, response: str, personality: str, original_question: str = "") -> str:
-        """Transform response with specified personality."""
-        if personality == "cat":
-            return await self._transform_to_cat(response, original_question)
-        return response
-
-    async def _transform_to_cat(self, response: str, original_question: str) -> str:
-        """Transform the response with a subtle, sarcastic cat personality while preserving meaning."""
-        context = f"Question: {original_question}\nResponse to transform: {response}" if original_question else response
-        
-        cat_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an AI with a subtle cat-like personality responding in a Discord server. Your goal is to transform responses to have a mildly sarcastic, slightly condescending tone while maintaining the exact information and helpfulness of the original response.
-
-Key Rules:
-1. NEVER add physical actions or behaviors (no stretching, purring, pawing, etc.)
-2. NO asterisk actions or emotes
-3. NO meowing or cat sounds
-4. Focus on TONE, not cat behaviors
-5. Keep the exact same information as the original
-6. Be subtly sarcastic but still helpful
-7. Use casual Discord chat style
-8. Stay professional despite the sarcasm
-9. Use proper Discord formatting:
-   - Use `code` for technical terms
-   - Use ```language for code blocks
-   - Use > for quotes
-   - Use **bold** for emphasis
-   - Support Discord mentions (@user, #channel)
-10. Keep responses concise and scannable
-11. Use appropriate emojis sparingly (max 1-2 per message)
-12. Format lists and steps clearly
-
-Style Guide:
-- Add mild sarcasm through word choice and phrasing
-- Use a slightly condescending but knowledgeable tone
-- Keep responses direct and clear
-- Maintain a helpful attitude despite the sass
-- Be witty without being rude
-- Stay focused on the actual information
-- Use Discord-appropriate formatting
-- Break up long responses into readable chunks
-- Use emojis purposefully, not decoratively
-
-Discord-Specific Formatting:
-✓ "Oh look, another question about `npm install`. Let me enlighten you... 💡"
-✓ "Since you asked *so* nicely, here's the command you need:
-   ```bash
-   git clone https://github.com/example/repo
-   ```"
-✓ "> I can't figure out why my code doesn't work
-   Have you tried the revolutionary technique of reading the error message? 🤔"
-
-Remember: You're a sarcastic AI assistant in a Discord server. Focus on being helpful while maintaining a subtle sass that fits Discord's casual environment."""),
-            ("human", f"Transform this while preserving its exact meaning: {context}")
-        ])
-        
-        formatted_prompt = cat_prompt.format_messages()
-        
-        cat_response = ""
-        async for chunk in self.model.generate_response(
-            str(formatted_prompt[-1].content),
-            context=str(formatted_prompt[0].content)
-        ):
-            cat_response += chunk
-            
-        return cat_response
-
     # Main Response Formatting Method
     def format_response(self, response: str) -> Union[str, List[str]]:
         """Format a response for Discord, handling length limits and formatting."""
@@ -253,21 +199,8 @@ class PersonalityTransformer:
             model: Language model for personality transformation
         """
         self.model = model
-        self.personality_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a sarcastic cat AI assistant. Transform the given response to match this personality:
-            - Use subtle sarcasm and wit
-            - Keep the original meaning and helpfulness
-            - No physical actions or emotes
-            - Follow Discord chat conventions
-            - Use appropriate emojis sparingly
-            - Keep formatting intact (code blocks, mentions, etc)
-            
-            Original question: {question}
-            Response to transform: {original_response}"""),
-            ("user", "Transform this response while keeping its meaning and any technical details intact.")
-        ])
         
-    async def transform(self, response: str, personality: str, question: str = "") -> str:
+    async def transform(self, response: str, personality: str = "cat", question: str = "") -> str:
         """Transform a response to match the personality.
         
         Args:
@@ -297,22 +230,40 @@ class PersonalityTransformer:
         
         # Transform the response using generate_response
         transformed = ""
-        prompt = self.personality_prompt.format(
-            original_response=response_with_placeholders,
-            question=question or "No context provided"
+        
+        # Format the prompt messages directly
+        system_message = """You are a sarcastic cat AI assistant. Transform the given response to match this personality:
+        - Use subtle sarcasm and wit
+        - Keep the original meaning and helpfulness
+        - No physical actions or emotes
+        - Follow Discord chat conventions
+        - Use appropriate emojis sparingly
+        - Keep formatting intact (code blocks, mentions, etc)
+        
+        Original question: {question}
+        Response to transform: {response}"""
+        
+        formatted_system = system_message.format(
+            question=question or "No context provided",
+            response=response_with_placeholders
         )
-        prompt_messages = prompt.format_messages()
         
-        # Use generate_response instead of invoke
-        async for chunk in self.model.generate_response(
-            str(prompt_messages[-1].content),
-            context=str(prompt_messages[0].content)
-        ):
-            transformed += chunk
+        user_message = "Transform this response while keeping its meaning and any technical details intact."
         
-        # Restore code blocks
-        result = transformed
-        for key, block in code_blocks.items():
-            result = result.replace(key, block)
+        try:
+            # Use generate_response with formatted messages
+            async for chunk in self.model.generate_response(
+                user_message,
+                context=formatted_system
+            ):
+                transformed += chunk
             
-        return result
+            # Restore code blocks
+            result = transformed
+            for key, block in code_blocks.items():
+                result = result.replace(key, block)
+                
+            return result
+        except Exception as e:
+            logger.warning(f"Personality transformation failed: {e}. Returning original response.")
+            return response

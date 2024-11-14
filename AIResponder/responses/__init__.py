@@ -1,22 +1,27 @@
 """
-AI Responder Cog for Red Discord Bot
+Response Processing Module for AI Responder
 
-A powerful AI assistant cog that provides conversational AI capabilities,
-tool integration, and memory management.
+This module provides utilities for processing, formatting, validating,
+and managing AI responses including rate limiting and chunking.
+
+Components:
+- ResponseFormatter: Handles markdown formatting and citations
+- ResponseValidator: Validates response content and structure
+- RateLimiter: Manages rate limiting for responses
+- ResponseChunker: Handles chunking of long responses
 """
 
-from redbot.core.bot import Red
-from redbot.core.utils import get_end_user_data_statement
-from .airesponder import AIResponder
+from .formatter import ResponseFormatter
+from .validator import ResponseValidator
+from .rate_limiter import RateLimiter
+from .chunker import ResponseChunker
 
-__red_end_user_data_statement__ = get_end_user_data_statement(__file__)
+__all__ = ["ResponseFormatter", "ResponseValidator", "RateLimiter", "ResponseChunker"]
 
-async def setup(bot: Red) -> None:
-    """Initialize the AIResponder cog.
-    
-    Args:
-        bot: Red Discord bot instance
-    """
-    cog = AIResponder(bot)
-    await cog.initialize()
-    await bot.add_cog(cog)
+# Version information
+__version__ = "1.0.0"
+
+# Module metadata
+__author__ = "DevelopmentCats"
+__description__ = "Response Processing System"
+__status__ = "Production"
