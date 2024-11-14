@@ -1,0 +1,32 @@
+{
+    "name": "AIResponder",
+    "author": ["DevelopmentCats"],
+    "description": "An AI responder cog using LangChain V3 and Deep Infra. Features include conversation memory, tool integration, rate limiting, and customizable responses. The cog provides a natural language interface for Discord servers with support for multiple AI models.",
+    "short": "AI assistant that responds to mentions",
+    "tags": [
+        "ai",
+        "assistant",
+        "langchain",
+        "deep-infra",
+        "conversation",
+        "tools",
+        "utility"
+    ],
+    "install_msg": "Thanks for installing AIResponder! Make sure to set your API key using `[p]air setkey`. For help and configuration options, use `[p]help air`.",
+    "requirements": [
+        "langchain>=0.1.0",
+        "numexpr>=2.8.0",
+        "aiohttp>=3.8.0",
+        "python-dateutil>=2.8.2"
+    ],
+    "min_bot_version": "3.5.0",
+    "min_python_version": [3, 8, 0],
+    "end_user_data_statement": "This cog stores conversation history for context management. User message history is automatically cleaned up after 24 hours of inactivity. Users can clear their history at any time using the clearhistory command.",
+    "type": "COG",
+    "permissions": [
+        "send_messages",
+        "embed_links",
+        "attach_files"
+    ],
+    "hidden": false
+}
