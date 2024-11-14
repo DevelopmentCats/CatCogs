@@ -241,7 +241,45 @@ Assistant: {{"thought": "I have the current time information", "final_answer": "
                     response += chunk
                 return response
 
-            return await asyncio.wait_for(get_response(), timeout=self.TOOL_TIMEOUT)
+            response = await asyncio.wait_for(get_response(), timeout=self.TOOL_TIMEOUT)
+            
+            # Ensure response is valid JSON
+            try:
+                json.loads(response)
+                return response
+            except json.JSONDecodeError:
+                # Try to extract JSON from the response
+                json_start = response.find('{')
+                json_end = response.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    extracted = response[json_start:json_end]
+                    try:
+                        json.loads(extracted)  # Validate it's valid JSON
+                        return extracted
+                    except json.JSONDecodeError:
+                        pass
+                
+                # If we can't find valid JSON, try to construct it
+                if '"thought"' in response and ('"action"' in response or '"final_answer"' in response):
+                    # Try to salvage the response by constructing valid JSON
+                    thought = response.split('"thought"')[1].split('"')[2] if '"thought"' in response else ""
+                    if '"action"' in response:
+                        action = response.split('"action"')[1].split('"')[2] if '"action"' in response else ""
+                        action_input = response.split('"action_input"')[1].split('"')[2] if '"action_input"' in response else ""
+                        return json.dumps({
+                            "thought": thought,
+                            "action": action,
+                            "action_input": action_input
+                        })
+                    else:
+                        final_answer = response.split('"final_answer"')[1].split('"')[2] if '"final_answer"' in response else ""
+                        return json.dumps({
+                            "thought": thought,
+                            "final_answer": final_answer
+                        })
+                
+                raise ModelGenerationError(f"Invalid JSON response: {response}")
+                
         except asyncio.TimeoutError:
             raise ModelGenerationError("Model response timeout exceeded")
         except Exception as e:
