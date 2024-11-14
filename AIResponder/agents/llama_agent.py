@@ -195,7 +195,7 @@ Rules:
                 if action_or_finish:
                     if isinstance(action_or_finish, AgentAction):
                         logger.info(format_log("PLAN", 
-                            f"Thought process: {action_or_finish.log}", 
+                            f"Thought process: {getattr(action_or_finish, 'log', '')}", 
                             LogColors.THOUGHT))
                         logger.info(format_log("ACTION", 
                             f"Selected tool: {action_or_finish.tool}\nInput: {action_or_finish.tool_input}", 
@@ -205,7 +205,8 @@ Rules:
                             raise ValidationError(f"Invalid arguments for tool: {action_or_finish.tool}")
                     else:
                         logger.info(format_log("FINISH", "Agent completed planning", LogColors.SUCCESS))
-                        logger.info(format_log("THOUGHT", f"Final reasoning: {action_or_finish.log}", LogColors.THOUGHT))
+                        thought = getattr(action_or_finish, 'log', '')
+                        logger.info(format_log("THOUGHT", f"Final reasoning: {thought}", LogColors.THOUGHT))
                         logger.info(format_log("ANSWER", f"Final response: {action_or_finish.return_values['output']}", LogColors.SUCCESS))
                     
                     yield action_or_finish
