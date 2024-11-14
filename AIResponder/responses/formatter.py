@@ -9,16 +9,26 @@ from datetime import datetime
 class ResponseFormatter:
     """Handles response formatting and personality transformation for Discord."""
     
-    def __init__(self, model: Any):
+    def __init__(self, model: Optional[Any] = None):
         """Initialize formatter with language model for personality transformation.
+        
+        Args:
+            model: Language model for personality transformation (optional)
+        """
+        self.model = model
+        self.max_message_length = 2000
+        self.max_embed_length = 4096
+        self.personality_transformer = None
+        
+    def set_model(self, model: Any) -> None:
+        """Set the language model and initialize personality transformer.
         
         Args:
             model: Language model for personality transformation
         """
         self.model = model
-        self.max_message_length = 2000
-        self.max_embed_length = 4096
-        
+        self.personality_transformer = PersonalityTransformer(model)
+
     # Discord Formatting Methods
     def format_user_mention(self, user_id: int) -> str:
         """Format a user mention."""

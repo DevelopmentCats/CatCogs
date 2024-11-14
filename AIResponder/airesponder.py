@@ -49,6 +49,7 @@ class AIResponder(commands.Cog):
             
         try:
             self.model = DeepInfraModel(api_key)
+            self.formatter.set_model(self.model)
             await self.model.initialize()
             
             self.conversation_manager = ConversationManager(max_history=max_history)
