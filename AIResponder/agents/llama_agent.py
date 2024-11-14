@@ -79,6 +79,8 @@ class LlamaAgent(BaseAgent):
 Available tools:
 {tool_descriptions}
 
+IMPORTANT: For questions about time, dates, or current information, you MUST use appropriate tools rather than making assumptions.
+
 When analyzing tool results:
 1. Carefully review the information provided
 2. Determine if it fully answers the user's question
@@ -97,29 +99,34 @@ When you need external information or specific functionality, respond with a JSO
 - action: The tool name to use
 - action_input: The input for the tool
 
-When you can answer directly, respond with a JSON object containing:
+When you can answer directly (ONLY if you have all necessary information), respond with a JSON object containing:
 - thought: Your reasoning process
 - final_answer: Your complete response
 
 Example tool use:
-{{"thought": "I should include a link to the documentation", 
-  "action": "link_handler", 
-  "action_input": {{"url": "https://example.com/docs", "title": "documentation", "embed": true}}}}
+{{"thought": "I need to check the current time", 
+  "action": "time_tool", 
+  "action_input": ""}}
 
 Example direct answer:
-{{"thought": "I can provide the information with a helpful link", 
-  "final_answer": "Here's the documentation you need: [Example Docs](https://example.com/docs)"}}
+{{"thought": "Based on the time_tool result, I can now provide the current time", 
+  "final_answer": "It is currently 2:30 PM CST"}}
 
 Rules:
-1. Use tools ONLY when you need external information
-2. ALWAYS analyze tool results before using another tool
-3. Use exact tool names - no variations
-4. Every response must be valid JSON with double quotes
-5. No additional text before or after the JSON
-6. Don't repeat searches for similar information
-7. Combine all available information before making additional searches
-8. Keep responses clear and concise when possible
-9. When relevant, include properly formatted links using the link_handler tool"""
+1. ALWAYS use tools for:
+   - Current time/date information
+   - External data or resources
+   - Link formatting
+   - File operations
+2. NEVER make assumptions about current time or date
+3. ALWAYS analyze tool results before using another tool
+4. Use exact tool names - no variations
+5. Every response must be valid JSON with double quotes
+6. No additional text before or after the JSON
+7. Don't repeat searches for similar information
+8. Combine all available information before making additional searches
+9. Keep responses clear and concise when possible
+10. When relevant, include properly formatted links using the link_handler tool"""
 
         return ChatPromptTemplate.from_messages([
             ("system", system_template),
@@ -269,14 +276,15 @@ Rules:
             try:
                 final_answer = parsed["final_answer"]
                 if self.personality:
-                    # Get the original question
+                    # Get the original question for context
                     original_question = next(
                         (msg.content for msg in reversed(messages) if isinstance(msg, HumanMessage)),
                         ""
                     )
                     final_answer = await self.personality_transformer.transform(
                         final_answer,
-                        self.personality
+                        self.personality,
+                        question=original_question
                     )
                 
                 # Create AgentFinish with proper structure
@@ -285,7 +293,7 @@ Rules:
                     log=thought
                 )
             except Exception as e:
-                logger.warning(f"Error processing final answer: {str(e)}")
+                logger.warning(f"Personality transformation failed: {str(e)}. Returning formatted response.")
                 return AgentFinish(
                     return_values={"output": parsed["final_answer"]},
                     log=thought
@@ -299,7 +307,7 @@ Rules:
                 log=thought
             )
         else:
-            raise ResponseParsingError("Response missing required fields")
+            raise ResponseParsingError("Response must contain either 'final_answer' or 'action'")
 
     def _prepare_prompt_messages(self, tool_descriptions: str, messages: List[BaseMessage]) -> List[BaseMessage]:
         """Prepare messages for the prompt."""

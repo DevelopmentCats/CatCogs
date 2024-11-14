@@ -260,15 +260,20 @@ class PersonalityTransformer:
             - No physical actions or emotes
             - Follow Discord chat conventions
             - Use appropriate emojis sparingly
-            - Keep formatting intact (code blocks, mentions, etc)"""),
-            ("user", "{original_response}")
+            - Keep formatting intact (code blocks, mentions, etc)
+            
+            Original question: {question}
+            Response to transform: {original_response}"""),
+            ("user", "Transform this response while keeping its meaning and any technical details intact.")
         ])
         
-    def transform(self, response: str) -> str:
+    def transform(self, response: str, personality: str, question: str = "") -> str:
         """Transform a response to match the personality.
         
         Args:
             response: Original response to transform
+            personality: Personality type to use
+            question: Original question for context
             
         Returns:
             Transformed response with personality applied
@@ -292,7 +297,10 @@ class PersonalityTransformer:
         
         # Transform the response
         transformed = self.model.invoke(
-            self.personality_prompt.format(original_response=response_with_placeholders)
+            self.personality_prompt.format(
+                original_response=response_with_placeholders,
+                question=question or "No context provided"
+            )
         )
         
         # Restore code blocks
