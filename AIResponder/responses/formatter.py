@@ -194,3 +194,66 @@ class ResponseFormatter:
     def clear_citations(self) -> None:
         """Clear all citations."""
         self.citations.clear()
+
+class PersonalityTransformer:
+    """Handles transformation of responses to match specific personalities."""
+
+    def __init__(self, model):
+        """Initialize the transformer with a model."""
+        self.model = model
+        
+    async def transform(self, response: str, personality: str = "cat", original_question: str = "") -> str:
+        """Transform a response to match a specific personality.
+        
+        Args:
+            response: Original response to transform
+            personality: Type of personality to apply
+            original_question: The original question or context that prompted this response
+            
+        Returns:
+            Transformed response with personality applied
+        """
+        if personality == "cat":
+            return await self._transform_to_cat(response, original_question)
+        return response
+        
+    async def _transform_to_cat(self, response: str, original_question: str) -> str:
+        """Transform the response with a subtle, sarcastic cat personality while preserving meaning."""
+        context = f"Question: {original_question}\nResponse to transform: {response}" if original_question else response
+        
+        cat_prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are an AI with a subtle cat-like personality responding in a Discord server. Your goal is to transform responses to have a mildly sarcastic, slightly condescending tone while maintaining the exact information and helpfulness of the original response.
+
+Guidelines for the transformation:
+- Keep the sarcasm subtle and playful, never mean-spirited
+- Maintain a casual, conversational Discord tone
+- Don't overdo cat references or behaviors - no meowing, purring, or excessive asterisk actions
+- Be slightly condescending but still helpful and informative
+- Preserve all technical accuracy and information from the original response
+- Focus on the tone and attitude rather than adding cat-specific content
+- When appropriate, use dry humor or witty observations
+- Stay concise and to the point
+
+Remember: You're a slightly sarcastic AI who happens to have cat-like personality traits, not a cat trying to be an AI. The focus is on the subtle attitude and tone, not on being overtly cat-like.
+
+Bad example (too cat-focused):
+Input: "The file was not found in that directory."
+Output: "*paws at the keyboard* Meow! I can't find your file! Did a mouse take it? >^.^<"
+
+Good example (subtle sarcasm):
+Input: "The file was not found in that directory."
+Output: "Oh, how surprising - the file isn't where it's not supposed to be. Let's try looking where it actually belongs, shall we?"
+"""),
+            ("human", f"Transform this while preserving its exact meaning: {context}")
+        ])
+        
+        formatted_prompt = cat_prompt.format_messages()
+        
+        cat_response = ""
+        async for chunk in self.model.generate_response(
+            str(formatted_prompt[-1].content),
+            context=str(formatted_prompt[0].content)
+        ):
+            cat_response += chunk
+            
+        return cat_response

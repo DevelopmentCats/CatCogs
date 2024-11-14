@@ -14,6 +14,9 @@ class AIResponderTool(ABC):
     
     name: str = ""
     description: str = ""
+    required_args: List[str] = []  # List of required arguments
+    optional_args: Dict[str, Any] = {}  # Optional arguments with default values
+    example_uses: List[str] = []  # Example uses of the tool
     
     @classmethod
     def __init_subclass__(cls, **kwargs):
@@ -29,6 +32,49 @@ class AIResponderTool(ABC):
             bot: Optional Red Discord bot instance
         """
         self.bot = bot
+        
+    def validate_args(self, args: Dict[str, Any]) -> None:
+        """Validate tool arguments.
+        
+        Args:
+            args: Arguments to validate
+            
+        Raises:
+            ValueError: If required arguments are missing or invalid
+        """
+        # Check required arguments
+        missing_args = [arg for arg in self.required_args if arg not in args]
+        if missing_args:
+            raise ValueError(f"Missing required arguments: {', '.join(missing_args)}")
+            
+        # Check argument types if specified in optional_args
+        for arg_name, value in args.items():
+            if arg_name in self.optional_args:
+                expected_type = type(self.optional_args[arg_name])
+                if not isinstance(value, expected_type):
+                    raise ValueError(
+                        f"Argument '{arg_name}' must be of type {expected_type.__name__}, "
+                        f"got {type(value).__name__}"
+                    )
+    
+    def get_help(self) -> str:
+        """Get detailed help information about the tool.
+        
+        Returns:
+            Formatted help string with description, arguments, and examples
+        """
+        help_text = [
+            f"Tool: {self.name}",
+            f"Description: {self.description}",
+            "\nRequired Arguments:",
+            *[f"- {arg}" for arg in self.required_args],
+            "\nOptional Arguments:",
+            *[f"- {arg}: {type(default).__name__} (default: {default})"
+              for arg, default in self.optional_args.items()],
+            "\nExample Uses:",
+            *[f"- {example}" for example in self.example_uses]
+        ]
+        return "\n".join(help_text)
     
     @abstractmethod
     def _run(self, *args: Any, **kwargs: Any) -> str:

@@ -16,6 +16,8 @@ from ..responses.rate_limiter import RateLimiter
 from colorama import Fore, Style, init
 from datetime import datetime
 import pytz
+from ..responses.formatter import ResponseFormatter, PersonalityTransformer
+from ..responses.validator import ResponseValidator
 
 # Initialize colorama for cross-platform color support
 init()
@@ -31,9 +33,13 @@ class LlamaAgent(BaseAgent):
     MAX_HISTORY_LENGTH = 100
     RETRY_DELAY = 2  # seconds
     
-    def __init__(self, tools: List[AIResponderTool], model: Any):
+    def __init__(self, tools: List[AIResponderTool], model: Any, personality: str = "cat"):
         self._validate_inputs(tools, model)
         super().__init__(tools, model)
+        self.personality = personality
+        self.personality_transformer = PersonalityTransformer(model)
+        self.response_validator = ResponseValidator()
+        self.response_formatter = ResponseFormatter()
         self.prompt = self._create_prompt()
         self.output_parser = JsonOutputParser()
         self.rate_limiter = RateLimiter()
@@ -114,11 +120,32 @@ Rules:
         ])
         
     def _get_tool_descriptions(self) -> str:
-        """Get formatted tool descriptions."""
-        return "\n".join([
-            f"- {tool.name}: {tool.description}"
-            for tool in self.tools
-        ])
+        """Get formatted tool descriptions with examples."""
+        descriptions = []
+        for tool in self.tools:
+            desc = [
+                f"Tool: {tool.name}",
+                f"Description: {tool.description}"
+            ]
+            
+            if tool.required_args:
+                desc.append("Required Arguments:")
+                desc.extend(f"  - {arg}" for arg in tool.required_args)
+                
+            if tool.optional_args:
+                desc.append("Optional Arguments:")
+                desc.extend(
+                    f"  - {arg}: {type(default).__name__} (default: {default})"
+                    for arg, default in tool.optional_args.items()
+                )
+                
+            if tool.example_uses:
+                desc.append("Examples:")
+                desc.extend(f"  - {example}" for example in tool.example_uses)
+                
+            descriptions.append("\n".join(desc))
+            
+        return "\n\n".join(descriptions)
         
     async def plan(self, messages: List[BaseMessage]) -> AsyncGenerator[
         Union[AgentAction, AgentFinish], None
@@ -219,7 +246,7 @@ Rules:
             raise ResponseParsingError(f"Invalid JSON response: {str(e)}")
 
         if "final_answer" in parsed:
-            return await self._handle_final_answer(parsed)
+            return await self._handle_final_answer(parsed, messages)
         elif "action" in parsed:
             # Validate the action is legitimate
             action = AgentAction(
@@ -241,98 +268,74 @@ Rules:
 
     async def _handle_tool_execution(
         self, tool: AIResponderTool, action_input: str
-    ) -> AIMessage:
-        """Execute tool with timeout and error handling."""
-        logger.info(format_log("TOOL", f"Executing {tool.name} with input: {action_input}", LogColors.TOOL))
-        try:
-            async with asyncio.timeout(self.TOOL_TIMEOUT):
-                result = await tool._arun(action_input)
-                logger.info(format_log("TOOL", f"Success: {tool.name}", LogColors.SUCCESS))
-                
-                # Create message with tool metadata
-                message = AIMessage(content=result)
-                setattr(message, 'tool_result', True)
-                setattr(message, 'tool_name', tool.name)
-                setattr(message, 'tool_input', action_input)
-                return message
-                
-        except asyncio.TimeoutError:
-            logger.error(format_log("TIMEOUT", f"Tool {tool.name} exceeded {self.TOOL_TIMEOUT}s", LogColors.ERROR))
-            raise ToolExecutionError(tool.name, "Tool execution timeout exceeded")
-        except Exception as e:
-            logger.error(format_log("ERROR", f"Tool {tool.name} failed: {str(e)}", LogColors.ERROR))
-            raise ToolExecutionError(tool.name, str(e), original_error=e)
-
-    async def handle_tool_error(self, error: Exception, action: AgentAction) -> str:
-        """Handle tool execution errors."""
-        error_message = f"Error using tool {action.tool}: {str(error)}"
-        logger.error(error_message, exc_info=True)
+    ) -> str:
+        """Execute tool with timeout and error handling.
         
-        # Get the tool that failed
-        tool = await self.get_tool(action.tool)
-        if tool:
-            # Add tool-specific error handling if available
-            try:
-                error_message += f"\nTool suggestion: {tool.error_handling_hint}"
-            except AttributeError:
-                pass
-                
-        return error_message
-
-    async def _transform_to_cat_response(self, response: str) -> str:
-        """Transform the final response with a cat personality while preserving meaning."""
-        cat_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert at transforming text to have a cat-like personality. Your only task is to rewrite the given response with feline characteristics while preserving its exact meaning.
-
-Guidelines for the transformation:
-- Maintain a sophisticated yet distinctly feline voice
-- Add subtle cat-like mannerisms and behaviors naturally
-- Include mild sarcasm and playful condescension where appropriate
-- Keep the original message's information and intent completely intact
-- Avoid overusing cat puns or making the response feel forced
-- Prefer concise responses while maintaining clarity
-- Break naturally into multiple messages if response length exceeds 1800 characters
-
-Remember: Your goal is a natural transformation that feels like it comes from an intelligent, slightly sarcastic cat who happens to be sharing their knowledge.
-
-Bad example (too verbose):
-Input: "The weather report"
-Output: "*lengthy dramatic monologue about the weather with excessive detail*"
-
-Good example (concise):
-Input: "The weather report"
-Output: "*glances out window* Sunny and 75°F. Adequate for my sunbathing needs."""),
-            ("human", f"Transform this response while preserving its exact meaning: {response}")
-        ])
-        
-        formatted_prompt = cat_prompt.format_messages()
-        
-        cat_response = ""
-        async for chunk in self.model.generate_response(
-            str(formatted_prompt[-1].content),
-            context=str(formatted_prompt[0].content)
-        ):
-            cat_response += chunk
+        Args:
+            tool: Tool to execute
+            action_input: Input for the tool
             
-        return cat_response
+        Returns:
+            Tool execution result
+            
+        Raises:
+            ToolExecutionError: If tool execution fails
+        """
+        try:
+            # Parse action input as kwargs
+            try:
+                kwargs = json.loads(action_input) if action_input.strip().startswith('{') else {'input': action_input}
+            except json.JSONDecodeError:
+                kwargs = {'input': action_input}
+                
+            # Validate arguments
+            tool.validate_args(kwargs)
+            
+            # Execute with timeout
+            async with asyncio.timeout(self.TOOL_TIMEOUT):
+                result = await tool._arun(**kwargs)
+                
+            if not result:
+                return f"Tool '{tool.name}' returned no result"
+                
+            # Truncate result if too long
+            if len(result) > 2000:
+                return result[:1997] + "..."
+                
+            return result
+            
+        except asyncio.TimeoutError:
+            raise ToolExecutionError(f"Tool '{tool.name}' timed out after {self.TOOL_TIMEOUT} seconds")
+        except Exception as e:
+            raise ToolExecutionError(f"Tool '{tool.name}' failed: {str(e)}")
 
-    async def _handle_final_answer(self, parsed: Dict[str, Any]) -> AgentFinish:
+    async def _handle_final_answer(self, parsed: Dict[str, Any], messages: List[BaseMessage]) -> AgentFinish:
         """Handle final answer from model response."""
         if "thought" not in parsed:
             raise ResponseParsingError("Final answer missing required 'thought' field")
         
         try:
-            # Transform the final answer to cat personality
-            cat_response = await self._transform_to_cat_response(parsed["final_answer"])
+            # Get the original question from the last human message
+            original_question = ""
+            for msg in reversed(messages):
+                if isinstance(msg, HumanMessage):
+                    original_question = msg.content
+                    break
+            
+            # Process the response through the pipeline
+            final_response = await self._process_response(
+                parsed["final_answer"],
+                original_question=original_question
+            )
             
             # Split response if needed
-            response_chunks = self._split_response(cat_response)
+            response_chunks = self._split_response(final_response)
             
             # Join chunks with newlines if multiple chunks exist
-            final_response = "\n".join(response_chunks) if isinstance(response_chunks, list) else response_chunks
+            final_output = "\n".join(response_chunks) if isinstance(response_chunks, list) else response_chunks
             
             return AgentFinish(
-                return_values={"output": final_response},
+                return_values={"output": final_output},
                 log=parsed["thought"]
             )
         except KeyError as e:
