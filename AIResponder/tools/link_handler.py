@@ -1,7 +1,7 @@
 """Link handling tool for the AI responder."""
 
 from typing import Dict, Any, Optional
-from . import AIResponderTool, ToolRegistry
+from AIResponder.tools import AIResponderTool, ToolRegistry
 from redbot.core.bot import Red
 import re
 import validators
