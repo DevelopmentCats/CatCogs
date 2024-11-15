@@ -3,7 +3,7 @@ from redbot.core.bot import Red
 from ..utils.errors import ToolError, ToolInitializationError
 
 # Import AIResponderTool and ToolRegistry after they are defined in __init__.py
-from AIResponder.tools import AIResponderTool, ToolRegistry
+from . import AIResponderTool, ToolRegistry
 
 class ToolManager:
     """Manages AI responder tools and their lifecycle."""

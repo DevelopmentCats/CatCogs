@@ -2,8 +2,8 @@ from typing import Optional, Union, Dict
 import numexpr
 import math
 from decimal import Decimal, InvalidOperation
-from AIResponder.utils.errors import ToolError
-from AIResponder.tools import AIResponderTool, ToolRegistry
+from ..utils.errors import ToolError
+from . import AIResponderTool, ToolRegistry
 
 @ToolRegistry.register
 class Calculator(AIResponderTool):
