@@ -6,3 +6,4 @@ langchain>=0.1.0,<0.2.0
 numexpr>=2.8.0
 aiohttp>=3.8.0
 python-dateutil>=2.8.2
+nltk>=3.8.1
