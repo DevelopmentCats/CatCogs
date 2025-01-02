@@ -5,28 +5,28 @@ A PURRFECT security system that guards your Discord server like a vigilant cat! 
 ## 🐱 Features
 
 - 🛡️ **Advanced Verification System**
-  - New members start in the Welcome Center
   - Trusted members vouch for newcomers
-  - Customizable verification requirements
+  - Customizable vouch requirements
   - Auto-removal of inactive unverified members
+  - Comprehensive verification logging
 
 - 🏰 **Welcome Center**
-  - Dedicated verification desk
-  - Friendly welcome lounge
-  - Clear instructions and rules
-  - Comprehensive logging
+  - Dedicated verification desk with clear instructions
+  - Public welcome lounge for newcomer introductions
+  - Organized under a clean category structure
+  - Automatic permission management
 
-- 🎨 **Beautiful Embedded Messages**
-  - Themed welcome messages
-  - Status updates and notifications
-  - Progress tracking
-  - Detailed statistics
+- 🔐 **Permission Management**
+  - Automatic channel permission setup
+  - Verified users get full channel access
+  - Unverified users are restricted appropriately
+  - Preserves existing special permissions
 
-- ⚙️ **Easy Setup**
-  - One-command setup wizard
-  - Customizable settings
-  - Automatic channel creation
-  - Role management
+- 📊 **Comprehensive Logging**
+  - Tracks all verification attempts
+  - Monitors vouch activity
+  - Logs configuration changes
+  - Private logging channel
 
 ## 📚 Commands
 
@@ -72,17 +72,39 @@ A PURRFECT security system that guards your Discord server like a vigilant cat! 
    [p]gatekeeper setup
    ```
 2. The wizard will:
-   - Create necessary roles
-   - Set up the Welcome Center
+   - Create/update necessary roles (Unverified, Verified, Voucher)
+   - Set up the Welcome Center category
+   - Create/update verification channels
    - Configure logging
-   - Enable protection
+   - Set up channel permissions
 
 3. Customize settings (optional):
    - Welcome message: `[p]gk setwelcomemsg`
    - Required vouches: `[p]gk setvouch`
    - Verification timeout: `[p]gk timeout`
 
-## 🔒 Security Features
+## 🔒 Channel Structure
+
+### Welcome Center Category
+- **verification-desk**: Read-only channel with verification instructions
+- **welcome-lounge**: Public chat for new members and introductions
+- **gatekeeper-logs**: Private channel for verification activity
+
+### Channel Permissions
+- **Verified Users Get**:
+  - Channel visibility and access
+  - Message sending and history
+  - Reactions and file attachments
+  - Voice channel access
+  - External emoji usage
+  - Basic user permissions
+
+- **Unverified Users**:
+  - Can only see welcome channels
+  - Can chat in welcome-lounge
+  - All other channels hidden
+
+## 🛡️ Security Features
 
 - Role-based access control
 - Automatic unverified member cleanup
