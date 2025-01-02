@@ -1,41 +1,58 @@
 # 🔒 GateKeeper - Discord Security Cog
 
-A POWERFUL and user-friendly security cog for Red Discord Bot that helps protect your server from unwanted visitors! 
+A PURRFECT security system that guards your Discord server like a vigilant cat! 😺
 
-## 😺 Features
+## 🐱 Features
 
-- 🛡️ **Automatic Role Management**
-  - New members are assigned an unverified role
-  - Gain access through member vouching
+- 🛡️ **Advanced Verification System**
+  - New members start in the Welcome Center
+  - Trusted members vouch for newcomers
   - Customizable verification requirements
+  - Auto-removal of inactive unverified members
+
+- 🏰 **Welcome Center**
+  - Dedicated verification desk
+  - Friendly welcome lounge
+  - Clear instructions and rules
+  - Comprehensive logging
 
 - 🎨 **Beautiful Embedded Messages**
-  - Welcome messages for new members
-  - Verification status updates
-  - Progress tracking for vouches
+  - Themed welcome messages
+  - Status updates and notifications
+  - Progress tracking
+  - Detailed statistics
 
 - ⚙️ **Easy Setup**
-  - Interactive setup wizard
+  - One-command setup wizard
   - Customizable settings
-  - Role creation and management
+  - Automatic channel creation
+  - Role management
 
 ## 📚 Commands
 
 ### Admin Commands
-- `[p]gatekeeper setup` - Run the interactive setup wizard
-- `[p]gatekeeper settings` - View and modify settings
-- `[p]supervouch <member> [reason]` - Instantly verify a member
-- `[p]gk massverify <members...>` - Verify multiple members at once
+- `[p]gatekeeper setup` - Run the setup wizard
+- `[p]gk settings` - View current settings
+- `[p]gk setvouch <amount>` - Set required vouches
+- `[p]gk setwelcomemsg <message>` - Customize welcome message
+- `[p]gk timeout <hours>` - Set verification timeout
+- `[p]supervouch <member> [reason]` - Instantly verify someone
+- `[p]gk massverify <members...>` - Verify multiple members
 - `[p]gk stats` - View verification statistics
+- `[p]gk blacklist <member>` - Ban from verification
+
+### Moderator Commands
+- `[p]vouch <member>` - Vouch for a new member
+- `[p]unvouch <member>` - Remove your vouch
+- `[p]vouchinfo [member]` - Check verification status
 
 ### Member Commands
-- `[p]vouch <member>` - Vouch for a new member
-- `[p]vouchinfo [member]` - Check verification status
+- `[p]vouchinfo` - Check your verification progress
 
 ## 🚀 Installation
 
-1. Make sure you have Red-DiscordBot v3 installed
-2. Add this repository to your bot:
+1. Make sure you have Red-DiscordBot v3.5+ installed
+2. Add this repository:
    ```
    [p]repo add gatekeeper <repository_url>
    ```
@@ -50,17 +67,34 @@ A POWERFUL and user-friendly security cog for Red Discord Bot that helps protect
 
 ## ⚙️ Initial Setup
 
-1. Run `[p]gatekeeper setup` to start the interactive setup
-2. The cog will create necessary roles and channels
-3. Customize settings using `[p]gatekeeper settings`
+1. Run the setup wizard:
+   ```
+   [p]gatekeeper setup
+   ```
+2. The wizard will:
+   - Create necessary roles
+   - Set up the Welcome Center
+   - Configure logging
+   - Enable protection
 
-## 🐾 Contributing
+3. Customize settings (optional):
+   - Welcome message: `[p]gk setwelcomemsg`
+   - Required vouches: `[p]gk setvouch`
+   - Verification timeout: `[p]gk timeout`
 
-Feel free to submit issues and pull requests! All contributions are welcome!
+## 🔒 Security Features
 
-## 📜 License
+- Role-based access control
+- Automatic unverified member cleanup
+- Blacklist system
+- Comprehensive logging
+- Verification timeout
+- Anti-spam protection
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+## 📝 Support
+
+Need help? Found a bug? Have a suggestion? Open an issue on our GitHub repository!
 
 ---
-Made with 😺 by DevelopmentCats - Keeping your Discord server as safe as a cat guarding its territory!
+
+*Made with 😺 by DevelopmentCats - Keeping your server as safe as a cat guards its territory!*

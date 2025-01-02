@@ -11,7 +11,11 @@ import logging
 log = logging.getLogger("red.gatekeeper")
 
 class GateKeeper(commands.Cog):
-    """🔒 A sophisticated security system for protecting your Discord server!"""
+    """🔒 Security system for protecting your Discord server
+
+    GateKeeper provides an advanced verification system that requires new members 
+    to be vouched for before gaining access. Use `[p]gatekeeper setup` to get started!
+    """
 
     def __init__(self, bot: Red):
         self.bot = bot
@@ -27,6 +31,7 @@ class GateKeeper(commands.Cog):
             "vouchers_required": 2,
             "voucher_role_id": None,
             "log_channel_id": None,
+            "verification_channel_id": None,
             "pending_verifications": {},  # {user_id: [voucher_ids]}
             "welcome_message": "Welcome {user_mention} to {server_name}! 🎉\nTo gain access to the server, you need to be vouched for by {vouches_needed} trusted members.",
             "auto_remove_unverified_days": 7,  # Remove unverified members after X days
@@ -126,29 +131,33 @@ class GateKeeper(commands.Cog):
 
     @commands.group(name="gatekeeper", aliases=["gk"])
     @commands.guild_only()
-    @checks.admin_or_permissions(administrator=True)
     async def _gatekeeper(self, ctx: commands.Context):
-        """🔒 Manage the GateKeeper security system"""
-        pass
+        """🔒 Security system for protecting your Discord server
+
+        GateKeeper provides an advanced verification system that requires new members 
+        to be vouched for before gaining access. Use `[p]gatekeeper setup` to get started!
+        """
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
 
     @_gatekeeper.command(name="settings")
+    @commands.guild_only()
+    @checks.admin_or_permissions(administrator=True)
     async def show_settings(self, ctx: commands.Context):
-        """Display current GateKeeper settings"""
-        if not ctx.guild:
-            return await ctx.send("This command can only be used in a server! 😾")
-
+        """😺 Show current GateKeeper settings"""
         conf = self.config.guild(ctx.guild)
         settings = {
             "Enabled": await conf.enabled(),
             "Welcome Channel": ctx.guild.get_channel(await conf.welcome_channel_id()),
+            "Verification Channel": ctx.guild.get_channel(await conf.verification_channel_id()),
             "Log Channel": ctx.guild.get_channel(await conf.log_channel_id()),
             "Verified Role": ctx.guild.get_role(await conf.verified_role_id()),
             "Unverified Role": ctx.guild.get_role(await conf.unverified_role_id()),
             "Voucher Role": ctx.guild.get_role(await conf.voucher_role_id()),
             "Vouches Required": await conf.vouchers_required(),
+            "Welcome Message": await conf.welcome_message(),
             "Auto-Remove Days": await conf.auto_remove_unverified_days(),
-            "Verification Timeout": f"{await conf.verification_timeout_hours()} hours",
-            "Custom Commands": "Enabled" if await conf.custom_commands_enabled() else "Disabled"
+            "Verification Timeout (hours)": await conf.verification_timeout_hours()
         }
 
         embed = discord.Embed(
@@ -156,11 +165,32 @@ class GateKeeper(commands.Cog):
             color=discord.Color.blue()
         )
 
-        for setting, value in settings.items():
-            if isinstance(value, (discord.Role, discord.TextChannel)):
-                value = value.mention if value else "Not Set"
-            embed.add_field(name=setting, value=str(value), inline=True)
+        for key, value in settings.items():
+            if isinstance(value, (discord.TextChannel, discord.Role)):
+                value = value.mention if value else "Not Set ❌"
+            elif isinstance(value, bool):
+                value = "Enabled ✅" if value else "Disabled ❌"
+            embed.add_field(name=key, value=str(value), inline=False)
 
+        await ctx.send(embed=embed)
+
+    @_gatekeeper.command(name="setwelcomemsg")
+    @commands.guild_only()
+    @checks.admin_or_permissions(administrator=True)
+    async def set_welcome_message(self, ctx: commands.Context, *, message: str):
+        """😺 Set the welcome message for new members
+        
+        Available placeholders:
+        {user_mention} - Mentions the new member
+        {server_name} - Server name
+        {vouches_needed} - Number of vouches required
+        """
+        await self.config.guild(ctx.guild).welcome_message.set(message)
+        embed = discord.Embed(
+            title="✨ Welcome Message Updated",
+            description=f"New message:\n{message}",
+            color=discord.Color.green()
+        )
         await ctx.send(embed=embed)
 
     @_gatekeeper.command(name="setvouch")
@@ -173,35 +203,22 @@ class GateKeeper(commands.Cog):
         await ctx.send(f"✅ Members now need {amount} vouches to be verified!")
 
     @_gatekeeper.command(name="setwelcome")
-    async def set_welcome_message(self, ctx: commands.Context, *, message: str):
-        """Set the welcome message for new members
-        
-        Available placeholders:
-        {user_mention} - Mentions the new member
-        {server_name} - Server name
-        {vouches_needed} - Required number of vouches
-        """
-        await self.config.guild(ctx.guild).welcome_message.set(message)
-        
-        # Show preview
-        formatted = message.format(
-            user_mention=ctx.author.mention,
-            server_name=ctx.guild.name,
-            vouches_needed=await self.config.guild(ctx.guild).vouchers_required()
-        )
-        
-        embed = discord.Embed(
-            title="✨ Welcome Message Updated!",
-            description="Preview:\n\n" + formatted,
-            color=discord.Color.green()
-        )
-        await ctx.send(embed=embed)
+    async def set_welcome_channel(self, ctx: commands.Context, channel: discord.TextChannel):
+        """Set the channel for welcome messages"""
+        await self.config.guild(ctx.guild).welcome_channel_id.set(channel.id)
+        await ctx.send(f"✅ Welcome channel set to {channel.mention}!")
 
     @_gatekeeper.command(name="setlog")
     async def set_log_channel(self, ctx: commands.Context, channel: discord.TextChannel):
         """Set the channel for logging GateKeeper actions"""
         await self.config.guild(ctx.guild).log_channel_id.set(channel.id)
         await ctx.send(f"✅ Log channel set to {channel.mention}!")
+
+    @_gatekeeper.command(name="setverificationchannel")
+    async def set_verification_channel(self, ctx: commands.Context, channel: discord.TextChannel):
+        """Set the channel for verification"""
+        await self.config.guild(ctx.guild).verification_channel_id.set(channel.id)
+        await ctx.send(f"✅ Verification channel set to {channel.mention}!")
 
     @_gatekeeper.command(name="timeout")
     async def set_verification_timeout(self, ctx: commands.Context, hours: int):
@@ -710,6 +727,365 @@ class GateKeeper(commands.Cog):
             )
 
         await ctx.send(embed=embed)
+
+    async def _create_verification_channels(self, guild: discord.Guild, unverified_role: discord.Role) -> tuple[Optional[discord.TextChannel], Optional[discord.TextChannel], Optional[discord.CategoryChannel]]:
+        """Create and set up the verification channels"""
+        try:
+            base_overwrites = {
+                guild.default_role: discord.PermissionOverwrite(
+                    read_messages=False,
+                    send_messages=False
+                ),
+                unverified_role: discord.PermissionOverwrite(
+                    read_messages=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    add_reactions=True,
+                    create_instant_invite=False,
+                    manage_channels=False,
+                    manage_permissions=False,
+                    manage_webhooks=False,
+                    manage_threads=False,
+                    create_public_threads=False,
+                    create_private_threads=False,
+                    embed_links=True,
+                    attach_files=True,
+                    mention_everyone=False
+                ),
+                guild.me: discord.PermissionOverwrite(
+                    read_messages=True,
+                    send_messages=True,
+                    manage_messages=True,
+                    manage_channels=True,
+                    add_reactions=True,
+                    embed_links=True,
+                    attach_files=True,
+                    manage_threads=True
+                )
+            }
+
+            # Create category for GateKeeper channels
+            category = await guild.create_category(
+                "Welcome Center",
+                overwrites={
+                    guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                    guild.me: discord.PermissionOverwrite(read_messages=True, manage_channels=True)
+                },
+                reason="GateKeeper: Created welcome center category"
+            )
+
+            # Create verification instructions channel
+            verify_channel = await guild.create_text_channel(
+                "verification-desk",
+                category=category,
+                overwrites=base_overwrites,
+                reason="GateKeeper: Created verification instructions channel",
+                topic="Get verified to access the server! Read the instructions and wait for trusted members to vouch for you. 🔒"
+            )
+
+            rules_embed = discord.Embed(
+                title="🔒 Welcome to the Verification Desk!",
+                description=(
+                    "Welcome to the server! To gain access, you need to be vouched for by trusted members.\n\n"
+                    "**How Verification Works:**\n"
+                    "1. Head over to the 👋 `welcome-lounge` channel\n"
+                    "2. Introduce yourself and chat with our community\n"
+                    "3. Wait for trusted members to vouch for you\n"
+                    "4. Once you have enough vouches, you'll automatically get access!\n\n"
+                    "**Rules:**\n"
+                    "• Be patient and respectful\n"
+                    "• Don't spam or ping members for vouches\n"
+                    "• One account per person\n"
+                    "• Follow server rules\n\n"
+                    f"Required Vouches: {guild.name} requires multiple trusted members to vouch for you.\n"
+                    "Use `[p]vouchinfo` to check your progress! 😺"
+                ),
+                color=discord.Color.blue()
+            )
+            rules_embed.set_footer(text="GateKeeper - Keeping your server safe! 😺")
+            await verify_channel.send(embed=rules_embed)
+
+            # Create welcome lounge channel
+            welcome_channel = await guild.create_text_channel(
+                "welcome-lounge",
+                category=category,
+                overwrites=base_overwrites,
+                reason="GateKeeper: Created welcome lounge channel",
+                topic="Welcome! Introduce yourself and chat while waiting for verification. Be patient and friendly! 😊"
+            )
+
+            welcome_embed = discord.Embed(
+                title="👋 Welcome to the Lounge!",
+                description=(
+                    "This is a space for new members to chat while waiting for verification!\n\n"
+                    "**What to do here:**\n"
+                    "• Introduce yourself to the community\n"
+                    "• Chat with other members\n"
+                    "• Ask questions about the server\n"
+                    "• Be patient while waiting for verification\n\n"
+                    "Remember to be friendly and follow the server rules! 😺"
+                ),
+                color=discord.Color.green()
+            )
+            await welcome_channel.send(embed=welcome_embed)
+
+            return verify_channel, welcome_channel, category
+        except discord.HTTPException as e:
+            log.error(f"Error creating verification channels: {e}")
+            return None, None, None
+
+    async def _create_log_channel(self, guild: discord.Guild, category: discord.CategoryChannel) -> Optional[discord.TextChannel]:
+        """Create and set up the logging channel"""
+        try:
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                guild.me: discord.PermissionOverwrite(
+                    read_messages=True,
+                    send_messages=True,
+                    manage_messages=True,
+                    manage_channels=True,
+                    embed_links=True,
+                    attach_files=True,
+                    read_message_history=True
+                )
+            }
+
+            channel = await guild.create_text_channel(
+                "gatekeeper-logs",
+                category=category,
+                overwrites=overwrites,
+                reason="GateKeeper: Created log channel",
+                topic="GateKeeper verification logs and activity 📝"
+            )
+
+            # Send initial log message
+            embed = discord.Embed(
+                title="📝 GateKeeper Logs",
+                description=(
+                    "This channel will log all GateKeeper activity, including:\n"
+                    "• Verification attempts\n"
+                    "• Role changes\n"
+                    "• Configuration updates\n"
+                    "• System messages\n\n"
+                    "Keep this channel private for security! 🔒"
+                ),
+                color=discord.Color.blue()
+            )
+            embed.set_footer(text="GateKeeper - Keeping your server safe! 😺")
+            await channel.send(embed=embed)
+            return channel
+        except discord.HTTPException as e:
+            log.error(f"Error creating log channel: {e}")
+            return None
+
+    async def _setup_roles(self, guild: discord.Guild) -> tuple[Optional[discord.Role], Optional[discord.Role], Optional[discord.Role]]:
+        """Create and set up all necessary roles"""
+        try:
+            # Create unverified role if it doesn't exist
+            unverified_role = discord.utils.get(guild.roles, name="Unverified")
+            if not unverified_role:
+                unverified_role = await guild.create_role(
+                    name="Unverified",
+                    color=discord.Color.dark_grey(),
+                    reason="GateKeeper: Created unverified role",
+                    permissions=discord.Permissions(
+                        read_messages=True,
+                        send_messages=True,
+                        read_message_history=True,
+                        add_reactions=True,
+                        embed_links=True,
+                        attach_files=True,
+                        create_instant_invite=False,
+                        change_nickname=True
+                    )
+                )
+
+            # Create verified role if it doesn't exist
+            verified_role = discord.utils.get(guild.roles, name="Verified")
+            if not verified_role:
+                verified_role = await guild.create_role(
+                    name="Verified",
+                    color=discord.Color.green(),
+                    reason="GateKeeper: Created verified role",
+                    permissions=discord.Permissions(
+                        read_messages=True,
+                        send_messages=True,
+                        read_message_history=True,
+                        add_reactions=True,
+                        attach_files=True,
+                        embed_links=True,
+                        external_emojis=True,
+                        change_nickname=True,
+                        create_instant_invite=True,
+                        connect=True,
+                        speak=True
+                    )
+                )
+
+            # Create voucher role if it doesn't exist
+            voucher_role = discord.utils.get(guild.roles, name="Voucher")
+            if not voucher_role:
+                voucher_role = await guild.create_role(
+                    name="Voucher",
+                    color=discord.Color.blue(),
+                    reason="GateKeeper: Created voucher role",
+                    permissions=discord.Permissions(
+                        read_messages=True,
+                        send_messages=True,
+                        read_message_history=True,
+                        add_reactions=True,
+                        change_nickname=True
+                    )
+                )
+
+            # Ensure role hierarchy
+            positions = {
+                verified_role: guild.me.top_role.position - 3,
+                voucher_role: guild.me.top_role.position - 2,
+                unverified_role: guild.me.top_role.position - 1
+            }
+            await guild.edit_role_positions(positions=positions)
+
+            return unverified_role, verified_role, voucher_role
+        except discord.HTTPException as e:
+            log.error(f"Error creating roles: {e}")
+            return None, None, None
+
+    @_gatekeeper.command(name="setup")
+    @commands.guild_only()
+    @checks.admin_or_permissions(administrator=True)
+    async def setup_gatekeeper(self, ctx: commands.Context):
+        """🔧 Interactive setup wizard for GateKeeper"""
+        if not ctx.guild:
+            return await ctx.send("This command can only be used in a server! 😾")
+
+        # Check bot permissions first
+        required_permissions = discord.Permissions(
+            manage_roles=True,
+            manage_channels=True,
+            view_channels=True,
+            send_messages=True,
+            manage_messages=True,
+            embed_links=True,
+            add_reactions=True,
+            manage_threads=True
+        )
+
+        if not ctx.guild.me.guild_permissions.is_superset(required_permissions):
+            missing_perms = [perm[0] for perm in required_permissions if not getattr(ctx.guild.me.guild_permissions, perm[0])]
+            return await ctx.send(
+                f"❌ I'm missing required permissions: {', '.join(missing_perms)}\n"
+                "Please give me the necessary permissions and try again! 😿"
+            )
+
+        # Initial setup message
+        setup_embed = discord.Embed(
+            title="🔧 GateKeeper Setup Wizard",
+            description="Let's set up GateKeeper to protect your server! I'll guide you through each step.",
+            color=discord.Color.blue()
+        )
+        setup_msg = await ctx.send(embed=setup_embed)
+
+        try:
+            # Step 1: Create roles
+            setup_embed.description = "📑 Step 1/4: Creating roles..."
+            await setup_msg.edit(embed=setup_embed)
+            
+            unverified_role, verified_role, voucher_role = await self._setup_roles(ctx.guild)
+            if not all([unverified_role, verified_role, voucher_role]):
+                return await setup_msg.edit(content="❌ Failed to create necessary roles! Please check my permissions and try again.")
+
+            # Step 2: Create verification channels
+            setup_embed.description = "📑 Step 2/4: Creating channels..."
+            await setup_msg.edit(embed=setup_embed)
+            
+            verify_channel, welcome_channel, category = await self._create_verification_channels(ctx.guild, unverified_role)
+            if not all([verify_channel, welcome_channel, category]):
+                return await setup_msg.edit(content="❌ Failed to create verification channels! Please check my permissions and try again.")
+            
+            # Create log channel in the same category
+            log_channel = await self._create_log_channel(ctx.guild, category)
+            if not log_channel:
+                return await setup_msg.edit(content="❌ Failed to create log channel! Please check my permissions and try again.")
+
+            # Step 3: Update existing channel permissions
+            setup_embed.description = "📑 Step 3/4: Updating channel permissions..."
+            await setup_msg.edit(embed=setup_embed)
+            
+            for channel in ctx.guild.channels:
+                if channel.id not in [verify_channel.id, welcome_channel.id, log_channel.id]:
+                    try:
+                        # Hide channels from unverified users
+                        await channel.set_permissions(
+                            unverified_role,
+                            read_messages=False,
+                            send_messages=False,
+                            reason="GateKeeper: Hiding channel from unverified users"
+                        )
+                    except discord.HTTPException:
+                        continue
+
+            # Step 4: Save configuration
+            setup_embed.description = "📑 Step 4/4: Saving configuration..."
+            await setup_msg.edit(embed=setup_embed)
+            
+            conf = self.config.guild(ctx.guild)
+            await conf.enabled.set(True)
+            await conf.unverified_role_id.set(unverified_role.id)
+            await conf.verified_role_id.set(verified_role.id)
+            await conf.voucher_role_id.set(voucher_role.id)
+            await conf.welcome_channel_id.set(welcome_channel.id)
+            await conf.verification_channel_id.set(verify_channel.id)
+            await conf.log_channel_id.set(log_channel.id)
+
+            # Final success message
+            success_embed = discord.Embed(
+                title="✨ Setup Complete!",
+                description=(
+                    "GateKeeper is now protecting your server!\n\n"
+                    f"📑 **Roles Created:**\n"
+                    f"• Unverified: {unverified_role.mention}\n"
+                    f"• Verified: {verified_role.mention}\n"
+                    f"• Voucher: {voucher_role.mention}\n\n"
+                    f"📝 **Channels Created:**\n"
+                    f"• Category: {category.name}\n"
+                    f"• Verification Desk: {verify_channel.mention}\n"
+                    f"• Welcome Lounge: {welcome_channel.mention}\n"
+                    f"• Logs: {log_channel.mention}\n\n"
+                    "🔧 **Next Steps:**\n"
+                    "1. Assign the Voucher role to trusted members\n"
+                    "2. Use `[p]gatekeeper settings` to customize settings\n"
+                    "3. Test the system with a new member!\n\n"
+                    "Need help? Use `[p]help GateKeeper` for a list of commands!"
+                ),
+                color=discord.Color.green()
+            )
+            await setup_msg.edit(embed=success_embed)
+
+            # Log the setup
+            await self._log_action(
+                ctx.guild,
+                f"GateKeeper setup completed by {ctx.author} ({ctx.author.id})"
+            )
+
+        except discord.HTTPException as e:
+            log.error(f"Error during setup: {e}")
+            error_embed = discord.Embed(
+                title="❌ Setup Failed",
+                description=(
+                    "There was an error during setup! Make sure I have these permissions:\n"
+                    "• Manage Roles\n"
+                    "• Manage Channels\n"
+                    "• View Channels\n"
+                    "• Send Messages\n"
+                    "• Manage Messages\n"
+                    "• Embed Links\n"
+                    "• Add Reactions\n"
+                    "• Manage Threads"
+                ),
+                color=discord.Color.red()
+            )
+            await setup_msg.edit(embed=error_embed)
 
 def setup(bot: Red):
     bot.add_cog(GateKeeper(bot))
