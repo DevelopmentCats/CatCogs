@@ -1,0 +1,22 @@
+{
+    "name": "ServerSage",
+    "short": " AI-powered Discord server enhancement",
+    "description": "Your mystical AI companion that uses Grok AI to analyze and transform your Discord server into a more organized, intuitive, and engaging space. Features beautiful embeds, smart suggestions, and safe controlled changes.",
+    "end_user_data_statement": "This cog stores server configuration and analysis history. No personal user data is collected or stored.",
+    "author": ["DevelopmentCats"],
+    "required_cogs": {},
+    "requirements": ["aiohttp"],
+    "tags": [
+        "utility",
+        "admin",
+        "ai",
+        "server",
+        "organization",
+        "enhancement",
+        "management"
+    ],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}
