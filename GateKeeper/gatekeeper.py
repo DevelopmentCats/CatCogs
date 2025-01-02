@@ -963,7 +963,7 @@ class GateKeeper(commands.Cog):
         required_permissions = discord.Permissions(
             manage_roles=True,
             manage_channels=True,
-            view_channels=True,
+            read_messages=True,  # Changed from view_channels
             send_messages=True,
             manage_messages=True,
             embed_links=True,
@@ -1076,7 +1076,7 @@ class GateKeeper(commands.Cog):
                     "There was an error during setup! Make sure I have these permissions:\n"
                     "• Manage Roles\n"
                     "• Manage Channels\n"
-                    "• View Channels\n"
+                    "• Read Messages\n"
                     "• Send Messages\n"
                     "• Manage Messages\n"
                     "• Embed Links\n"
