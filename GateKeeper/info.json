@@ -1,0 +1,15 @@
+{
+    "name": "GateKeeper",
+    "short": "A sophisticated security system for protecting your Discord server! 🔒",
+    "description": "GateKeeper provides an advanced verification system that requires new members to be vouched for before gaining access to your server. Features include:\n\n- Customizable vouch requirements\n- Admin super-vouching\n- Auto-removal of unverified members\n- Blacklist system\n- Verification statistics\n- Beautiful embedded messages\n- Comprehensive logging",
+    "end_user_data_statement": "This cog stores user IDs for verification history and blacklist purposes. This data can be removed using Discord's built-in leave server function or by being unverified/unblacklisted by an admin.",
+    "install_msg": "Thanks for installing GateKeeper! 😺 Get started with `[p]gatekeeper setup`. For help, use `[p]help GateKeeper`.",
+    "author": ["DevelopmentCats"],
+    "required_cogs": {},
+    "requirements": [],
+    "tags": ["security", "verification", "moderation", "vouch"],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+}
