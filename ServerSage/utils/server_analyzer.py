@@ -2,12 +2,18 @@ from typing import Dict, List, Optional
 import discord
 from discord.ext import commands
 import logging
+from .suggestion_manager import SuggestionManager
 
 log = logging.getLogger("red.serversage.analyzer")
 
 class ServerAnalyzer:
     """🔍 Analyzes Discord server structure and creates info for AI processing"""
     
+    def __init__(self, bot):
+        self.bot = bot
+        self.gemini = GeminiClient(bot.get_api_key())
+        self.suggestion_manager = SuggestionManager()
+        
     @staticmethod
     async def gather_server_info(guild: discord.Guild) -> Dict:
         """Gather comprehensive information about the server"""
@@ -163,6 +169,97 @@ class ServerAnalyzer:
                 
         return changes
     
+    async def analyze_server(self, ctx, style_prompt: Optional[str] = None) -> None:
+        """Analyzes the server and presents interactive suggestions"""
+        try:
+            # Get server info
+            server_info = await self._gather_server_info(ctx.guild)
+            
+            # Get AI analysis
+            analysis = await self.gemini.analyze_server(server_info, style_prompt=style_prompt)
+            
+            # Store suggestions in manager
+            for i, suggestion in enumerate(analysis["suggestions"]):
+                self.suggestion_manager.pending_suggestions[f"s{i}"] = suggestion
+                
+            # Display summary embed
+            summary_embed = discord.Embed(
+                title="😸 Server Analysis Complete!",
+                description=analysis["summary"],
+                color=discord.Color.purple()
+            )
+            
+            # Add health metrics
+            health = analysis["server_health"]
+            summary_embed.add_field(
+                name="📊 Server Health",
+                value=f"Organization: {health['organization_score']}/100\n"
+                      f"Engagement: {health['engagement_score']}/100\n"
+                      f"Growth Potential: {health['growth_potential']}/100",
+                inline=False
+            )
+            
+            # Add style analysis if provided
+            if "style_analysis" in analysis:
+                summary_embed.add_field(
+                    name="🎨 Style Analysis",
+                    value=analysis["style_analysis"],
+                    inline=False
+                )
+                
+            await ctx.send(embed=summary_embed)
+            
+            # Display interactive suggestions
+            await self.suggestion_manager.display_suggestions(ctx)
+            
+        except Exception as e:
+            error_embed = discord.Embed(
+                title="😿 Oops! The cat knocked something over!",
+                description=f"An error occurred during analysis: {str(e)}",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=error_embed)
+            
+    async def apply_suggestions(self, ctx) -> None:
+        """Applies all approved suggestions"""
+        approved = self.suggestion_manager.get_approved_suggestions()
+        
+        if not approved:
+            await ctx.send("No approved suggestions to apply! 😿")
+            return
+            
+        progress_embed = discord.Embed(
+            title="🐱 Applying Suggestions",
+            description="Watch me work my MAGIC!",
+            color=discord.Color.green()
+        )
+        progress_msg = await ctx.send(embed=progress_embed)
+        
+        try:
+            for suggestion in approved:
+                # Update progress
+                progress_embed.description = f"Applying: {suggestion['description']}"
+                await progress_msg.edit(embed=progress_embed)
+                
+                # Apply the suggestion
+                await self._apply_suggestion(ctx.guild, suggestion)
+                
+                # Add success checkmark
+                progress_embed.add_field(
+                    name="✅ Success!",
+                    value=suggestion['description'],
+                    inline=False
+                )
+                await progress_msg.edit(embed=progress_embed)
+                
+            progress_embed.description = "All suggestions have been applied! PURRFECT! 😸"
+            await progress_msg.edit(embed=progress_embed)
+            
+        except Exception as e:
+            progress_embed.description = f"😿 Oops! Something went wrong: {str(e)}"
+            progress_embed.color = discord.Color.red()
+            await progress_msg.edit(embed=progress_embed)
+    
     @staticmethod
     async def apply_changes(
         guild: discord.Guild,
@@ -260,3 +357,8 @@ class ServerAnalyzer:
                 results.append(f"❌ Failed to {change['action']}: {str(e)}")
         
         return results
+    
+    async def _apply_suggestion(self, guild: discord.Guild, suggestion: Dict) -> None:
+        """Apply a single suggestion"""
+        changes = self.create_change_plan([suggestion])
+        await self.apply_changes(guild, changes, dry_run=False)

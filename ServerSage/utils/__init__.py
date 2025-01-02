@@ -1,15 +1,15 @@
-"""
-🐱 ServerSage Utils - Making Discord Servers PURRFECT!
-Created by DevelopmentCats 😺
-"""
+"""Utils package for ServerSage's PURRFECT functionality 😺"""
 
 from .gemini_client import GeminiClient
 from .server_analyzer import ServerAnalyzer
+from .suggestion_manager import SuggestionManager
 
 __all__ = [
     'GeminiClient',
-    'ServerAnalyzer'
+    'ServerAnalyzer',
+    'SuggestionManager'
 ]
 
-__author__ = 'DevelopmentCats'
+# Version info
 __version__ = '1.0.0'
+__author__ = 'DevelopmentCats'
