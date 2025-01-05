@@ -82,13 +82,14 @@ code
             self.active_conversations[channel_id] = []
         
         history = self.active_conversations[channel_id]
+        
+        # Format the message in Gemini's expected structure
         entry = {
-            "role": role, 
-            "content": content,
-            "timestamp": datetime.now().isoformat()
+            "parts": [{
+                "text": content
+            }],
+            "role": "user" if role.lower() == "user" else "model"
         }
-        if user_name:
-            entry["user_name"] = user_name
             
         history.append(entry)
         
@@ -203,28 +204,28 @@ code
 
         # Check if the bot is mentioned
         if self.bot.user in message.mentions:
-            # Check if API is configured
-            if not self.model:
-                if not await self.initialize():
-                    await message.reply("Please ask an admin to set up my API key using the `[p]chatbot setapikey` command.")
-                    return
-
-            # Check if bot is enabled in this guild
-            enabled = await self.config.guild(message.guild).enabled()
-            if not enabled:
-                await message.reply("Sorry, I'm currently disabled in this server.")
-                return
-
-            # Check rate limit
-            if await self.check_rate_limit(message.channel.id):
-                await message.reply("I'm receiving too many messages! Please wait a moment before trying again.")
-                return
-
-            # Start typing indicator
+            # Start typing indicator immediately
             self.typing_channels.add(message.channel.id)
             typing_task = asyncio.create_task(self.maintain_typing(message.channel))
 
             try:
+                # Check if API is configured
+                if not self.model:
+                    if not await self.initialize():
+                        await message.reply("Please ask an admin to set up my API key using the `[p]chatbot setapikey` command.")
+                        return
+
+                # Check if bot is enabled in this guild
+                enabled = await self.config.guild(message.guild).enabled()
+                if not enabled:
+                    await message.reply("Sorry, I'm currently disabled in this server.")
+                    return
+
+                # Check rate limit
+                if await self.check_rate_limit(message.channel.id):
+                    await message.reply("I'm receiving too many messages! Please wait a moment before trying again.")
+                    return
+
                 # Get user's display name (nickname if set, otherwise display name)
                 user_name = message.author.nick or message.author.display_name
 
