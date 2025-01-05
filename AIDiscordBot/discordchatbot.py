@@ -77,19 +77,35 @@ code
         splits = re.split(r'(?<=[.!?])\s+', text.strip())
         return [s for s in splits if s]
 
-    async def get_conversation_history(self, channel_id: int) -> List[dict]:
-        """Get conversation history for a channel"""
-        history = self.active_conversations.get(channel_id, [])
-        
-        # If history is too old, clear it
-        if history:
-            now = datetime.now()
-            oldest_allowed = now - timedelta(hours=24)  # Clear history older than 24 hours
+    async def get_conversation_history(self, channel_id: int, current_user: str = None) -> List[dict]:
+        """Get conversation history with proper user context"""
+        if channel_id not in self.active_conversations:
+            return []
             
-            if datetime.fromisoformat(history[0].get('timestamp', now.isoformat())) < oldest_allowed:
-                history = []
-                self.active_conversations[channel_id] = history
+        history = self.active_conversations[channel_id]
         
+        # Filter out old messages (older than 24 hours)
+        current_time = datetime.now()
+        history = [
+            msg for msg in history
+            if (current_time - datetime.fromisoformat(msg['metadata']['timestamp'])).total_seconds() < 86400
+        ]
+        
+        # Only include messages from the current conversation context
+        if current_user:
+            filtered_history = []
+            for msg in history[-10:]:  # Look at last 10 messages
+                msg_user = msg['metadata'].get('user_name', '')
+                # Include messages if they're from the current user or responses to them
+                if msg_user == current_user or (
+                    filtered_history and 
+                    filtered_history[-1]['metadata'].get('user_name') == current_user
+                ):
+                    filtered_history.append(msg)
+            history = filtered_history[-5:]  # Keep last 5 relevant messages
+        else:
+            history = history[-5:]  # Keep last 5 messages if no specific user
+            
         return history
 
     def _clean_message(self, message: str) -> str:
@@ -241,6 +257,10 @@ code
         """Prepare prompt while respecting Gemini's input limits"""
         # Start with essential components and clear user identification
         prompt_template = (
+            "=== Current User ===\n"
+            "You are talking to: {current_user}\n"
+            "IMPORTANT: Only mention and respond to the current user above.\n\n"
+            
             "=== Response Length Requirements ===\n"
             "CRITICAL: Your response MUST be less than {response_limit} characters. Do not exceed this limit.\n"
             "If you need to provide a long explanation:\n"
@@ -250,21 +270,16 @@ code
             "4. Never truncate mid-sentence\n\n"
             
             "=== Current Message ===\n"
-            "Current speaking user: {current_user}\n"
             "User message: {message}\n\n"
             
             "=== Response Guidelines ===\n"
-            "1. You are responding directly to {current_user}\n"
-            "2. Focus primarily on responding to the current message\n"
-            "3. Use conversation history only for maintaining context\n"
-            "4. Only reference server/channel/time details if directly relevant\n"
-            "5. Keep responses natural and avoid unnecessary references to context\n"
-            "6. Never repeat user names or 'meow' multiple times\n"
-            "7. Respond directly to {current_user}'s message content\n"
-            "8. Keep responses appropriate and friendly\n"
-            "9. If unsure about content safety, give a generic response\n"
-            "10. Address {current_user} naturally without constantly repeating their name\n"
-            "11. IMPORTANT: Keep your response under {response_limit} characters\n\n"
+            "1. You are ONLY responding to {current_user}\n"
+            "2. Focus on the current message\n"
+            "3. Keep responses natural and conversational\n"
+            "4. Never mention other users from history\n"
+            "5. Keep responses appropriate and friendly\n"
+            "6. If unsure about content safety, give a generic response\n"
+            "7. IMPORTANT: Keep your response under {response_limit} characters\n\n"
         )
         
         # Calculate available space
@@ -273,49 +288,18 @@ code
             current_user=current_user,
             response_limit=self.DISCORD_MESSAGE_LIMIT
         )
-        remaining_space = self.GEMINI_MAX_INPUT - len(base_prompt)
-        
-        # Add context and history if space permits
-        if remaining_space > 100:  # Ensure minimum useful space
-            history_summary = self._summarize_history(history, current_user)
-            context_section = f"=== Background Information ===\n{context}"
-            
-            # If everything fits, use it all
-            if len(history_summary) + len(context_section) <= remaining_space:
-                base_prompt = (
-                    base_prompt +
-                    f"=== Conversation Context ===\n{history_summary}\n\n" +
-                    context_section +
-                    "\n\nRemember: Your response must be less than {response_limit} characters."
-                )
-            else:
-                # Prioritize recent context over full history
-                if len(context_section) < remaining_space * 0.7:
-                    # Use more space for context, less for history
-                    context_space = len(context_section)
-                    history_space = remaining_space - context_space - 10
-                    base_prompt = (
-                        base_prompt +
-                        f"=== Conversation Context ===\n{history_summary[:history_space]}\n\n" +
-                        context_section +
-                        "\n\nRemember: Your response must be less than {response_limit} characters."
-                    )
-                else:
-                    # Use all space for essential context
-                    base_prompt = (
-                        base_prompt +
-                        f"=== Background Information ===\n{context[:remaining_space]}" +
-                        "\n\nRemember: Your response must be less than {response_limit} characters."
-                    )
         
         return base_prompt
 
     async def process_message(self, message: str, context: str, history: List[dict], channel_id: int = None, user_name: str = None, user_mention: str = None) -> str:
         """Process a single message through Gemini"""
         try:
+            # Get history specific to current user
+            user_history = await self.get_conversation_history(channel_id, user_name)
+            
             # Format history for better context
             formatted_history = []
-            for entry in history[-5:]:  # Only use last 5 messages for context
+            for entry in user_history:  # Only use user-specific history
                 if 'parts' in entry and entry['parts']:
                     message_text = entry['parts'][0].get('text', '')
                     entry_user = entry['metadata'].get('user_name', '')
@@ -323,11 +307,11 @@ code
                     # Clean the message text
                     message_text = self._clean_message(message_text)
                     
-                    # Make it clear when we're referencing the current user's messages
+                    # Format message based on who sent it
                     if entry_user == user_name:
-                        formatted_text = f"You ({user_name}): {message_text}"
+                        formatted_text = f"You: {message_text}"
                     else:
-                        formatted_text = f"{entry_user}: {message_text}"
+                        formatted_text = f"Assistant: {message_text}"
                     
                     formatted_history.append({
                         "role": entry.get("role", "user"),  # Ensure valid role
@@ -344,7 +328,7 @@ code
             clean_message = self._clean_message(message)
             
             # Prepare prompt with length limits and user context
-            prompt = self._prepare_prompt(clean_message, context, [], user_name)  # Don't pass history if it's causing issues
+            prompt = self._prepare_prompt(clean_message, context, user_history, user_name)
             
             try:
                 response = chat.send_message(prompt)
