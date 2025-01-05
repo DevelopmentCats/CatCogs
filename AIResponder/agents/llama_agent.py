@@ -3,21 +3,21 @@ from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import JsonOutputParser
-from ..tools import AIResponderTool
+from .tools import AIResponderTool
 from .base import BaseAgent
-from ..utils.errors import (
+from .utils.errors import (
     ToolExecutionError, ModelGenerationError, 
     ResponseParsingError, ValidationError, ToolError
 )
 import json
 import asyncio
-from ..utils.logging import setup_logger, format_log, LogColors
-from ..responses.rate_limiter import RateLimiter
+from .utils.logging import setup_logger, format_log, LogColors
+from .responses.rate_limiter import RateLimiter
 from colorama import Fore, Style, init
 from datetime import datetime
 import pytz
-from ..responses.formatter import ResponseFormatter, PersonalityTransformer
-from ..responses.validator import ResponseValidator
+from .responses.formatter import ResponseFormatter, PersonalityTransformer
+from .responses.validator import ResponseValidator
 
 # Initialize colorama for cross-platform color support
 init()

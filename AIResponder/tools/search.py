@@ -6,11 +6,11 @@ from datetime import datetime
 from nltk.tokenize import word_tokenize
 from nltk.tag import pos_tag
 from nltk.chunk import ne_chunk
-from langchain_community.tools import DuckDuckGoSearchRun
+from ..langchain_community.tools import DuckDuckGoSearchRun
 from .base import AIResponderTool
 from . import ToolRegistry
-from ..utils.errors import ToolError
-from ..responses.rate_limiter import RateLimiter
+from .utils.errors import ToolError
+from .responses.rate_limiter import RateLimiter
 
 @ToolRegistry.register
 class WebSearch(AIResponderTool):

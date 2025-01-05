@@ -1,8 +1,6 @@
 from typing import Dict, Optional, List, Type
 from redbot.core.bot import Red
-from ..utils.errors import ToolError, ToolInitializationError
-
-# Import from base module
+from .utils.errors import ToolError, ToolInitializationError
 from .base import AIResponderTool
 from . import ToolRegistry
 
