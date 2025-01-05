@@ -377,7 +377,7 @@ class GateKeeper(commands.Cog):
             f"{ctx.author} ({ctx.author.id}) set auto-remove days to {days}"
         )
 
-    @commands.hybrid_command(name="blacklist")
+    @commands.hybrid_command(name="gkblacklist")
     @commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(
@@ -423,14 +423,14 @@ class GateKeeper(commands.Cog):
             f"{ctx.author} ({ctx.author.id}) blacklisted {user} ({user.id})"
         )
 
-    @commands.hybrid_command(name="unblacklist")
+    @commands.hybrid_command(name="gkunblacklist")
     @commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(
         user="The user to remove from the blacklist"
     )
     async def unblacklist_user(self, ctx: commands.Context, user: discord.User):
-        """✅ Remove a user from the blacklist"""
+        """✅ Remove a user from the verification blacklist"""
         if not ctx.guild:
             return
 
