@@ -1,0 +1,33 @@
+{
+    "name": "DiscordChatBot",
+    "short": "An intelligent chat bot powered by Google's Gemini AI",
+    "description": "A sophisticated Discord chat bot that uses Google's Gemini AI to engage in natural conversations. Features include multi-question handling, conversation memory, server context awareness, timezone support, and intelligent responses. The bot maintains conversation history for context and can handle multiple questions in a single message while being aware of server context and current time.",
+    "end_user_data_statement": "This cog stores conversation history temporarily in memory for maintaining context. The history includes messages and timestamps, which can be cleared at any time using the clearhistory command. No permanent user data is stored.",
+    "author": [
+        "DeveloperCats"
+    ],
+    "required_cogs": {},
+    "requirements": [
+        "google-generativeai",
+        "pytz",
+        "typing-extensions"
+    ],
+    "tags": [
+        "chatbot",
+        "ai",
+        "gemini",
+        "conversation",
+        "utility",
+        "fun"
+    ],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG",
+    "permissions": [
+        "read_messages",
+        "send_messages",
+        "embed_links",
+        "add_reactions"
+    ]
+}
