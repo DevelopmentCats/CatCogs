@@ -14,17 +14,21 @@ class DiscordChatBot(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
-        self.config.register_global(
-            api_key=None  # Gemini API key
-        )
-        self.config.register_guild(
-            conversation_history={},  # Store conversation history per channel
-            max_history=10,  # Maximum number of messages to keep in history
-            enabled=True,  # Toggle for enabling/disabling the bot
-            rate_limit=5,  # Messages per minute
-            max_response_time=30,  # Maximum seconds to wait for response
-            timezone='America/Chicago'  # Default timezone
-        )
+        
+        default_global = {
+            "api_key": None  # Gemini API key
+        }
+        
+        default_guild = {
+            "max_history": 10,  # Maximum number of messages to keep in history
+            "enabled": True,  # Toggle for enabling/disabling the bot
+            "rate_limit": 5,  # Messages per minute
+            "max_response_time": 30,  # Maximum seconds to wait for response
+            "timezone": 'America/Chicago'  # Default timezone
+        }
+
+        self.config.register_global(**default_global)
+        self.config.register_guild(**default_guild)
 
         # Store active conversations and rate limiting
         self.active_conversations: Dict[int, List[dict]] = {}
@@ -89,7 +93,8 @@ code
         history.append(entry)
         
         # Keep only the last N messages
-        max_history = await self.config.guild_from_channel_id(channel_id).max_history()
+        guild = self.bot.get_channel(channel_id).guild
+        max_history = await self.config.guild(guild).max_history()
         if len(history) > max_history:
             history = history[-max_history:]
         
@@ -107,12 +112,14 @@ code
             if now - datetime.fromisoformat(t) < timedelta(minutes=1)
         ]
 
-        rate_limit = await self.config.guild_from_channel_id(channel_id).rate_limit()
+        guild = self.bot.get_channel(channel_id).guild
+        rate_limit = await self.config.guild(guild).rate_limit()
         return len(self.rate_limits[channel_id]) >= rate_limit
 
     async def get_current_time_info(self, guild_id: int) -> str:
         """Get formatted time information based on guild's timezone"""
-        timezone = await self.config.guild(guild_id).timezone()
+        guild = self.bot.get_guild(guild_id)
+        timezone = await self.config.guild(guild).timezone()
         tz = pytz.timezone(timezone)
         now = datetime.now(tz)
         
@@ -203,7 +210,8 @@ code
                     return
 
             # Check if bot is enabled in this guild
-            if not await self.config.guild(message.guild).enabled():
+            enabled = await self.config.guild(message.guild).enabled()
+            if not enabled:
                 await message.reply("Sorry, I'm currently disabled in this server.")
                 return
 
