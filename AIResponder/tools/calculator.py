@@ -2,7 +2,7 @@ from typing import Optional, Union, Dict
 import numexpr
 import math
 from decimal import Decimal, InvalidOperation
-from .utils.errors import ToolError
+from ..utils.errors import ToolError
 from .base import AIResponderTool
 from . import ToolRegistry
 

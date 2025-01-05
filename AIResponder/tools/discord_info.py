@@ -2,7 +2,7 @@ from typing import Optional, Dict, Any, List
 from discord import TextChannel, Guild, Member, Role, ChannelType
 from .base import AIResponderTool
 from . import ToolRegistry
-from ..utils.errors import ToolError
+from .. import utils
 from datetime import datetime
 import json
 
@@ -25,7 +25,7 @@ class ServerInfo(AIResponderTool):
         
     async def _arun(self, guild_id: str) -> str:
         if not self.bot:
-            raise ToolError(self.name, "Bot instance required")
+            raise utils.errors.ToolError(self.name, "Bot instance required")
             
         try:
             guild = self.bot.get_guild(int(guild_id))
@@ -67,7 +67,7 @@ class ServerInfo(AIResponderTool):
             return "\n".join(info)
             
         except Exception as e:
-            raise ToolError(self.name, f"Error retrieving server info: {str(e)}")
+            raise utils.errors.ToolError(self.name, f"Error retrieving server info: {str(e)}")
 
 @ToolRegistry.register
 class ChannelHistory(AIResponderTool):
@@ -88,7 +88,7 @@ class ChannelHistory(AIResponderTool):
         
     async def _arun(self, channel_id: str, limit: int = 5) -> str:
         if not self.bot:
-            raise ToolError(self.name, "Bot instance required")
+            raise utils.errors.ToolError(self.name, "Bot instance required")
             
         try:
             # Validate input
@@ -123,4 +123,4 @@ class ChannelHistory(AIResponderTool):
             return "**Recent Messages:**\n" + "\n".join(messages)
             
         except Exception as e:
-            raise ToolError(self.name, f"Error retrieving channel history: {str(e)}")
+            raise utils.errors.ToolError(self.name, f"Error retrieving channel history: {str(e)}")
