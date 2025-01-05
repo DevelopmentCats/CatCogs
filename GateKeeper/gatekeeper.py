@@ -7,6 +7,7 @@ from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from datetime import datetime, timedelta
 import asyncio
 import logging
+from discord import app_commands
 
 log = logging.getLogger("red.gatekeeper")
 
@@ -129,7 +130,48 @@ class GateKeeper(commands.Cog):
                 for user_id in expired:
                     del pending[user_id]
 
-    @commands.group(name="gatekeeper", aliases=["gk"])
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        """Automatically assign unverified role to new members"""
+        guild = member.guild
+        conf = self.config.guild(guild)
+        
+        if not await conf.enabled():
+            return
+            
+        unverified_role_id = await conf.unverified_role_id()
+        if not unverified_role_id:
+            return
+            
+        unverified_role = guild.get_role(unverified_role_id)
+        if not unverified_role:
+            return
+            
+        try:
+            await member.add_roles(unverified_role, reason="GateKeeper: New member auto-role")
+            
+            # Send welcome message if configured
+            welcome_channel_id = await conf.welcome_channel_id()
+            if welcome_channel_id:
+                welcome_channel = guild.get_channel(welcome_channel_id)
+                if welcome_channel:
+                    welcome_message = await conf.welcome_message()
+                    vouches_needed = await conf.vouchers_required()
+                    formatted_message = welcome_message.format(
+                        user_mention=member.mention,
+                        server_name=guild.name,
+                        vouches_needed=vouches_needed
+                    )
+                    await welcome_channel.send(formatted_message)
+                    
+            await self._log_action(
+                guild,
+                f"Automatically assigned unverified role to new member {member} ({member.id})"
+            )
+        except discord.HTTPException as e:
+            log.error(f"Failed to assign unverified role to {member} in {guild}: {e}")
+
+    @commands.hybrid_group(name="gatekeeper", aliases=["gk"])
     @commands.guild_only()
     async def _gatekeeper(self, ctx: commands.Context):
         """🔒 Security system for protecting your Discord server
@@ -145,7 +187,13 @@ class GateKeeper(commands.Cog):
     @checks.admin_or_permissions(administrator=True)
     async def show_settings(self, ctx: commands.Context):
         """😺 Show current GateKeeper settings"""
+        if not ctx.guild:
+            return
+            
         conf = self.config.guild(ctx.guild)
+        if not await conf.enabled():
+            return await ctx.send("GateKeeper is not enabled on this server! 😿")
+
         settings = {
             "Enabled": await conf.enabled(),
             "Welcome Channel": ctx.guild.get_channel(await conf.welcome_channel_id()),
@@ -194,76 +242,219 @@ class GateKeeper(commands.Cog):
         await ctx.send(embed=embed)
 
     @_gatekeeper.command(name="setvouch")
-    async def set_vouches_required(self, ctx: commands.Context, amount: int):
+    @commands.guild_only()
+    @checks.admin_or_permissions(administrator=True)
+    @app_commands.describe(
+        amount="Number of vouches required for verification (1-10)"
+    )
+    async def set_vouches_required(self, ctx: commands.Context, amount: app_commands.Range[int, 1, 10]):
         """Set the number of vouches required for verification"""
-        if amount < 1:
-            return await ctx.send("The number of required vouches must be at least 1! 😾")
+        if not ctx.guild:
+            return
+            
+        conf = self.config.guild(ctx.guild)
+        if not await conf.enabled():
+            return await ctx.send("GateKeeper is not enabled on this server! 😿")
 
-        await self.config.guild(ctx.guild).vouchers_required.set(amount)
+        await conf.vouchers_required.set(amount)
         await ctx.send(f"✅ Members now need {amount} vouches to be verified!")
+        await self._log_action(
+            ctx.guild,
+            f"{ctx.author} ({ctx.author.id}) set required vouches to {amount}"
+        )
 
     @_gatekeeper.command(name="setwelcome")
+    @commands.guild_only()
+    @checks.admin_or_permissions(administrator=True)
+    @app_commands.describe(
+        channel="The channel for welcome messages"
+    )
     async def set_welcome_channel(self, ctx: commands.Context, channel: discord.TextChannel):
         """Set the channel for welcome messages"""
-        await self.config.guild(ctx.guild).welcome_channel_id.set(channel.id)
+        if not ctx.guild:
+            return
+            
+        conf = self.config.guild(ctx.guild)
+        if not await conf.enabled():
+            return await ctx.send("GateKeeper is not enabled on this server! 😿")
+
+        await conf.welcome_channel_id.set(channel.id)
         await ctx.send(f"✅ Welcome channel set to {channel.mention}!")
+        await self._log_action(
+            ctx.guild,
+            f"{ctx.author} ({ctx.author.id}) set welcome channel to {channel.name} ({channel.id})"
+        )
 
     @_gatekeeper.command(name="setlog")
+    @commands.guild_only()
+    @checks.admin_or_permissions(administrator=True)
+    @app_commands.describe(
+        channel="The channel for logging GateKeeper actions"
+    )
     async def set_log_channel(self, ctx: commands.Context, channel: discord.TextChannel):
         """Set the channel for logging GateKeeper actions"""
-        await self.config.guild(ctx.guild).log_channel_id.set(channel.id)
-        await ctx.send(f"✅ Log channel set to {channel.mention}!")
+        if not ctx.guild:
+            return
+            
+        conf = self.config.guild(ctx.guild)
+        if not await conf.enabled():
+            return await ctx.send("GateKeeper is not enabled on this server! 😿")
 
-    @_gatekeeper.command(name="setverificationchannel")
+        await conf.log_channel_id.set(channel.id)
+        await ctx.send(f"✅ Log channel set to {channel.mention}!")
+        await self._log_action(
+            ctx.guild,
+            f"{ctx.author} ({ctx.author.id}) set log channel to {channel.name} ({channel.id})"
+        )
+
+    @_gatekeeper.command(name="setverify")
+    @commands.guild_only()
+    @checks.admin_or_permissions(administrator=True)
+    @app_commands.describe(
+        channel="The channel for verification"
+    )
     async def set_verification_channel(self, ctx: commands.Context, channel: discord.TextChannel):
         """Set the channel for verification"""
-        await self.config.guild(ctx.guild).verification_channel_id.set(channel.id)
+        if not ctx.guild:
+            return
+            
+        conf = self.config.guild(ctx.guild)
+        if not await conf.enabled():
+            return await ctx.send("GateKeeper is not enabled on this server! 😿")
+
+        await conf.verification_channel_id.set(channel.id)
         await ctx.send(f"✅ Verification channel set to {channel.mention}!")
+        await self._log_action(
+            ctx.guild,
+            f"{ctx.author} ({ctx.author.id}) set verification channel to {channel.name} ({channel.id})"
+        )
 
     @_gatekeeper.command(name="timeout")
-    async def set_verification_timeout(self, ctx: commands.Context, hours: int):
+    @commands.guild_only()
+    @checks.admin_or_permissions(administrator=True)
+    @app_commands.describe(
+        hours="Hours before verification requests expire (1-168)"
+    )
+    async def set_verification_timeout(self, ctx: commands.Context, hours: app_commands.Range[int, 1, 168]):
         """Set how long verification requests remain active"""
-        if hours < 1:
-            return await ctx.send("Timeout must be at least 1 hour! 😾")
+        if not ctx.guild:
+            return
+            
+        conf = self.config.guild(ctx.guild)
+        if not await conf.enabled():
+            return await ctx.send("GateKeeper is not enabled on this server! 😿")
 
-        await self.config.guild(ctx.guild).verification_timeout_hours.set(hours)
+        await conf.verification_timeout_hours.set(hours)
         await ctx.send(f"✅ Verification requests will now expire after {hours} hours!")
+        await self._log_action(
+            ctx.guild,
+            f"{ctx.author} ({ctx.author.id}) set verification timeout to {hours} hours"
+        )
 
     @_gatekeeper.command(name="autoremove")
-    async def set_auto_remove(self, ctx: commands.Context, days: int):
+    @commands.guild_only()
+    @checks.admin_or_permissions(administrator=True)
+    @app_commands.describe(
+        days="Days before unverified members are removed (0 to disable)"
+    )
+    async def set_auto_remove(self, ctx: commands.Context, days: app_commands.Range[int, 0, 30]):
         """Set how many days before unverified members are removed"""
-        if days < 0:
-            return await ctx.send("Days must be 0 or positive! (0 disables auto-remove) 😾")
+        if not ctx.guild:
+            return
+            
+        conf = self.config.guild(ctx.guild)
+        if not await conf.enabled():
+            return await ctx.send("GateKeeper is not enabled on this server! 😿")
 
-        await self.config.guild(ctx.guild).auto_remove_unverified_days.set(days)
+        await conf.auto_remove_unverified_days.set(days)
         if days == 0:
             await ctx.send("✅ Auto-remove has been disabled!")
         else:
             await ctx.send(f"✅ Unverified members will be removed after {days} days!")
+        
+        await self._log_action(
+            ctx.guild,
+            f"{ctx.author} ({ctx.author.id}) set auto-remove days to {days}"
+        )
 
-    @_gatekeeper.command(name="blacklist")
+    @commands.hybrid_command(name="blacklist")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(
+        user="The user to blacklist from verification"
+    )
     async def blacklist_user(self, ctx: commands.Context, user: discord.User):
-        """Prevent a user from being verified"""
-        async with self.config.guild(ctx.guild).blacklisted_users() as blacklist:
-            if user.id in blacklist:
-                return await ctx.send("That user is already blacklisted! 😾")
+        """🚫 Prevent a user from being verified"""
+        if not ctx.guild:
+            return
+
+        conf = self.config.guild(ctx.guild)
+        if not await conf.enabled():
+            return await ctx.send("GateKeeper is not enabled on this server! 😿")
+
+        # Check if member is blacklisted
+        blacklist = await conf.blacklisted_users()
+        if user.id in blacklist:
+            return await ctx.send("This user is already blacklisted! 😾")
+
+        # Add to blacklist
+        async with conf.blacklisted_users() as blacklist:
             blacklist.append(user.id)
 
-        await ctx.send(f"✅ {user.mention} has been blacklisted from verification!")
-        await self._log_action(ctx.guild, f"{user} ({user.id}) was blacklisted by {ctx.author}")
+        # If they're verified, remove their verified role
+        if isinstance(user, discord.Member):
+            verified_role_id = await conf.verified_role_id()
+            if verified_role_id:
+                verified_role = ctx.guild.get_role(verified_role_id)
+                if verified_role and verified_role in user.roles:
+                    try:
+                        await user.remove_roles(verified_role, reason="User blacklisted")
+                    except discord.HTTPException:
+                        await ctx.send(f"⚠️ Failed to remove verified role from {user.mention}")
 
-    @_gatekeeper.command(name="unblacklist")
+        # Remove from pending verifications if present
+        async with conf.pending_verifications() as pending:
+            if str(user.id) in pending:
+                del pending[str(user.id)]
+
+        await ctx.send(f"🚫 {user.mention} has been blacklisted from verification")
+        await self._log_action(
+            ctx.guild,
+            f"{ctx.author} ({ctx.author.id}) blacklisted {user} ({user.id})"
+        )
+
+    @commands.hybrid_command(name="unblacklist")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(
+        user="The user to remove from the blacklist"
+    )
     async def unblacklist_user(self, ctx: commands.Context, user: discord.User):
-        """Remove a user from the blacklist"""
-        async with self.config.guild(ctx.guild).blacklisted_users() as blacklist:
-            if user.id not in blacklist:
-                return await ctx.send("That user is not blacklisted! 😾")
+        """✅ Remove a user from the blacklist"""
+        if not ctx.guild:
+            return
+
+        conf = self.config.guild(ctx.guild)
+        if not await conf.enabled():
+            return await ctx.send("GateKeeper is not enabled on this server! 😿")
+
+        # Check if member is blacklisted
+        blacklist = await conf.blacklisted_users()
+        if user.id not in blacklist:
+            return await ctx.send("This user is not blacklisted! 😺")
+
+        # Remove from blacklist
+        async with conf.blacklisted_users() as blacklist:
             blacklist.remove(user.id)
 
-        await ctx.send(f"✅ {user.mention} has been removed from the blacklist!")
-        await self._log_action(ctx.guild, f"{user} ({user.id}) was unblacklisted by {ctx.author}")
+        await ctx.send(f"✅ {user.mention} has been removed from the blacklist")
+        await self._log_action(
+            ctx.guild,
+            f"{ctx.author} ({ctx.author.id}) unblacklisted {user} ({user.id})"
+        )
 
-    @_gatekeeper.command(name="stats")
+    @commands.hybrid_command(name="stats")
+    @commands.guild_only()
     async def show_stats(self, ctx: commands.Context):
         """📊 Show verification statistics for the server"""
         if not ctx.guild:
@@ -338,72 +529,13 @@ class GateKeeper(commands.Cog):
 
         await ctx.send(embed=embed)
 
-    @_gatekeeper.command(name="massverify")
-    @checks.admin_or_permissions(administrator=True)
-    async def mass_verify(self, ctx: commands.Context, *members: discord.Member):
-        """⚡ Verify multiple members at once
-        
-        This is an admin-only command that will instantly verify multiple members.
-        """
-        if not ctx.guild or not members:
-            return await ctx.send("Please specify at least one member to verify! 😾")
-
-        conf = self.config.guild(ctx.guild)
-        if not await conf.enabled():
-            return await ctx.send("GateKeeper is not enabled on this server! 😿")
-
-        success = []
-        failed = []
-
-        for member in members:
-            try:
-                # Skip bots and blacklisted users
-                if member.bot or member.id in await conf.blacklisted_users():
-                    failed.append(f"{member} (Bot or Blacklisted)")
-                    continue
-
-                # Skip already verified members
-                verified_role_id = await conf.verified_role_id()
-                if verified_role_id:
-                    verified_role = ctx.guild.get_role(verified_role_id)
-                    if verified_role in member.roles:
-                        failed.append(f"{member} (Already Verified)")
-                        continue
-
-                # Verify the member
-                await self._verify_member(ctx.guild, member, [ctx.author.id])
-                success.append(member.name)
-
-            except Exception as e:
-                failed.append(f"{member} (Error: {str(e)})")
-
-        # Create response embed
-        embed = discord.Embed(
-            title="⚡ Mass Verification Results",
-            color=discord.Color.gold() if success else discord.Color.red()
-        )
-
-        if success:
-            embed.add_field(
-                name="✅ Successfully Verified",
-                value="\n".join(success) or "None",
-                inline=False
-            )
-
-        if failed:
-            embed.add_field(
-                name="❌ Failed to Verify",
-                value="\n".join(failed) or "None",
-                inline=False
-            )
-
-        embed.set_footer(text=f"Processed by {ctx.author}")
-        await ctx.send(embed=embed)
-
-    @commands.command()
+    @commands.hybrid_command(name="vouch")
     @commands.guild_only()
+    @app_commands.describe(
+        member="The member you want to vouch for"
+    )
     async def vouch(self, ctx: commands.Context, member: discord.Member):
-        """Vouch for a member to give them access to the server"""
+        """🤝 Vouch for a member to give them access to the server"""
         if not ctx.guild:
             return
 
@@ -427,58 +559,150 @@ class GateKeeper(commands.Cog):
         voucher_role_id = await conf.voucher_role_id()
         if voucher_role_id:
             voucher_role = ctx.guild.get_role(voucher_role_id)
-            if voucher_role not in ctx.author.roles:
-                return await ctx.send("You don't have permission to vouch for others! 🙀")
+            if not voucher_role or voucher_role not in ctx.author.roles:
+                return await ctx.send("You don't have permission to vouch for members! 😿")
 
         # Check if member is already verified
         verified_role_id = await conf.verified_role_id()
-        if verified_role_id:
-            verified_role = ctx.guild.get_role(verified_role_id)
-            if verified_role in member.roles:
-                return await ctx.send("This member is already verified! 😸")
+        if not verified_role_id:
+            return await ctx.send("Verified role not configured! Please contact an admin. 😿")
 
-        async with conf.pending_verifications() as pending:
-            if str(member.id) not in pending:
-                pending[str(member.id)] = []
-                
-            if ctx.author.id in pending[str(member.id)]:
-                return await ctx.send("You've already vouched for this member! 😸")
-                
-            pending[str(member.id)].append(ctx.author.id)
-            vouches_needed = await conf.vouchers_required()
-            current_vouches = len(pending[str(member.id)])
+        verified_role = ctx.guild.get_role(verified_role_id)
+        if not verified_role:
+            return await ctx.send("Verified role not found! Please contact an admin. 😿")
 
-        # Create fancy progress bar
-        progress = int((current_vouches / vouches_needed) * 10)
-        progress_bar = "█" * progress + "░" * (10 - progress)
+        if verified_role in member.roles:
+            return await ctx.send(f"{member.mention} is already verified! 😺")
+
+        # Get pending verifications
+        pending = await conf.pending_verifications()
+        if str(member.id) not in pending:
+            pending[str(member.id)] = []
+
+        # Check if this person already vouched
+        if ctx.author.id in pending[str(member.id)]:
+            return await ctx.send("You've already vouched for this member! 😺")
+
+        # Add vouch and check if enough vouches
+        pending[str(member.id)].append(ctx.author.id)
+        await conf.pending_verifications.set(pending)
+
+        vouches_required = await conf.vouchers_required()
+        current_vouches = len(pending[str(member.id)])
+
+        if current_vouches >= vouches_required:
+            # Member has enough vouches, verify them
+            await self._verify_member(ctx.guild, member, pending[str(member.id)])
+            del pending[str(member.id)]
+            await conf.pending_verifications.set(pending)
+            await ctx.send(f"🎉 {member.mention} has been verified! Welcome!")
+        else:
+            await ctx.send(
+                f"✅ Vouch recorded for {member.mention}! "
+                f"They need {vouches_required - current_vouches} more "
+                f"vouch{'es' if vouches_required - current_vouches != 1 else ''} "
+                f"to be verified."
+            )
+
+    @commands.hybrid_command(name="vouchinfo")
+    @commands.guild_only()
+    @app_commands.describe(
+        member="The member to check verification status for (defaults to yourself)"
+    )
+    async def vouchinfo(self, ctx: commands.Context, member: Optional[discord.Member] = None):
+        """🔍 Check verification status and history of a member"""
+        if not ctx.guild:
+            return
+
+        member = member or ctx.author
+        conf = self.config.guild(ctx.guild)
+
+        if not await conf.enabled():
+            return await ctx.send("GateKeeper is not enabled on this server! 😿")
 
         embed = discord.Embed(
-            title="✨ Vouch Recorded!",
-            description=f"{ctx.author.mention} has vouched for {member.mention}!\n\n"
-                      f"Progress: [{progress_bar}] {current_vouches}/{vouches_needed}",
-            color=discord.Color.green()
+            title=f"🔍 Verification Info for {member}",
+            color=discord.Color.blue()
         )
+
+        # Check current status
+        verified_role_id = await conf.verified_role_id()
+        verified_role = ctx.guild.get_role(verified_role_id) if verified_role_id else None
+        is_verified = verified_role in member.roles if verified_role else False
+
+        # Get verification history
+        history = await conf.verification_history()
+        member_history = history.get(str(member.id), {})
+
+        if is_verified:
+            embed.add_field(
+                name="Status",
+                value="✅ Verified",
+                inline=False
+            )
+            if isinstance(member_history, dict):
+                verified_at = member_history.get("verified_at")
+                if verified_at:
+                    embed.add_field(
+                        name="Verified On",
+                        value=f"<t:{verified_at}:F>",
+                        inline=True
+                    )
+                vouched_by = member_history.get("vouched_by", [])
+                if vouched_by:
+                    vouchers = []
+                    for voucher_id in vouched_by:
+                        voucher = ctx.guild.get_member(voucher_id)
+                        if voucher:
+                            vouchers.append(voucher.mention)
+                    if vouchers:
+                        embed.add_field(
+                            name="Vouched By",
+                            value="\n".join(vouchers),
+                            inline=True
+                        )
+        else:
+            embed.add_field(
+                name="Status",
+                value="❌ Not Verified",
+                inline=False
+            )
+            # Check pending vouches
+            pending = await conf.pending_verifications()
+            if str(member.id) in pending:
+                current_vouches = len(pending[str(member.id)])
+                vouches_required = await conf.vouchers_required()
+                vouchers = []
+                for voucher_id in pending[str(member.id)]:
+                    voucher = ctx.guild.get_member(voucher_id)
+                    if voucher:
+                        vouchers.append(voucher.mention)
+                embed.add_field(
+                    name="Current Vouches",
+                    value=f"{current_vouches}/{vouches_required}\n" + "\n".join(vouchers),
+                    inline=False
+                )
+
+        # Check if blacklisted
+        blacklist = await conf.blacklisted_users()
+        if member.id in blacklist:
+            embed.add_field(
+                name="⚠️ Notice",
+                value="This user is blacklisted and cannot be verified",
+                inline=False
+            )
+
         await ctx.send(embed=embed)
 
-        # Log the vouch
-        await self._log_action(
-            ctx.guild,
-            f"{ctx.author} ({ctx.author.id}) vouched for {member} ({member.id})"
-        )
-
-        # Check if member has enough vouches
-        if current_vouches >= vouches_needed:
-            await self._verify_member(ctx.guild, member, pending[str(member.id)])
-
-    @commands.command()
+    @commands.hybrid_command(name="supervouch")
     @commands.guild_only()
-    @checks.admin_or_permissions(administrator=True)
-    async def supervouch(self, ctx: commands.Context, member: discord.Member, *, reason: str = None):
-        """🌟 Immediately verify a member, bypassing the normal vouch requirements
-        
-        This is an admin-only command that will instantly verify a member.
-        You can optionally provide a reason that will be logged.
-        """
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(
+        member="The member to instantly verify",
+        reason="Optional reason for the verification"
+    )
+    async def supervouch(self, ctx: commands.Context, member: discord.Member, *, reason: Optional[str] = None):
+        """🌟 Immediately verify a member, bypassing the normal vouch requirements"""
         if not ctx.guild:
             return
 
@@ -496,58 +720,141 @@ class GateKeeper(commands.Cog):
 
         # Check if already verified
         verified_role_id = await conf.verified_role_id()
-        if verified_role_id:
-            verified_role = ctx.guild.get_role(verified_role_id)
-            if verified_role in member.roles:
-                return await ctx.send("This member is already verified! 😸")
+        if not verified_role_id:
+            return await ctx.send("Verified role not configured! Please contact an admin. 😿")
 
-        # Store in verification history with special flag
+        verified_role = ctx.guild.get_role(verified_role_id)
+        if not verified_role:
+            return await ctx.send("Verified role not found! Please contact an admin. 😿")
+
+        if verified_role in member.roles:
+            return await ctx.send(f"{member.mention} is already verified! 😺")
+
+        # Remove from pending verifications if present
+        async with conf.pending_verifications() as pending:
+            if str(member.id) in pending:
+                del pending[str(member.id)]
+
+        # Add to verification history
         async with conf.verification_history() as history:
             history[str(member.id)] = {
-                "verified_at": datetime.utcnow().isoformat(),
+                "verified_at": int(datetime.utcnow().timestamp()),
                 "vouched_by": [ctx.author.id],
                 "supervouch": True,
                 "reason": reason
             }
 
-        # Remove from pending verifications if exists
-        async with conf.pending_verifications() as pending:
-            if str(member.id) in pending:
-                del pending[str(member.id)]
-
         # Add verified role and remove unverified role
-        verified_role_id = await conf.verified_role_id()
-        unverified_role_id = await conf.unverified_role_id()
-        
-        if verified_role_id and unverified_role_id:
-            verified_role = ctx.guild.get_role(verified_role_id)
-            unverified_role = ctx.guild.get_role(unverified_role_id)
+        try:
+            await member.add_roles(verified_role, reason=f"Supervouch by {ctx.author}")
             
-            if verified_role and unverified_role:
-                try:
-                    await member.add_roles(verified_role, reason=f"GateKeeper: Supervouch by {ctx.author}")
-                    await member.remove_roles(unverified_role, reason=f"GateKeeper: Supervouch by {ctx.author}")
+            unverified_role_id = await conf.unverified_role_id()
+            if unverified_role_id:
+                unverified_role = ctx.guild.get_role(unverified_role_id)
+                if unverified_role and unverified_role in member.roles:
+                    await member.remove_roles(unverified_role)
 
-                    # Create a fancy embed for the response
-                    embed = discord.Embed(
-                        title="⭐ Super Vouch Successful!",
-                        description=f"{member.mention} has been instantly verified by {ctx.author.mention}!",
-                        color=discord.Color.gold()
-                    )
-                    if reason:
-                        embed.add_field(name="Reason", value=reason)
-                    embed.set_footer(text="With great power comes great responsibility... 🐱")
-                    await ctx.send(embed=embed)
+            await ctx.send(f"🌟 {member.mention} has been instantly verified by {ctx.author.mention}!")
+            await self._log_action(
+                ctx.guild,
+                f"{ctx.author} ({ctx.author.id}) super-vouched for {member} ({member.id})"
+                + (f" with reason: {reason}" if reason else "")
+            )
+        except discord.HTTPException as e:
+            await ctx.send(f"Failed to verify member: {e}")
 
-                    # Log the supervouch
-                    log_message = f"{ctx.author} ({ctx.author.id}) super-vouched {member} ({member.id})"
-                    if reason:
-                        log_message += f"\nReason: {reason}"
-                    await self._log_action(ctx.guild, log_message)
+    @commands.hybrid_command(name="massverify")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(
+        members="The members to verify (mention multiple members)"
+    )
+    async def mass_verify(self, ctx: commands.Context, *members: discord.Member):
+        """⚡ Verify multiple members at once (Admin only)"""
+        if not ctx.guild or not members:
+            return await ctx.send("Please mention at least one member to verify!")
 
-                except discord.HTTPException as e:
-                    log.error(f"Error super-vouching member {member.id}: {e}")
-                    await ctx.send("There was an error while trying to verify the member! 😿")
+        conf = self.config.guild(ctx.guild)
+        if not await conf.enabled():
+            return await ctx.send("GateKeeper is not enabled on this server! 😿")
+
+        verified_role_id = await conf.verified_role_id()
+        if not verified_role_id:
+            return await ctx.send("Verified role not configured! Please contact an admin. 😿")
+
+        verified_role = ctx.guild.get_role(verified_role_id)
+        if not verified_role:
+            return await ctx.send("Verified role not found! Please contact an admin. 😿")
+
+        success = []
+        failed = []
+
+        for member in members:
+            if member.bot:
+                failed.append(f"{member} (Bot)")
+                continue
+
+            if member.id in (await conf.blacklisted_users()):
+                failed.append(f"{member} (Blacklisted)")
+                continue
+
+            if verified_role in member.roles:
+                failed.append(f"{member} (Already verified)")
+                continue
+
+            try:
+                # Remove from pending verifications if present
+                async with conf.pending_verifications() as pending:
+                    if str(member.id) in pending:
+                        del pending[str(member.id)]
+
+                # Add to verification history
+                async with conf.verification_history() as history:
+                    history[str(member.id)] = {
+                        "verified_at": int(datetime.utcnow().timestamp()),
+                        "vouched_by": [ctx.author.id],
+                        "supervouch": True,
+                        "reason": "Mass verification"
+                    }
+
+                await member.add_roles(verified_role, reason=f"Mass verification by {ctx.author}")
+                
+                unverified_role_id = await conf.unverified_role_id()
+                if unverified_role_id:
+                    unverified_role = ctx.guild.get_role(unverified_role_id)
+                    if unverified_role and unverified_role in member.roles:
+                        await member.remove_roles(unverified_role)
+
+                success.append(member.mention)
+            except Exception as e:
+                failed.append(f"{member} (Error: {str(e)})")
+
+        # Create response embed
+        embed = discord.Embed(
+            title="⚡ Mass Verification Results",
+            color=discord.Color.blue() if success else discord.Color.red()
+        )
+
+        if success:
+            embed.add_field(
+                name="✅ Successfully Verified",
+                value="\n".join(success) if len(success) <= 10 else 
+                      f"{len(success)} members verified successfully",
+                inline=False
+            )
+
+        if failed:
+            embed.add_field(
+                name="❌ Failed to Verify",
+                value="\n".join(failed),
+                inline=False
+            )
+
+        await ctx.send(embed=embed)
+        await self._log_action(
+            ctx.guild,
+            f"{ctx.author} ({ctx.author.id}) mass-verified {len(success)} members"
+        )
 
     async def _verify_member(self, guild: discord.Guild, member: discord.Member, voucher_ids: List[int]):
         """Handle member verification"""
@@ -631,102 +938,6 @@ class GateKeeper(commands.Cog):
                 except (KeyError, ValueError):
                     return None
         return None
-
-    @commands.command()
-    @commands.guild_only()
-    async def vouchinfo(self, ctx: commands.Context, member: discord.Member = None):
-        """🔍 Check verification status and history of a member"""
-        if not ctx.guild:
-            return
-
-        member = member or ctx.author
-        conf = self.config.guild(ctx.guild)
-
-        if not await conf.enabled():
-            return await ctx.send("GateKeeper is not enabled on this server! 😿")
-
-        embed = discord.Embed(
-            title=f"🔍 Verification Info for {member}",
-            color=discord.Color.blue()
-        )
-
-        # Check current status
-        verified_role_id = await conf.verified_role_id()
-        verified_role = ctx.guild.get_role(verified_role_id) if verified_role_id else None
-        is_verified = verified_role in member.roles if verified_role else False
-
-        # Get verification history
-        history = await conf.verification_history()
-        member_history = history.get(str(member.id), {})
-
-        if is_verified:
-            status = "✅ Verified"
-            if isinstance(member_history, dict):
-                verified_at = datetime.fromisoformat(member_history.get('verified_at', ''))
-                vouched_by = member_history.get('vouched_by', [])
-                vouchers = []
-                for voucher_id in vouched_by:
-                    voucher = ctx.guild.get_member(voucher_id)
-                    if voucher:
-                        vouchers.append(voucher.name)
-
-                embed.add_field(
-                    name="Verification Details",
-                    value=f"📅 Verified At: {verified_at.strftime('%Y-%m-%d %H:%M UTC')}\n"
-                          f"👥 Vouched By: {', '.join(vouchers) or 'Unknown'}\n"
-                          f"⭐ Super Vouch: {'Yes' if member_history.get('supervouch') else 'No'}",
-                    inline=False
-                )
-
-                if member_history.get('reason'):
-                    embed.add_field(
-                        name="Reason",
-                        value=member_history['reason'],
-                        inline=False
-                    )
-        else:
-            status = "❌ Not Verified"
-            # Check if pending verification
-            pending = await conf.pending_verifications()
-            if str(member.id) in pending:
-                current_vouches = len(pending[str(member.id)])
-                needed_vouches = await conf.vouchers_required()
-                
-                # Create progress bar
-                progress = int((current_vouches / needed_vouches) * 10)
-                progress_bar = "█" * progress + "░" * (10 - progress)
-                
-                embed.add_field(
-                    name="Pending Verification",
-                    value=f"Progress: [{progress_bar}] {current_vouches}/{needed_vouches} vouches",
-                    inline=False
-                )
-
-                # List current vouchers
-                vouchers = []
-                for voucher_id in pending[str(member.id)]:
-                    voucher = ctx.guild.get_member(voucher_id)
-                    if voucher:
-                        vouchers.append(voucher.name)
-                
-                if vouchers:
-                    embed.add_field(
-                        name="Current Vouchers",
-                        value="\n".join(vouchers),
-                        inline=False
-                    )
-
-        embed.description = f"**Current Status**: {status}"
-        
-        # Add join date
-        if member.joined_at:
-            embed.add_field(
-                name="Server Join Date",
-                value=member.joined_at.strftime("%Y-%m-%d %H:%M UTC"),
-                inline=False
-            )
-
-        await ctx.send(embed=embed)
 
     async def _create_verification_channels(self, guild: discord.Guild, unverified_role: discord.Role, verified_role: discord.Role) -> tuple[Optional[discord.TextChannel], Optional[discord.TextChannel], Optional[discord.CategoryChannel]]:
         """Create and set up the verification channels"""
@@ -1060,131 +1271,127 @@ class GateKeeper(commands.Cog):
         except Exception as e:
             log.error(f"Error updating channel permissions: {e}")
 
-    @_gatekeeper.command(name="setup")
+    @commands.hybrid_command(name="setup")
     @commands.guild_only()
     @checks.admin_or_permissions(administrator=True)
     async def setup_gatekeeper(self, ctx: commands.Context):
         """🔧 Interactive setup wizard for GateKeeper"""
         if not ctx.guild:
-            return await ctx.send("This command can only be used in a server! 😾")
+            return
 
-        # Check bot permissions first
-        required_permissions = discord.Permissions(
-            manage_roles=True,
-            manage_channels=True,
-            read_messages=True,
-            send_messages=True,
-            manage_messages=True,
-            embed_links=True,
-            add_reactions=True,
-            manage_threads=True
-        )
+        conf = self.config.guild(ctx.guild)
 
-        if not ctx.guild.me.guild_permissions.is_superset(required_permissions):
-            missing_perms = [perm[0] for perm in required_permissions if not getattr(ctx.guild.me.guild_permissions, perm[0])]
-            return await ctx.send(
-                f"❌ I'm missing required permissions: {', '.join(missing_perms)}\n"
-                "Please give me the necessary permissions and try again! 😿"
-            )
-
-        # Initial setup message
-        setup_embed = discord.Embed(
+        # Create embed for initial setup message
+        embed = discord.Embed(
             title="🔧 GateKeeper Setup Wizard",
-            description="Let's set up GateKeeper to protect your server! I'll guide you through each step.",
+            description=(
+                "Welcome to the GateKeeper setup wizard! I'll help you configure the verification system.\n\n"
+                "**What will be set up:**\n"
+                "• Verified and Unverified roles\n"
+                "• Welcome and verification channels\n"
+                "• Log channel for tracking actions\n"
+                "• Basic settings and permissions\n\n"
+                "**Do you want to proceed?** (yes/no)"
+            ),
             color=discord.Color.blue()
         )
-        setup_msg = await ctx.send(embed=setup_embed)
+        setup_msg = await ctx.send(embed=embed)
 
         try:
-            # Step 1: Create roles
-            setup_embed.description = "📑 Step 1/4: Creating roles..."
-            await setup_msg.edit(embed=setup_embed)
-            
-            unverified_role, verified_role, voucher_role = await self._setup_roles(ctx.guild)
-            if not all([unverified_role, verified_role, voucher_role]):
-                return await setup_msg.edit(content="❌ Failed to create necessary roles! Please check my permissions and try again.")
+            msg = await ctx.bot.wait_for(
+                "message",
+                check=lambda m: m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["yes", "no", "y", "n"],
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            await setup_msg.edit(content="Setup wizard timed out! Run the command again to restart.", embed=None)
+            return
 
-            # Step 2: Create verification channels
-            setup_embed.description = "📑 Step 2/4: Creating channels..."
-            await setup_msg.edit(embed=setup_embed)
-            
-            verify_channel, welcome_channel, category = await self._create_verification_channels(ctx.guild, unverified_role, verified_role)
-            if not all([verify_channel, welcome_channel, category]):
-                return await setup_msg.edit(content="❌ Failed to create verification channels! Please check my permissions and try again.")
-            
-            # Create log channel in the same category
-            log_channel = await self._create_log_channel(ctx.guild, category)
-            if not log_channel:
-                return await setup_msg.edit(content="❌ Failed to create log channel! Please check my permissions and try again.")
+        if not msg.content.lower().startswith("y"):
+            await setup_msg.edit(content="Setup cancelled!", embed=None)
+            return
 
-            # Step 3: Update existing channel permissions
-            setup_embed.description = "📑 Step 3/4: Updating channel permissions..."
-            await setup_msg.edit(embed=setup_embed)
-            
-            ignore_channels = [verify_channel.id, welcome_channel.id, log_channel.id]
-            await self._update_all_channels(ctx.guild, verified_role, unverified_role, ignore_channels)
+        # Step 1: Create roles
+        status_msg = await ctx.send("📋 Creating roles...")
+        verified_role, unverified_role = await self._setup_roles(ctx.guild)
+        if not verified_role or not unverified_role:
+            await status_msg.edit(content="❌ Failed to create roles! Please check my permissions and try again.")
+            return
 
-            # Step 4: Save configuration
-            setup_embed.description = "📑 Step 4/4: Saving configuration..."
-            await setup_msg.edit(embed=setup_embed)
-            
-            conf = self.config.guild(ctx.guild)
-            await conf.enabled.set(True)
-            await conf.unverified_role_id.set(unverified_role.id)
-            await conf.verified_role_id.set(verified_role.id)
-            await conf.voucher_role_id.set(voucher_role.id)
-            await conf.welcome_channel_id.set(welcome_channel.id)
-            await conf.verification_channel_id.set(verify_channel.id)
+        await conf.verified_role_id.set(verified_role.id)
+        await conf.unverified_role_id.set(unverified_role.id)
+
+        # Step 2: Create channels
+        await status_msg.edit(content="📋 Creating channels...")
+        verify_channel, welcome_channel, category = await self._create_verification_channels(
+            ctx.guild, unverified_role, verified_role
+        )
+        
+        if not verify_channel or not welcome_channel:
+            await status_msg.edit(content="❌ Failed to create channels! Please check my permissions and try again.")
+            return
+
+        await conf.verification_channel_id.set(verify_channel.id)
+        await conf.welcome_channel_id.set(welcome_channel.id)
+
+        # Step 3: Create log channel
+        await status_msg.edit(content="📋 Creating log channel...")
+        log_channel = await self._create_log_channel(ctx.guild, category)
+        if log_channel:
             await conf.log_channel_id.set(log_channel.id)
 
-            # Final success message
-            success_embed = discord.Embed(
-                title="✨ Setup Complete!",
-                description=(
-                    "GateKeeper is now protecting your server!\n\n"
-                    f"📑 **Roles Created/Updated:**\n"
-                    f"• Unverified: {unverified_role.mention}\n"
-                    f"• Verified: {verified_role.mention}\n"
-                    f"• Voucher: {voucher_role.mention}\n\n"
-                    f"📝 **Channels Created/Updated:**\n"
-                    f"• Category: {category.name}\n"
-                    f"• Verification Desk: {verify_channel.mention}\n"
-                    f"• Welcome Lounge: {welcome_channel.mention}\n"
-                    f"• Logs: {log_channel.mention}\n\n"
-                    "🔧 **Next Steps:**\n"
-                    "1. Assign the Voucher role to trusted members\n"
-                    "2. Use `[p]gatekeeper settings` to customize settings\n"
-                    "3. Test the system with a new member!\n\n"
-                    "Need help? Use `[p]help GateKeeper` for a list of commands!"
-                ),
-                color=discord.Color.green()
+        # Step 4: Set up voucher role
+        await status_msg.edit(content="Who should be able to vouch for new members? Reply with:\n1️⃣ Everyone\n2️⃣ Specific role")
+        try:
+            msg = await ctx.bot.wait_for(
+                "message",
+                check=lambda m: m.author == ctx.author and m.channel == ctx.channel and m.content in ["1", "2"],
+                timeout=30.0
             )
-            await setup_msg.edit(embed=success_embed)
+        except asyncio.TimeoutError:
+            await status_msg.edit(content="No response received, defaulting to everyone can vouch.")
+        else:
+            if msg.content == "2":
+                try:
+                    voucher_role = await ctx.guild.create_role(
+                        name="Trusted Voucher",
+                        color=discord.Color.green(),
+                        reason="GateKeeper: Created voucher role"
+                    )
+                    await conf.voucher_role_id.set(voucher_role.id)
+                    await ctx.send(f"✅ Created {voucher_role.mention} role! Assign this to members who can vouch for others.")
+                except discord.HTTPException:
+                    await ctx.send("❌ Failed to create voucher role! Please create it manually.")
 
-            # Log the setup
-            await self._log_action(
-                ctx.guild,
-                f"GateKeeper setup completed by {ctx.author} ({ctx.author.id})"
-            )
+        # Step 5: Configure basic settings
+        await conf.enabled.set(True)
+        await conf.vouchers_required.set(2)
+        await conf.verification_timeout_hours.set(24)
+        await conf.auto_remove_unverified_days.set(7)
 
-        except discord.HTTPException as e:
-            log.error(f"Error during setup: {e}")
-            error_embed = discord.Embed(
-                title="❌ Setup Failed",
-                description=(
-                    "There was an error during setup! Make sure I have these permissions:\n"
-                    "• Manage Roles\n"
-                    "• Manage Channels\n"
-                    "• Read Messages\n"
-                    "• Send Messages\n"
-                    "• Manage Messages\n"
-                    "• Embed Links\n"
-                    "• Add Reactions\n"
-                    "• Manage Threads"
-                ),
-                color=discord.Color.red()
-            )
-            await setup_msg.edit(embed=error_embed)
+        # Final setup message
+        embed = discord.Embed(
+            title="✅ GateKeeper Setup Complete!",
+            description=(
+                "The verification system is now set up and running! Here's what was configured:\n\n"
+                f"• Created roles: {verified_role.mention} and {unverified_role.mention}\n"
+                f"• Created channels: {verify_channel.mention} and {welcome_channel.mention}\n"
+                f"• Created log channel: {log_channel.mention if log_channel else '❌ Failed'}\n"
+                "• Enabled basic settings\n\n"
+                "**Next Steps:**\n"
+                "1. Use `/gatekeeper settings` to view current configuration\n"
+                "2. Use `/gatekeeper setvouch` to change required vouches (default: 2)\n"
+                "3. Use `/gatekeeper setwelcomemsg` to customize the welcome message\n"
+                "4. Use `/gatekeeper autoremove` to change auto-remove days (default: 7)\n\n"
+                "Need help? Use `/help GateKeeper` to see all available commands!"
+            ),
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+        await self._log_action(
+            ctx.guild,
+            f"{ctx.author} ({ctx.author.id}) completed the setup wizard"
+        )
 
 def setup(bot: Red):
     bot.add_cog(GateKeeper(bot))
