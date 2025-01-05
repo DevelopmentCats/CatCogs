@@ -74,7 +74,18 @@ code
 
     async def get_conversation_history(self, channel_id: int) -> List[dict]:
         """Get conversation history for a channel"""
-        return self.active_conversations.get(channel_id, [])
+        history = self.active_conversations.get(channel_id, [])
+        
+        # If history is too old, clear it
+        if history:
+            now = datetime.now()
+            oldest_allowed = now - timedelta(hours=24)  # Clear history older than 24 hours
+            
+            if datetime.fromisoformat(history[0].get('timestamp', now.isoformat())) < oldest_allowed:
+                history = []
+                self.active_conversations[channel_id] = history
+        
+        return history
 
     async def add_to_history(self, channel_id: int, role: str, content: str, user_name: str = None):
         """Add a message to the conversation history"""
@@ -83,20 +94,37 @@ code
         
         history = self.active_conversations[channel_id]
         
-        # Format the message in Gemini's expected structure
+        # Format the message with additional context
+        message_text = content
+        if user_name:
+            if role.lower() == "user":
+                message_text = f"{user_name}: {content}"
+            else:
+                message_text = f"{self.bot.user.display_name}: {content}"
+
+        # Format the message in Gemini's expected structure with metadata
         entry = {
             "parts": [{
-                "text": content
+                "text": message_text
             }],
-            "role": "user" if role.lower() == "user" else "model"
+            "role": "user" if role.lower() == "user" else "model",
+            "timestamp": datetime.now().isoformat(),
+            "metadata": {
+                "user_name": user_name if user_name else self.bot.user.display_name,
+                "channel_id": str(channel_id)
+            }
         }
             
         history.append(entry)
         
-        # Keep only the last N messages
+        # Keep only the last N messages, but try to keep conversation pairs together
         guild = self.bot.get_channel(channel_id).guild
         max_history = await self.config.guild(guild).max_history()
+        
         if len(history) > max_history:
+            # Ensure we don't break up a conversation pair
+            if len(history) % 2 == 1:
+                max_history += 1
             history = history[-max_history:]
         
         self.active_conversations[channel_id] = history
@@ -134,10 +162,57 @@ code
         """Get information about the bot itself"""
         return (
             f"Your name is {self.bot.user.display_name}. "
-            f"You are a Discord bot with the ID {self.bot.user.id}. "
-            "You should refer to yourself by your display name when relevant. "
-            "You are helpful, friendly, and knowledgeable about Discord formatting. "
-            "You can use Discord markdown to format your messages for better readability."
+            "You are a witty and slightly sarcastic Discord bot with a great sense of humor. "
+            "While always helpful, you enjoy adding playful banter and clever jokes to your responses. "
+            "You're confident but not arrogant, and you love making references to internet culture and memes when appropriate. "
+            "Your responses should be a mix of helpfulness and entertainment - think of yourself as a knowledgeable friend "
+            "who can't help but crack jokes while helping out. "
+            "Only use emojis when they're directly relevant to the conversation or add meaningful context - "
+            "prefer wit and wordplay over emoji reactions."
+        )
+
+    async def get_bot_personality(self, guild: discord.Guild, channel: discord.TextChannel, user_name: str) -> str:
+        """Generate bot personality based on server context and current time"""
+        server_info = (
+            f"Server name: {guild.name}\n"
+            f"Member count: {guild.member_count} (quite the crowd in here!)\n"
+            f"Server description: {guild.description if guild.description else 'No description (keeping it mysterious, are we?)'}\n"
+        )
+        
+        time_info = await self.get_current_time_info(guild.id)
+        channel_info = await self.get_channel_info(channel)
+        bot_info = self.get_bot_info()
+        
+        return (
+            "=== Core Personality ===\n"
+            f"{bot_info}\n\n"
+            "=== Current Interaction ===\n"
+            f"You're chatting with {user_name} - make them feel special but don't be afraid to playfully tease them if appropriate.\n\n"
+            "=== Environmental Context (Only reference when relevant) ===\n"
+            f"Time Context:\n{time_info}\n\n"
+            f"Server Context:\n{server_info}\n"
+            f"Channel Context:\n{channel_info}\n\n"
+            "=== Formatting Reference ===\n"
+            f"{self.discord_formatting}\n\n"
+            "=== Behavioral Guidelines ===\n"
+            "1. Be helpful AND entertaining - information with a side of wit\n"
+            "2. Use emojis ONLY when directly relevant to the conversation\n"
+            "3. Make clever pop culture references and puns\n"
+            "4. If someone makes a mistake, point it out with playful sarcasm\n"
+            "5. Use casual, conversational language but stay clever\n"
+            "6. When sharing code, add witty comments\n"
+            "7. If something goes wrong, make light of it with humor\n"
+            "8. Only reference time/server/channel context when it adds value to the conversation\n"
+            "9. Create running jokes within the conversation\n"
+            "10. Be self-aware about being a bot, but own it with confidence\n"
+            "11. Prefer wordplay and clever text formatting over emojis\n"
+            "12. Only use emojis if they're part of the explanation or directly referenced\n\n"
+            "=== Context Usage Rules ===\n"
+            "1. Don't mention server/channel details unless specifically asked or highly relevant\n"
+            "2. Only reference time if it adds meaning to the conversation (e.g., late night chat, time zones)\n"
+            "3. Use conversation history to maintain context, but don't explicitly reference it unless relevant\n"
+            "4. Treat environmental context as background information, not conversation topics\n"
+            "5. Focus on the current user's message first, use context to enhance understanding"
         )
 
     async def get_channel_info(self, channel: discord.TextChannel) -> str:
@@ -148,53 +223,107 @@ code
             f"Channel category: {channel.category.name if channel.category else 'No category'}"
         )
 
-    async def get_bot_personality(self, guild: discord.Guild, channel: discord.TextChannel, user_name: str) -> str:
-        """Generate bot personality based on server context and current time"""
-        server_info = (
-            f"Server name: {guild.name}\n"
-            f"Member count: {guild.member_count}\n"
-            f"Server description: {guild.description if guild.description else 'No description'}\n"
-        )
-        
-        time_info = await self.get_current_time_info(guild.id)
-        channel_info = await self.get_channel_info(channel)
-        bot_info = self.get_bot_info()
-        
-        return (
-            f"{bot_info}\n\n"
-            f"You are currently talking to {user_name}. Always refer to them by this name.\n\n"
-            f"Time Context:\n{time_info}\n\n"
-            f"Server Context:\n{server_info}\n"
-            f"Channel Context:\n{channel_info}\n\n"
-            f"Formatting Guide:\n{self.discord_formatting}\n\n"
-            "Remember to:\n"
-            "1. Use appropriate Discord formatting in your responses\n"
-            "2. Keep responses friendly and conversational\n"
-            "3. Use appropriate emoji occasionally\n"
-            "4. Reference the current time when relevant\n"
-            "5. Always refer to users by their display name\n"
-            "6. Format code blocks with the appropriate language syntax highlighting"
-        )
-
     async def process_message(self, message: str, context: str, history: List[dict]) -> str:
         """Process a single message through Gemini"""
         try:
-            chat = self.model.start_chat(history=history)
-            response = chat.send_message(
-                f"{context}\n\nUser message: {message}"
+            # Format history for better context
+            formatted_history = []
+            for entry in history:
+                # Only include the actual message content for the model
+                if 'parts' in entry and entry['parts']:
+                    formatted_history.append({
+                        "role": entry["role"],
+                        "parts": entry["parts"]
+                    })
+            
+            chat = self.model.start_chat(history=formatted_history)
+            
+            # Structure the prompt to clearly separate immediate context from background info
+            prompt = (
+                "=== Current Message ===\n"
+                f"User message: {message}\n\n"
+                
+                "=== Conversation Context ===\n"
+                f"{self._summarize_history(history)}\n\n"
+                
+                "=== Response Guidelines ===\n"
+                "1. Focus primarily on responding to the current message\n"
+                "2. Use conversation history only for maintaining context\n"
+                "3. Only reference server/channel/time details if directly relevant\n"
+                "4. Keep responses natural and avoid unnecessary references to context\n\n"
+                
+                "=== Background Information ===\n"
+                f"{context}"
             )
+            
+            response = chat.send_message(prompt)
             return response.text
         except Exception as e:
             return f"I encountered an error processing your message: {str(e)}"
 
+    def _summarize_history(self, history: List[dict]) -> str:
+        """Create a brief summary of the conversation history"""
+        if not history:
+            return "This is the start of our conversation."
+        
+        # Count messages per user
+        user_messages = {}
+        for entry in history:
+            if 'metadata' in entry and 'user_name' in entry['metadata']:
+                user = entry['metadata']['user_name']
+                user_messages[user] = user_messages.get(user, 0) + 1
+        
+        # Create summary
+        summary_parts = []
+        for user, count in user_messages.items():
+            summary_parts.append(f"{user} ({count} messages)")
+        
+        time_span = ""
+        if len(history) >= 2:
+            first_time = datetime.fromisoformat(history[0].get('timestamp', ''))
+            last_time = datetime.fromisoformat(history[-1].get('timestamp', ''))
+            duration = last_time - first_time
+            if duration.total_seconds() < 3600:  # Less than an hour
+                time_span = f"over {int(duration.total_seconds() / 60)} minutes"
+            else:
+                time_span = f"over {int(duration.total_seconds() / 3600)} hours"
+        
+        topics = self._extract_conversation_topics(history[-5:])  # Look at last 5 messages for recent topics
+        
+        return (
+            f"Ongoing conversation with {', '.join(summary_parts)} {time_span}. "
+            f"{topics if topics else ''}"
+        )
+
+    def _extract_conversation_topics(self, recent_history: List[dict]) -> str:
+        """Extract main topics from recent messages to maintain context without being too specific"""
+        if not recent_history:
+            return ""
+            
+        topics = []
+        for entry in recent_history:
+            if 'parts' in entry and entry['parts']:
+                message = entry['parts'][0].get('text', '')
+                # Extract key nouns or phrases that might be important for context
+                # This is a simple implementation - could be enhanced with NLP
+                if len(message.split()) > 3:  # Only consider substantial messages
+                    topics.append("previous topic: " + message.split(':')[-1][:50] + "...")
+                    
+        if topics:
+            return f"Recent topics: {topics[-1]}"
+        return ""
+
     async def maintain_typing(self, channel: discord.TextChannel):
         """Maintain typing indicator while processing"""
-        while channel.id in self.typing_channels:
-            try:
-                async with channel.typing():
-                    await asyncio.sleep(5)
-            except:
-                break
+        try:
+            async with channel.typing():
+                while channel.id in self.typing_channels:
+                    await asyncio.sleep(1)  # Shorter sleep time for more responsive typing
+        except Exception as e:
+            print(f"Error in typing indicator: {e}")
+        finally:
+            if channel.id in self.typing_channels:
+                self.typing_channels.remove(channel.id)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -261,7 +390,8 @@ code
             
             finally:
                 # Stop typing indicator
-                self.typing_channels.remove(message.channel.id)
+                if message.channel.id in self.typing_channels:
+                    self.typing_channels.remove(message.channel.id)
                 typing_task.cancel()
 
     @commands.group()
