@@ -767,11 +767,11 @@ class GateKeeper(commands.Cog):
     @commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(
-        members="The members to verify (mention multiple members)"
+        members_string="List of members to verify (mention or ID, separated by spaces)"
     )
-    async def mass_verify(self, ctx: commands.Context, *members: discord.Member):
+    async def mass_verify(self, ctx: commands.Context, *, members_string: str):
         """⚡ Verify multiple members at once (Admin only)"""
-        if not ctx.guild or not members:
+        if not ctx.guild:
             return await ctx.send("Please mention at least one member to verify!")
 
         conf = self.config.guild(ctx.guild)
@@ -786,63 +786,53 @@ class GateKeeper(commands.Cog):
         if not verified_role:
             return await ctx.send("Verified role not found! Please contact an admin. 😿")
 
+        # Parse member mentions/IDs from the string
+        member_ids = [int(''.join(filter(str.isdigit, part))) for part in members_string.split() if any(c.isdigit() for c in part)]
+        if not member_ids:
+            return await ctx.send("Please provide at least one valid member mention or ID!")
+
         success = []
         failed = []
 
-        for member in members:
-            if member.bot:
-                failed.append(f"{member} (Bot)")
-                continue
-
-            if member.id in (await conf.blacklisted_users()):
-                failed.append(f"{member} (Blacklisted)")
-                continue
-
-            if verified_role in member.roles:
-                failed.append(f"{member} (Already verified)")
-                continue
-
+        for member_id in member_ids:
             try:
-                # Remove from pending verifications if present
-                async with conf.pending_verifications() as pending:
-                    if str(member.id) in pending:
-                        del pending[str(member.id)]
+                member = await ctx.guild.fetch_member(member_id)
+                if member and not member.bot:
+                    # Check if already verified
+                    if verified_role in member.roles:
+                        failed.append(f"{member.mention} - Already verified")
+                        continue
 
-                # Add to verification history
-                async with conf.verification_history() as history:
-                    history[str(member.id)] = {
-                        "verified_at": int(datetime.utcnow().timestamp()),
-                        "vouched_by": [ctx.author.id],
-                        "supervouch": True,
-                        "reason": "Mass verification"
-                    }
+                    # Check if blacklisted
+                    blacklist = await conf.blacklisted_users()
+                    if member.id in blacklist:
+                        failed.append(f"{member.mention} - Blacklisted")
+                        continue
 
-                await member.add_roles(verified_role, reason=f"Mass verification by {ctx.author}")
-                
-                unverified_role_id = await conf.unverified_role_id()
-                if unverified_role_id:
-                    unverified_role = ctx.guild.get_role(unverified_role_id)
-                    if unverified_role and unverified_role in member.roles:
-                        await member.remove_roles(unverified_role)
+                    await member.add_roles(verified_role)
+                    success.append(member.mention)
 
-                success.append(member.mention)
-            except Exception as e:
-                failed.append(f"{member} (Error: {str(e)})")
+                    # Log the action
+                    await self._log_action(
+                        ctx.guild,
+                        f"{ctx.author} ({ctx.author.id}) mass verified {member} ({member.id})"
+                    )
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException) as e:
+                failed.append(f"ID {member_id} - {str(e)}")
 
         # Create response embed
         embed = discord.Embed(
             title="⚡ Mass Verification Results",
-            color=discord.Color.blue() if success else discord.Color.red()
+            color=discord.Color.blue()
         )
-
+        
         if success:
             embed.add_field(
                 name="✅ Successfully Verified",
-                value="\n".join(success) if len(success) <= 10 else 
-                      f"{len(success)} members verified successfully",
+                value="\n".join(success),
                 inline=False
             )
-
+        
         if failed:
             embed.add_field(
                 name="❌ Failed to Verify",
@@ -850,11 +840,10 @@ class GateKeeper(commands.Cog):
                 inline=False
             )
 
+        if not success and not failed:
+            embed.description = "No members were processed!"
+
         await ctx.send(embed=embed)
-        await self._log_action(
-            ctx.guild,
-            f"{ctx.author} ({ctx.author.id}) mass-verified {len(success)} members"
-        )
 
     async def _verify_member(self, guild: discord.Guild, member: discord.Member, voucher_ids: List[int]):
         """Handle member verification"""
