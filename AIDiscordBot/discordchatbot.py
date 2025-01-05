@@ -333,6 +333,66 @@ code
             print(f"Unexpected Error: {str(e)}")
             return "I ran into an unexpected problem. Please try again!"
 
+    def _summarize_history(self, history: List[dict]) -> str:
+        """Create a brief summary of the conversation history"""
+        if not history:
+            return "This is the start of our conversation."
+        
+        # Count messages per user
+        user_messages = {}
+        for entry in history:
+            if 'metadata' in entry and 'user_name' in entry['metadata']:
+                user = entry['metadata']['user_name']
+                user_messages[user] = user_messages.get(user, 0) + 1
+        
+        # Create summary
+        summary_parts = []
+        for user, count in user_messages.items():
+            summary_parts.append(f"{user} ({count} messages)")
+        
+        time_span = ""
+        if len(history) >= 2:
+            try:
+                first_time = datetime.fromisoformat(history[0].get('timestamp', ''))
+                last_time = datetime.fromisoformat(history[-1].get('timestamp', ''))
+                duration = last_time - first_time
+                if duration.total_seconds() < 3600:  # Less than an hour
+                    time_span = f"over {int(duration.total_seconds() / 60)} minutes"
+                else:
+                    time_span = f"over {int(duration.total_seconds() / 3600)} hours"
+            except (ValueError, TypeError):
+                # Handle invalid timestamp formats gracefully
+                time_span = ""
+        
+        topics = self._extract_conversation_topics(history[-5:])  # Look at last 5 messages for recent topics
+        
+        return (
+            f"Ongoing conversation with {', '.join(summary_parts)} {time_span}. "
+            f"{topics if topics else ''}"
+        )
+
+    def _extract_conversation_topics(self, recent_history: List[dict]) -> str:
+        """Extract main topics from recent messages to maintain context without being too specific"""
+        if not recent_history:
+            return ""
+            
+        topics = []
+        for entry in recent_history:
+            if 'parts' in entry and entry['parts']:
+                message = entry['parts'][0].get('text', '')
+                # Extract key nouns or phrases that might be important for context
+                # This is a simple implementation - could be enhanced with NLP
+                if len(message.split()) > 3:  # Only consider substantial messages
+                    # Clean the message to avoid any problematic content
+                    cleaned_message = message.split(':')[-1].strip()
+                    if len(cleaned_message) > 50:
+                        cleaned_message = cleaned_message[:50] + "..."
+                    topics.append("previous topic: " + cleaned_message)
+                    
+        if topics:
+            return f"Recent topics: {topics[-1]}"
+        return ""
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Listen for messages that mention the bot"""
