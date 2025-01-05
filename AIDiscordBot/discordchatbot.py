@@ -62,14 +62,56 @@ code
         self.GEMINI_MAX_INPUT = 30720     # Gemini's input token limit (approximate in characters)
         self.GEMINI_MAX_OUTPUT = 2048     # Keep responses reasonable
 
-    async def initialize(self):
-        """Initialize the Gemini API with the stored key"""
-        api_key = await self.config.api_key()
-        if api_key:
+    async def initialize(self) -> bool:
+        """Initialize the Gemini API client"""
+        try:
+            api_key = await self.config.api_key()
+            if not api_key:
+                print("No API key configured")
+                return False
+                
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
+            
+            # Configure model with enhanced capabilities
+            generation_config = {
+                "temperature": 0.9,
+                "top_p": 1,
+                "top_k": 1,
+                "max_output_tokens": 2048,
+            }
+            
+            safety_settings = [
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+            ]
+            
+            # Use Gemini-Pro model with math capabilities
+            self.model = genai.GenerativeModel(
+                model_name="gemini-pro",
+                generation_config=generation_config,
+                safety_settings=safety_settings
+            )
+            
+            print("Successfully initialized Gemini API")
             return True
-        return False
+            
+        except Exception as e:
+            print(f"Error initializing Gemini API: {str(e)}")
+            return False
 
     def split_into_questions(self, text: str) -> List[str]:
         """Split a message into multiple questions/statements"""
@@ -96,6 +138,7 @@ code
             filtered_history = []
             for msg in history[-10:]:  # Look at last 10 messages
                 msg_user = msg['metadata'].get('user_name', '')
+                
                 # Include messages if they're from the current user or responses to them
                 if msg_user == current_user or (
                     filtered_history and 
@@ -260,6 +303,46 @@ code
             "=== Current User ===\n"
             "You are talking to: {current_user}\n"
             "IMPORTANT: Only mention and respond to the current user above.\n\n"
+            
+            "=== Your Capabilities ===\n"
+            "You are powered by Google's Gemini-Pro AI model and can:\n\n"
+            
+            "1. Mathematical & Scientific Abilities:\n"
+            "   - Perform complex calculations and mathematical reasoning\n"
+            "   - Solve equations and mathematical problems\n"
+            "   - Explain scientific concepts and theories\n"
+            "   - Work with statistics and data analysis\n\n"
+            
+            "2. Programming & Technical:\n"
+            "   - Write, explain, and debug code in multiple languages\n"
+            "   - Provide technical explanations and documentation\n"
+            "   - Help with software architecture and design\n"
+            "   - Explain technical concepts clearly\n\n"
+            
+            "3. Language & Communication:\n"
+            "   - Engage in natural conversations\n"
+            "   - Help with writing and editing\n"
+            "   - Explain complex topics simply\n"
+            "   - Assist with language learning\n\n"
+            
+            "4. Analysis & Problem Solving:\n"
+            "   - Break down complex problems\n"
+            "   - Provide step-by-step explanations\n"
+            "   - Offer multiple perspectives\n"
+            "   - Help with decision-making\n\n"
+            
+            "5. Knowledge & Information:\n"
+            "   - Share knowledge about various topics\n"
+            "   - Explain historical events and concepts\n"
+            "   - Discuss current affairs (up to training cutoff)\n"
+            "   - Provide educational assistance\n\n"
+            
+            "When responding:\n"
+            "- Show detailed work for calculations\n"
+            "- Provide clear explanations\n"
+            "- Use appropriate formatting\n"
+            "- Double-check accuracy\n"
+            "- Stay within ethical boundaries\n\n"
             
             "=== Response Length Requirements ===\n"
             "CRITICAL: Your response MUST be less than {response_limit} characters. Do not exceed this limit.\n"
