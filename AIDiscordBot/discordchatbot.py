@@ -57,6 +57,11 @@ code
 - Channel mention: #channel-name
 """
 
+        # Constants for message limits
+        self.DISCORD_MESSAGE_LIMIT = 2000  # Discord's message length limit
+        self.GEMINI_MAX_INPUT = 30720     # Gemini's input token limit (approximate in characters)
+        self.GEMINI_MAX_OUTPUT = 2048     # Keep responses reasonable
+
     async def initialize(self):
         """Initialize the Gemini API with the stored key"""
         api_key = await self.config.api_key()
@@ -171,47 +176,15 @@ code
         )
 
     async def get_bot_personality(self, guild: discord.Guild, channel: discord.TextChannel, user_name: str) -> str:
-        """Generate bot personality based on server context and current time"""
-        server_info = (
-            f"Server name: {guild.name}\n"
-            f"Member count: {guild.member_count} (quite the crowd in here!)\n"
-            f"Server description: {guild.description if guild.description else 'No description (keeping it mysterious, are we?)'}\n"
-        )
-        
-        time_info = await self.get_current_time_info(guild.id)
-        channel_info = await self.get_channel_info(channel)
-        bot_info = self.get_bot_info()
-        
+        """Get the bot's personality and context information"""
         return (
-            "=== Core Personality ===\n"
-            f"{bot_info}\n\n"
-            "=== Current Interaction ===\n"
-            f"You're chatting with {user_name} - make them feel special but don't be afraid to playfully tease them if appropriate.\n\n"
-            "=== Environmental Context (Only reference when relevant) ===\n"
-            f"Time Context:\n{time_info}\n\n"
-            f"Server Context:\n{server_info}\n"
-            f"Channel Context:\n{channel_info}\n\n"
-            "=== Formatting Reference ===\n"
-            f"{self.discord_formatting}\n\n"
-            "=== Behavioral Guidelines ===\n"
-            "1. Be helpful AND entertaining - information with a side of wit\n"
-            "2. Use emojis ONLY when directly relevant to the conversation\n"
-            "3. Make clever pop culture references and puns\n"
-            "4. If someone makes a mistake, point it out with playful sarcasm\n"
-            "5. Use casual, conversational language but stay clever\n"
-            "6. When sharing code, add witty comments\n"
-            "7. If something goes wrong, make light of it with humor\n"
-            "8. Only reference time/server/channel context when it adds value to the conversation\n"
-            "9. Create running jokes within the conversation\n"
-            "10. Be self-aware about being a bot, but own it with confidence\n"
-            "11. Prefer wordplay and clever text formatting over emojis\n"
-            "12. Only use emojis if they're part of the explanation or directly referenced\n\n"
-            "=== Context Usage Rules ===\n"
-            "1. Don't mention server/channel details unless specifically asked or highly relevant\n"
-            "2. Only reference time if it adds meaning to the conversation (e.g., late night chat, time zones)\n"
-            "3. Use conversation history to maintain context, but don't explicitly reference it unless relevant\n"
-            "4. Treat environmental context as background information, not conversation topics\n"
-            "5. Focus on the current user's message first, use context to enhance understanding"
+            "You are a helpful and slightly sarcastic Discord bot. "
+            "Keep responses concise and entertaining while remaining helpful. "
+            "Use emojis sparingly and only when they add value to the conversation. "
+            f"You are currently speaking with {user_name} in "
+            f"Server: {guild.name}\n"
+            f"Channel: #{channel.name}\n"
+            f"Channel category: {channel.category.name if channel.category else 'No category'}"
         )
 
     async def get_channel_info(self, channel: discord.TextChannel) -> str:
@@ -267,76 +240,89 @@ code
             
         return "I can't respond to that due to safety concerns. Let's keep the conversation friendly and appropriate!"
 
-    async def process_message(self, message: str, context: str, history: List[dict], channel_id: int = None) -> str:
-        """Process a single message through Gemini"""
-        try:
-            # Format history for better context
-            formatted_history = []
-            for entry in history[-5:]:  # Only use last 5 messages for context
-                if 'parts' in entry and entry['parts']:
-                    # Format the message with the username for context
-                    message_text = entry['parts'][0].get('text', '')
-                    user_name = entry['metadata'].get('user_name', '')
-                    formatted_text = f"{user_name}: {message_text}" if user_name else message_text
-                    
-                    formatted_history.append({
-                        "role": entry["role"],
-                        "parts": [{"text": formatted_text}]
-                    })
+    def _truncate_message(self, message: str, limit: int) -> str:
+        """Truncate message to stay within limits while keeping it readable"""
+        if len(message) <= limit:
+            return message
             
-            chat = self.model.start_chat(history=formatted_history)
-            
-            # Structure the prompt to clearly separate immediate context from background info
-            prompt = (
-                "=== Current Message ===\n"
-                f"User message: {message}\n\n"
-                
-                "=== Conversation Context ===\n"
-                f"{self._summarize_history(history)}\n\n"
-                
-                "=== Response Guidelines ===\n"
-                "1. Focus primarily on responding to the current message\n"
-                "2. Use conversation history only for maintaining context\n"
-                "3. Only reference server/channel/time details if directly relevant\n"
-                "4. Keep responses natural and avoid unnecessary references to context\n"
-                "5. Never repeat user names or 'meow' multiple times\n"
-                "6. Respond directly to the message content\n"
-                "7. Keep responses appropriate and friendly\n"
-                "8. If unsure about content safety, give a generic response\n\n"
-                
-                "=== Background Information ===\n"
-                f"{context}"
-            )
-            
-            try:
-                response = chat.send_message(prompt)
-                return response.text
-            except Exception as e:
-                error_str = str(e)
-                # Check for safety-related errors
-                friendly_error = self._handle_safety_error(error_str, channel_id)
-                if friendly_error:
-                    return friendly_error
-                    
-                # Handle other Gemini-specific errors
-                if "blocked" in error_str.lower():
-                    return "I can't process that message due to content restrictions. Let's keep our conversation friendly!"
-                elif "quota" in error_str.lower():
-                    return "I've hit my rate limit. Please try again in a moment!"
-                else:
-                    # Log the full error for debugging but return a friendly message
-                    print(f"Gemini Error: {error_str}")
-                    return "I encountered an issue processing your message. Could you try rephrasing it?"
-                    
-        except Exception as e:
-            # Log unexpected errors
-            print(f"Unexpected Error: {str(e)}")
-            return "I ran into an unexpected problem. Please try again!"
+        # Try to truncate at a sentence boundary
+        truncated = message[:limit-4]  # Leave room for ellipsis
+        last_sentence = max(
+            truncated.rfind('.'),
+            truncated.rfind('!'),
+            truncated.rfind('?')
+        )
+        
+        if last_sentence > limit * 0.7:  # If we can get a decent amount of content
+            return truncated[:last_sentence+1] + "..."
+        return truncated + "..."
 
-    def _summarize_history(self, history: List[dict]) -> str:
+    def _prepare_prompt(self, message: str, context: str, history: List[dict], current_user: str) -> str:
+        """Prepare prompt while respecting Gemini's input limits"""
+        # Start with essential components and clear user identification
+        prompt_template = (
+            "=== Current Message ===\n"
+            "Current speaking user: {current_user}\n"
+            "User message: {message}\n\n"
+            
+            "=== Response Guidelines ===\n"
+            "1. You are responding directly to {current_user}\n"
+            "2. Focus primarily on responding to the current message\n"
+            "3. Use conversation history only for maintaining context\n"
+            "4. Only reference server/channel/time details if directly relevant\n"
+            "5. Keep responses natural and avoid unnecessary references to context\n"
+            "6. Never repeat user names or 'meow' multiple times\n"
+            "7. Respond directly to {current_user}'s message content\n"
+            "8. Keep responses appropriate and friendly\n"
+            "9. If unsure about content safety, give a generic response\n"
+            "10. Keep responses under {response_limit} characters\n"
+            "11. Address {current_user} naturally without constantly repeating their name\n\n"
+        )
+        
+        # Calculate available space
+        base_prompt = prompt_template.format(
+            message=message,
+            current_user=current_user,
+            response_limit=self.DISCORD_MESSAGE_LIMIT
+        )
+        remaining_space = self.GEMINI_MAX_INPUT - len(base_prompt)
+        
+        # Add context and history if space permits
+        if remaining_space > 100:  # Ensure minimum useful space
+            history_summary = self._summarize_history(history, current_user)
+            context_section = f"=== Background Information ===\n{context}"
+            
+            # If everything fits, use it all
+            if len(history_summary) + len(context_section) <= remaining_space:
+                base_prompt = (
+                    base_prompt +
+                    f"=== Conversation Context ===\n{history_summary}\n\n" +
+                    context_section
+                )
+            else:
+                # Prioritize recent context over full history
+                if len(context_section) < remaining_space * 0.7:
+                    # Use more space for context, less for history
+                    context_space = len(context_section)
+                    history_space = remaining_space - context_space - 10
+                    base_prompt = (
+                        base_prompt +
+                        f"=== Conversation Context ===\n{self._truncate_message(history_summary, history_space)}\n\n" +
+                        context_section
+                    )
+                else:
+                    # Use all space for essential context
+                    base_prompt = (
+                        base_prompt +
+                        f"=== Background Information ===\n{self._truncate_message(context, remaining_space)}"
+                    )
+        
+        return base_prompt
+
+    def _summarize_history(self, history: List[dict], current_user: str = None) -> str:
         """Create a brief summary of the conversation history"""
         if not history:
-            return "This is the start of our conversation."
+            return f"This is the start of our conversation with {current_user}."
         
         # Count messages per user
         user_messages = {}
@@ -345,10 +331,13 @@ code
                 user = entry['metadata']['user_name']
                 user_messages[user] = user_messages.get(user, 0) + 1
         
-        # Create summary
+        # Create summary with emphasis on current user
         summary_parts = []
         for user, count in user_messages.items():
-            summary_parts.append(f"{user} ({count} messages)")
+            if user == current_user:
+                summary_parts.insert(0, f"{user} (current speaker, {count} messages)")
+            else:
+                summary_parts.append(f"{user} ({count} messages)")
         
         time_span = ""
         if len(history) >= 2:
@@ -361,17 +350,16 @@ code
                 else:
                     time_span = f"over {int(duration.total_seconds() / 3600)} hours"
             except (ValueError, TypeError):
-                # Handle invalid timestamp formats gracefully
                 time_span = ""
         
-        topics = self._extract_conversation_topics(history[-5:])  # Look at last 5 messages for recent topics
+        topics = self._extract_conversation_topics(history[-5:], current_user)
         
         return (
             f"Ongoing conversation with {', '.join(summary_parts)} {time_span}. "
             f"{topics if topics else ''}"
         )
 
-    def _extract_conversation_topics(self, recent_history: List[dict]) -> str:
+    def _extract_conversation_topics(self, recent_history: List[dict], current_user: str = None) -> str:
         """Extract main topics from recent messages to maintain context without being too specific"""
         if not recent_history:
             return ""
@@ -380,18 +368,75 @@ code
         for entry in recent_history:
             if 'parts' in entry and entry['parts']:
                 message = entry['parts'][0].get('text', '')
+                user = entry['metadata'].get('user_name', '')
+                
                 # Extract key nouns or phrases that might be important for context
-                # This is a simple implementation - could be enhanced with NLP
                 if len(message.split()) > 3:  # Only consider substantial messages
                     # Clean the message to avoid any problematic content
                     cleaned_message = message.split(':')[-1].strip()
                     if len(cleaned_message) > 50:
                         cleaned_message = cleaned_message[:50] + "..."
-                    topics.append("previous topic: " + cleaned_message)
+                    
+                    # Add user context to the topic
+                    if user == current_user:
+                        topics.append(f"your previous message: {cleaned_message}")
+                    else:
+                        topics.append(f"previous topic from {user}: {cleaned_message}")
                     
         if topics:
             return f"Recent topics: {topics[-1]}"
         return ""
+
+    async def process_message(self, message: str, context: str, history: List[dict], channel_id: int = None, user_name: str = None, user_mention: str = None) -> str:
+        """Process a single message through Gemini"""
+        try:
+            # Format history for better context
+            formatted_history = []
+            for entry in history[-5:]:  # Only use last 5 messages for context
+                if 'parts' in entry and entry['parts']:
+                    message_text = entry['parts'][0].get('text', '')
+                    entry_user = entry['metadata'].get('user_name', '')
+                    # Make it clear when we're referencing the current user's messages
+                    if entry_user == user_name:
+                        formatted_text = f"You ({user_name}): {message_text}"
+                    else:
+                        formatted_text = f"{entry_user}: {message_text}"
+                    
+                    formatted_history.append({
+                        "role": entry["role"],
+                        "parts": [{"text": formatted_text}]
+                    })
+            
+            chat = self.model.start_chat(history=formatted_history)
+            
+            # Prepare prompt with length limits and user context
+            prompt = self._prepare_prompt(message, context, history, user_name)
+            
+            try:
+                response = chat.send_message(prompt)
+                # Ensure response fits Discord limits and properly mentions user
+                response_text = self._truncate_message(response.text, self.DISCORD_MESSAGE_LIMIT)
+                # Replace the first occurrence of the user's name with their mention
+                if user_name in response_text and user_mention:
+                    response_text = response_text.replace(user_name, user_mention, 1)
+                return response_text
+            except Exception as e:
+                error_str = str(e)
+                friendly_error = self._handle_safety_error(error_str, channel_id)
+                if friendly_error:
+                    return friendly_error
+                    
+                if "blocked" in error_str.lower():
+                    return f"I can't process that message, {user_mention}. Let's keep our conversation friendly!"
+                elif "quota" in error_str.lower():
+                    return f"I've hit my rate limit. Please try again in a moment, {user_mention}!"
+                else:
+                    print(f"Gemini Error: {error_str}")
+                    return f"I encountered an issue processing your message, {user_mention}. Could you try rephrasing it?"
+                    
+        except Exception as e:
+            print(f"Unexpected Error: {str(e)}")
+            return f"I ran into an unexpected problem, {user_mention}. Please try again!"
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -407,25 +452,27 @@ code
                 self.typing_channels.add(message.channel.id)
                 typing_task = asyncio.create_task(self.maintain_typing(message.channel))
                 
+                # Get user's display name (nickname if set, otherwise display name)
+                user_name = message.author.nick or message.author.display_name
+                # Store the mention format for proper Discord mentions
+                user_mention = message.author.mention
+
                 # Check if API is configured
                 if not self.model:
                     if not await self.initialize():
-                        await message.reply("Please ask an admin to set up my API key using the `[p]chatbot setapikey` command.")
+                        await message.reply(f"Please ask an admin to set up my API key using the `[p]chatbot setapikey` command, {user_mention}")
                         return
 
                 # Check if bot is enabled in this guild
                 enabled = await self.config.guild(message.guild).enabled()
                 if not enabled:
-                    await message.reply("Sorry, I'm currently disabled in this server.")
+                    await message.reply(f"Sorry {user_mention}, I'm currently disabled in this server.")
                     return
 
                 # Check rate limit
                 if await self.check_rate_limit(message.channel.id):
-                    await message.reply("I'm receiving too many messages! Please wait a moment before trying again.")
+                    await message.reply(f"I'm receiving too many messages! Please wait a moment before trying again, {user_mention}")
                     return
-
-                # Get user's display name (nickname if set, otherwise display name)
-                user_name = message.author.nick or message.author.display_name
 
                 # Remove bot mention and split into questions
                 user_message = message.content.replace(f'<@{self.bot.user.id}>', '').strip()
@@ -438,9 +485,15 @@ code
                 # Process each question
                 responses = []
                 for question in questions:
-                    response = await self.process_message(question, personality, history, message.channel.id)
+                    response = await self.process_message(
+                        message=question,
+                        context=personality,
+                        history=history,
+                        channel_id=message.channel.id,
+                        user_name=user_name,
+                        user_mention=user_mention
+                    )
                     if "safety concerns" in response.lower():
-                        # If we get a safety error, don't add this exchange to history
                         continue
                     responses.append(response)
                     
@@ -449,7 +502,7 @@ code
                     await self.add_to_history(message.channel.id, "assistant", response, self.bot.user.display_name)
 
                 # Combine responses intelligently
-                final_response = "\n\n".join(responses) if responses else "I can't process that message. Let's try a different topic!"
+                final_response = "\n\n".join(responses) if responses else f"I can't process that message, {user_mention}. Let's try a different topic!"
 
                 # Update rate limit
                 if message.channel.id not in self.rate_limits:
@@ -461,7 +514,7 @@ code
 
             except Exception as e:
                 error_msg = f"An unexpected error occurred: {str(e)}"
-                await message.reply(error_msg)
+                await message.reply(f"{error_msg}, {user_mention}")
             
             finally:
                 # Clean up typing indicator
