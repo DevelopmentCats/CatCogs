@@ -2,8 +2,9 @@ from typing import Dict, Optional, List, Type
 from redbot.core.bot import Red
 from ..utils.errors import ToolError, ToolInitializationError
 
-# Import AIResponderTool and ToolRegistry after they are defined in __init__.py
-from . import AIResponderTool, ToolRegistry
+# Import from base module
+from .base import AIResponderTool
+from . import ToolRegistry
 
 class ToolManager:
     """Manages AI responder tools and their lifecycle."""
