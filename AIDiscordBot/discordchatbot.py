@@ -94,8 +94,10 @@ code
 
     def _clean_message(self, message: str) -> str:
         """Clean message content by removing unwanted prefixes and formatting"""
-        # Remove any "Meow:" prefixes (case insensitive)
-        message = re.sub(r'^(?i)meow:\s*', '', message.strip())
+        if not message:
+            return ""
+        # Fix regex flag positioning - move (?i) to start
+        message = re.sub(r'(?i)^meow:\s*', '', message.strip())
         return message.strip()
 
     async def add_to_history(self, channel_id: int, role: str, message: str, user_name: str = None) -> None:
@@ -106,9 +108,12 @@ code
         # Clean the message before storing
         clean_message = self._clean_message(message)
             
+        # Map role to valid Gemini roles
+        gemini_role = "user" if role.lower() == "user" else "model"
+            
         # Add metadata to help with context
         entry = {
-            "role": role,
+            "role": gemini_role,  # Only use "user" or "model" for Gemini
             "parts": [{"text": clean_message}],
             "metadata": {
                 "user_name": user_name,
@@ -325,17 +330,21 @@ code
                         formatted_text = f"{entry_user}: {message_text}"
                     
                     formatted_history.append({
-                        "role": entry["role"],
+                        "role": entry.get("role", "user"),  # Ensure valid role
                         "parts": [{"text": formatted_text}]
                     })
             
-            chat = self.model.start_chat(history=formatted_history)
+            try:
+                chat = self.model.start_chat(history=formatted_history)
+            except Exception as e:
+                print(f"Error starting chat: {str(e)}")
+                chat = self.model.start_chat(history=[])  # Start fresh if history causes issues
             
             # Clean the current message
             clean_message = self._clean_message(message)
             
             # Prepare prompt with length limits and user context
-            prompt = self._prepare_prompt(clean_message, context, history, user_name)
+            prompt = self._prepare_prompt(clean_message, context, [], user_name)  # Don't pass history if it's causing issues
             
             try:
                 response = chat.send_message(prompt)
@@ -353,6 +362,7 @@ code
                 
             except Exception as e:
                 error_str = str(e)
+                print(f"Gemini Error: {error_str}")
                 friendly_error = self._handle_safety_error(error_str, channel_id)
                 if friendly_error:
                     return friendly_error
