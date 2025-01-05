@@ -7,7 +7,8 @@ from nltk.tokenize import word_tokenize
 from nltk.tag import pos_tag
 from nltk.chunk import ne_chunk
 from langchain_community.tools import DuckDuckGoSearchRun
-from . import AIResponderTool, ToolRegistry
+from .base import AIResponderTool
+from . import ToolRegistry
 from ..utils.errors import ToolError
 from ..responses.rate_limiter import RateLimiter
 

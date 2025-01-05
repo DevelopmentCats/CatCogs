@@ -3,7 +3,8 @@ import numexpr
 import math
 from decimal import Decimal, InvalidOperation
 from ..utils.errors import ToolError
-from . import AIResponderTool, ToolRegistry
+from .base import AIResponderTool
+from . import ToolRegistry
 
 @ToolRegistry.register
 class Calculator(AIResponderTool):

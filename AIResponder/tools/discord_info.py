@@ -1,6 +1,7 @@
 from typing import Optional, Dict, Any, List
 from discord import TextChannel, Guild, Member, Role, ChannelType
-from . import AIResponderTool, ToolRegistry
+from .base import AIResponderTool
+from . import ToolRegistry
 from ..utils.errors import ToolError
 from datetime import datetime
 import json
