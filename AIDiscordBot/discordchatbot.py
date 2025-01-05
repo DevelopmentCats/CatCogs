@@ -94,18 +94,17 @@ code
         
         history = self.active_conversations[channel_id]
         
-        # Format the message with additional context
-        message_text = content
-        if user_name:
-            if role.lower() == "user":
-                message_text = f"{user_name}: {content}"
-            else:
-                message_text = f"{self.bot.user.display_name}: {content}"
-
+        # Clean up the content if it contains repeated name prefixes
+        if content and ":" in content:
+            # Split by ":" and take the last part to remove any name prefixes
+            parts = content.split(":")
+            if len(parts) > 1:
+                content = parts[-1].strip()
+        
         # Format the message in Gemini's expected structure with metadata
         entry = {
             "parts": [{
-                "text": message_text
+                "text": content  # Store just the message content
             }],
             "role": "user" if role.lower() == "user" else "model",
             "timestamp": datetime.now().isoformat(),
@@ -223,17 +222,66 @@ code
             f"Channel category: {channel.category.name if channel.category else 'No category'}"
         )
 
-    async def process_message(self, message: str, context: str, history: List[dict]) -> str:
+    def _handle_safety_error(self, error_message: str, channel_id: int = None) -> str:
+        """Handle safety-related errors from Gemini in a user-friendly way"""
+        if "finish_reason: SAFETY" not in error_message:
+            return None
+            
+        # Extract safety ratings
+        safety_levels = {
+            "NEGLIGIBLE": 0,
+            "LOW": 1,
+            "MEDIUM": 2,
+            "HIGH": 3
+        }
+        
+        highest_category = None
+        highest_level = -1
+        
+        for line in error_message.split('\n'):
+            if "category: HARM_CATEGORY_" in line:
+                category = line.split("HARM_CATEGORY_")[1].strip()
+            elif "probability:" in line:
+                level = line.split("probability:")[1].strip()
+                level_value = safety_levels.get(level, 0)
+                
+                if level_value > highest_level:
+                    highest_level = level_value
+                    highest_category = category
+
+        # If this was a high-risk safety error, clear recent history
+        if highest_level >= 2 and channel_id is not None:  # MEDIUM or HIGH risk
+            if channel_id in self.active_conversations:
+                # Keep only the first few messages to maintain some context
+                self.active_conversations[channel_id] = self.active_conversations[channel_id][:2]
+        
+        if highest_category:
+            friendly_category = highest_category.replace("_", " ").title()
+            messages = {
+                "SEXUALLY_EXPLICIT": "I can't respond to that as it may involve inappropriate content.",
+                "HATE_SPEECH": "I can't engage with content that could promote hate or discrimination.",
+                "HARASSMENT": "I aim to maintain a respectful environment and can't engage with potentially harmful content.",
+                "DANGEROUS_CONTENT": "I can't assist with potentially dangerous or harmful content.",
+            }
+            return messages.get(highest_category, f"I can't respond to that due to safety concerns regarding {friendly_category}.")
+            
+        return "I can't respond to that due to safety concerns. Let's keep the conversation friendly and appropriate!"
+
+    async def process_message(self, message: str, context: str, history: List[dict], channel_id: int = None) -> str:
         """Process a single message through Gemini"""
         try:
             # Format history for better context
             formatted_history = []
-            for entry in history:
-                # Only include the actual message content for the model
+            for entry in history[-5:]:  # Only use last 5 messages for context
                 if 'parts' in entry and entry['parts']:
+                    # Format the message with the username for context
+                    message_text = entry['parts'][0].get('text', '')
+                    user_name = entry['metadata'].get('user_name', '')
+                    formatted_text = f"{user_name}: {message_text}" if user_name else message_text
+                    
                     formatted_history.append({
                         "role": entry["role"],
-                        "parts": entry["parts"]
+                        "parts": [{"text": formatted_text}]
                     })
             
             chat = self.model.start_chat(history=formatted_history)
@@ -250,80 +298,40 @@ code
                 "1. Focus primarily on responding to the current message\n"
                 "2. Use conversation history only for maintaining context\n"
                 "3. Only reference server/channel/time details if directly relevant\n"
-                "4. Keep responses natural and avoid unnecessary references to context\n\n"
+                "4. Keep responses natural and avoid unnecessary references to context\n"
+                "5. Never repeat user names or 'meow' multiple times\n"
+                "6. Respond directly to the message content\n"
+                "7. Keep responses appropriate and friendly\n"
+                "8. If unsure about content safety, give a generic response\n\n"
                 
                 "=== Background Information ===\n"
                 f"{context}"
             )
             
-            response = chat.send_message(prompt)
-            return response.text
-        except Exception as e:
-            return f"I encountered an error processing your message: {str(e)}"
-
-    def _summarize_history(self, history: List[dict]) -> str:
-        """Create a brief summary of the conversation history"""
-        if not history:
-            return "This is the start of our conversation."
-        
-        # Count messages per user
-        user_messages = {}
-        for entry in history:
-            if 'metadata' in entry and 'user_name' in entry['metadata']:
-                user = entry['metadata']['user_name']
-                user_messages[user] = user_messages.get(user, 0) + 1
-        
-        # Create summary
-        summary_parts = []
-        for user, count in user_messages.items():
-            summary_parts.append(f"{user} ({count} messages)")
-        
-        time_span = ""
-        if len(history) >= 2:
-            first_time = datetime.fromisoformat(history[0].get('timestamp', ''))
-            last_time = datetime.fromisoformat(history[-1].get('timestamp', ''))
-            duration = last_time - first_time
-            if duration.total_seconds() < 3600:  # Less than an hour
-                time_span = f"over {int(duration.total_seconds() / 60)} minutes"
-            else:
-                time_span = f"over {int(duration.total_seconds() / 3600)} hours"
-        
-        topics = self._extract_conversation_topics(history[-5:])  # Look at last 5 messages for recent topics
-        
-        return (
-            f"Ongoing conversation with {', '.join(summary_parts)} {time_span}. "
-            f"{topics if topics else ''}"
-        )
-
-    def _extract_conversation_topics(self, recent_history: List[dict]) -> str:
-        """Extract main topics from recent messages to maintain context without being too specific"""
-        if not recent_history:
-            return ""
-            
-        topics = []
-        for entry in recent_history:
-            if 'parts' in entry and entry['parts']:
-                message = entry['parts'][0].get('text', '')
-                # Extract key nouns or phrases that might be important for context
-                # This is a simple implementation - could be enhanced with NLP
-                if len(message.split()) > 3:  # Only consider substantial messages
-                    topics.append("previous topic: " + message.split(':')[-1][:50] + "...")
+            try:
+                response = chat.send_message(prompt)
+                return response.text
+            except Exception as e:
+                error_str = str(e)
+                # Check for safety-related errors
+                friendly_error = self._handle_safety_error(error_str, channel_id)
+                if friendly_error:
+                    return friendly_error
                     
-        if topics:
-            return f"Recent topics: {topics[-1]}"
-        return ""
-
-    async def maintain_typing(self, channel: discord.TextChannel):
-        """Maintain typing indicator while processing"""
-        try:
-            async with channel.typing():
-                while channel.id in self.typing_channels:
-                    await asyncio.sleep(1)  # Shorter sleep time for more responsive typing
+                # Handle other Gemini-specific errors
+                if "blocked" in error_str.lower():
+                    return "I can't process that message due to content restrictions. Let's keep our conversation friendly!"
+                elif "quota" in error_str.lower():
+                    return "I've hit my rate limit. Please try again in a moment!"
+                else:
+                    # Log the full error for debugging but return a friendly message
+                    print(f"Gemini Error: {error_str}")
+                    return "I encountered an issue processing your message. Could you try rephrasing it?"
+                    
         except Exception as e:
-            print(f"Error in typing indicator: {e}")
-        finally:
-            if channel.id in self.typing_channels:
-                self.typing_channels.remove(channel.id)
+            # Log unexpected errors
+            print(f"Unexpected Error: {str(e)}")
+            return "I ran into an unexpected problem. Please try again!"
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -333,11 +341,12 @@ code
 
         # Check if the bot is mentioned
         if self.bot.user in message.mentions:
-            # Start typing indicator immediately
-            self.typing_channels.add(message.channel.id)
-            typing_task = asyncio.create_task(self.maintain_typing(message.channel))
-
+            typing_task = None
             try:
+                # Add to typing channels before starting the task
+                self.typing_channels.add(message.channel.id)
+                typing_task = asyncio.create_task(self.maintain_typing(message.channel))
+                
                 # Check if API is configured
                 if not self.model:
                     if not await self.initialize():
@@ -369,30 +378,53 @@ code
                 # Process each question
                 responses = []
                 for question in questions:
-                    response = await self.process_message(question, personality, history)
+                    response = await self.process_message(question, personality, history, message.channel.id)
+                    if "safety concerns" in response.lower():
+                        # If we get a safety error, don't add this exchange to history
+                        continue
                     responses.append(response)
                     
-                    # Add to history
+                    # Add to history only if it wasn't a safety error
                     await self.add_to_history(message.channel.id, "user", question, user_name)
                     await self.add_to_history(message.channel.id, "assistant", response, self.bot.user.display_name)
 
                 # Combine responses intelligently
-                final_response = "\n\n".join(responses) if len(responses) > 1 else responses[0]
+                final_response = "\n\n".join(responses) if responses else "I can't process that message. Let's try a different topic!"
 
                 # Update rate limit
+                if message.channel.id not in self.rate_limits:
+                    self.rate_limits[message.channel.id] = []
                 self.rate_limits[message.channel.id].append(datetime.now().isoformat())
 
                 # Send response
                 await message.reply(final_response)
 
             except Exception as e:
-                await message.reply(f"I encountered an unexpected error: {str(e)}")
+                error_msg = f"An unexpected error occurred: {str(e)}"
+                await message.reply(error_msg)
             
             finally:
-                # Stop typing indicator
+                # Clean up typing indicator
                 if message.channel.id in self.typing_channels:
                     self.typing_channels.remove(message.channel.id)
-                typing_task.cancel()
+                if typing_task and not typing_task.done():
+                    typing_task.cancel()
+                    try:
+                        await typing_task
+                    except asyncio.CancelledError:
+                        pass
+
+    async def maintain_typing(self, channel: discord.TextChannel):
+        """Maintain typing indicator while processing"""
+        try:
+            while channel.id in self.typing_channels:
+                async with channel.typing():
+                    await asyncio.sleep(1)  # Shorter sleep time for more responsive typing
+        except Exception as e:
+            print(f"Error in typing indicator: {e}")
+        finally:
+            if channel.id in self.typing_channels:
+                self.typing_channels.remove(channel.id)
 
     @commands.group()
     @commands.guild_only()
