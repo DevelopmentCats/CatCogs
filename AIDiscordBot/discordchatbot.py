@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 import re
 import logging
 
-class DiscordChatBot(commands.Cog):
+class DiscordChatBot(red_commands.Cog):
     """A Discord chatbot powered by Google's Gemini AI"""
 
     def __init__(self, bot):
