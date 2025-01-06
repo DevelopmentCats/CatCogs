@@ -365,12 +365,12 @@ class DiscordChatBot(red_commands.Cog):
             # Get conversation history
             history = await self.get_conversation_history(message.channel.id, message.author.display_name)
             
-            # Format history for Gemini
+            # Format history for Gemini - each entry should be a simple string
             formatted_history = []
             for entry in history:
                 formatted_history.append({
                     'role': entry['role'],
-                    'parts': [entry['content']]
+                    'parts': [{'text': entry['content']}] if entry['role'] == 'user' else [{'text': entry['content']}]
                 })
             
             # Check if we should perform a web search
@@ -384,13 +384,6 @@ class DiscordChatBot(red_commands.Cog):
                             search_context = f"\nRelevant search results:\n{search_results}\n"
                 except Exception as e:
                     self.log.error(f"Error during web search: {str(e)}")
-                    # Continue without search results
-            
-            try:
-                chat = self.model.start_chat(history=formatted_history)
-            except Exception as e:
-                self.log.error(f"Error starting chat: {str(e)}")
-                chat = self.model.start_chat(history=[])  
             
             # Process images if any
             images = []
@@ -399,7 +392,6 @@ class DiscordChatBot(red_commands.Cog):
                 images, image_context = await self._process_images(message)
             except Exception as e:
                 self.log.error(f"Error processing images: {str(e)}")
-                # Continue without images
             
             # Prepare prompt using the original template with search results and image context
             prompt = self._prepare_prompt(
@@ -412,13 +404,29 @@ class DiscordChatBot(red_commands.Cog):
             
             if images:
                 prompt += f"\n\nI'm also seeing: {image_context}\nPlease analyze these images in relation to the message."
-            
+
             # Get response from appropriate model
             try:
-                response = await self.get_gemini_response(prompt, images)
+                if images:
+                    # For vision model, we need to combine text and images
+                    content_parts = [{'text': prompt}]
+                    for img in images:
+                        content_parts.append({'image': img})
+                    
+                    chat = self.vision_model.start_chat(history=[])
+                    response = await asyncio.to_thread(
+                        lambda: chat.send_message(content_parts).text
+                    )
+                else:
+                    # Use text model for regular chat
+                    chat = self.model.start_chat(history=formatted_history)
+                    response = await asyncio.to_thread(
+                        lambda: chat.send_message(prompt).text
+                    )
+
                 if not response:
                     return f"I'm having trouble understanding that, {user_mention}. Could you try rephrasing?"
-                    
+                
                 response_text = self._clean_message(response)
                 
                 # Add to conversation history
