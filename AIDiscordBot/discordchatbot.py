@@ -644,34 +644,250 @@ code
             return f"Recent topics: {topics[-1]}"
         return ""
 
+    @commands.group()
+    @commands.guild_only()
+    async def chatbot(self, ctx: commands.Context):
+        """
+        Gemini AI Chatbot Commands
+        
+        This is a powerful AI chatbot powered by Google's Gemini-Pro model.
+        Simply mention the bot (@BotName) to start chatting!
+        
+        Configuration Commands:
+        - setapikey: Set the Gemini API key (Admin only)
+        - toggle: Enable/disable the bot
+        - personality: View or set the bot's personality
+        - reset: Reset conversation history
+        - clearrate: Clear rate limit counters
+        
+        Search Configuration:
+        - searchkey: Set Google Custom Search API key (Admin only)
+        - searchid: Set Google Custom Search Engine ID (Admin only)
+        - togglesearch: Enable/disable web search capability
+        
+        Status Commands:
+        - status: Check bot's current status
+        - settings: View current settings
+        """
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
+
+    @chatbot.command()
     @commands.is_owner()
-    @commands.command()
-    async def setsearchapi(self, ctx: commands.Context, api_key: str):
-        """Set the Google Custom Search API key (owner only)"""
+    async def setapikey(self, ctx: commands.Context, api_key: str):
+        """
+        Set the Gemini API key (Admin only)
+        
+        Usage: [p]chatbot setapikey <your_api_key>
+        Example: [p]chatbot setapikey AIzaSyXXXXXXXXXXXXXXXXXXXXXX
+        
+        Get your API key from: https://makersuite.google.com/app/apikey
+        """
+        # Delete the message to hide the API key
         try:
             await ctx.message.delete()
         except:
             pass
+        
+        await self.config.api_key.set(api_key)
+        await self.initialize()  # Reinitialize with new key
+        await ctx.send("API key has been set! I'm ready to chat. 🤖")
 
+    @chatbot.command()
+    @commands.admin_or_permissions(administrator=True)
+    async def searchkey(self, ctx: commands.Context, api_key: str):
+        """
+        Set the Google Custom Search API key (Admin only)
+        
+        Usage: [p]chatbot searchkey <your_api_key>
+        Example: [p]chatbot searchkey AIzaSyXXXXXXXXXXXXXXXXXXXXXX
+        
+        Get your API key from: https://console.cloud.google.com/apis/credentials
+        """
+        try:
+            await ctx.message.delete()
+        except:
+            pass
+        
         await self.config.search_api_key.set(api_key)
-        self.search_service = build("customsearch", "v1", developerKey=api_key)
-        await ctx.send("Search API key has been set!")
+        await ctx.send("Search API key has been set! 🔍")
 
-    @commands.is_owner()
-    @commands.command()
-    async def setsearchengine(self, ctx: commands.Context, engine_id: str):
-        """Set the Custom Search Engine ID (owner only)"""
+    @chatbot.command()
+    @commands.admin_or_permissions(administrator=True)
+    async def searchid(self, ctx: commands.Context, engine_id: str):
+        """
+        Set the Google Custom Search Engine ID (Admin only)
+        
+        Usage: [p]chatbot searchid <your_engine_id>
+        Example: [p]chatbot searchid 123456789:abcdefghijk
+        
+        Get your Search Engine ID from: https://programmablesearchengine.google.com/
+        """
         await self.config.search_engine_id.set(engine_id)
-        await ctx.send("Search Engine ID has been set!")
+        await ctx.send("Search Engine ID has been set! 🔍")
 
-    @commands.admin()
-    @commands.command()
+    @chatbot.command()
+    @commands.admin_or_permissions(administrator=True)
     async def togglesearch(self, ctx: commands.Context):
-        """Toggle web search capability for the server"""
+        """
+        Toggle web search capability for this server
+        
+        Usage: [p]chatbot togglesearch
+        
+        This will enable/disable the bot's ability to search the web for current information.
+        Requires both Search API key and Engine ID to be set.
+        """
         current = await self.config.guild(ctx.guild).search_enabled()
         await self.config.guild(ctx.guild).search_enabled.set(not current)
         status = "enabled" if not current else "disabled"
-        await ctx.send(f"Web search has been {status} for this server.")
+        await ctx.send(f"Web search has been {status} for this server! 🔍")
+
+    @chatbot.command()
+    @commands.admin_or_permissions(administrator=True)
+    async def toggle(self, ctx: commands.Context):
+        """
+        Toggle the bot on/off for this server
+        
+        Usage: [p]chatbot toggle
+        
+        This will enable/disable the bot's response to mentions in this server.
+        """
+        current = await self.config.guild(ctx.guild).enabled()
+        await self.config.guild(ctx.guild).enabled.set(not current)
+        status = "enabled" if not current else "disabled"
+        await ctx.send(f"I have been {status} for this server! 🤖")
+
+    @chatbot.command()
+    async def personality(self, ctx: commands.Context, *, new_personality: str = None):
+        """
+        View or set the bot's personality for this channel
+        
+        Usage: 
+        - View current: [p]chatbot personality
+        - Set new: [p]chatbot personality <description>
+        
+        Example: [p]chatbot personality You are a helpful and friendly AI assistant
+        """
+        if new_personality is None:
+            current = await self.config.channel(ctx.channel).personality()
+            if not current:
+                await ctx.send("I'm currently using my default personality! 😊")
+            else:
+                await ctx.send(f"My current personality is: {current}")
+        else:
+            await self.config.channel(ctx.channel).personality.set(new_personality)
+            await ctx.send("My personality has been updated! 😊")
+
+    @chatbot.command()
+    async def reset(self, ctx: commands.Context):
+        """
+        Reset the conversation history for this channel
+        
+        Usage: [p]chatbot reset
+        
+        This will clear all stored message history for this channel.
+        """
+        await self.config.channel(ctx.channel).history.set([])
+        await ctx.send("Conversation history has been reset! 🔄")
+
+    @chatbot.command()
+    @commands.admin_or_permissions(administrator=True)
+    async def clearrate(self, ctx: commands.Context):
+        """
+        Clear rate limit counters for this channel (Admin only)
+        
+        Usage: [p]chatbot clearrate
+        
+        This will reset the rate limit counters, useful if the bot gets stuck.
+        """
+        if ctx.channel.id in self.rate_limits:
+            del self.rate_limits[ctx.channel.id]
+        await ctx.send("Rate limit counters have been cleared! ⚡")
+
+    @chatbot.command()
+    async def status(self, ctx: commands.Context):
+        """
+        Check the bot's current status
+        
+        Usage: [p]chatbot status
+        
+        Shows:
+        - API connection status
+        - Search capability status
+        - Current rate limits
+        - Bot enabled/disabled state
+        """
+        # Check API status
+        api_status = "✅ Connected" if self.model else "❌ Not connected"
+        
+        # Check search status
+        search_key = await self.config.search_api_key()
+        search_id = await self.config.search_engine_id()
+        search_enabled = await self.config.guild(ctx.guild).search_enabled()
+        search_status = "✅ Ready" if (search_key and search_id and search_enabled) else "❌ Not configured"
+        
+        # Check bot status
+        enabled = await self.config.guild(ctx.guild).enabled()
+        bot_status = "✅ Enabled" if enabled else "❌ Disabled"
+        
+        # Get rate limit info
+        rate_count = len(self.rate_limits.get(ctx.channel.id, [])) if ctx.channel.id in self.rate_limits else 0
+        
+        status_embed = discord.Embed(
+            title="🤖 Bot Status",
+            color=discord.Color.blue()
+        )
+        status_embed.add_field(name="Bot State", value=bot_status, inline=True)
+        status_embed.add_field(name="API Status", value=api_status, inline=True)
+        status_embed.add_field(name="Search Status", value=search_status, inline=True)
+        status_embed.add_field(name="Rate Limits", value=f"{rate_count} messages in current window", inline=True)
+        
+        await ctx.send(embed=status_embed)
+
+    @chatbot.command()
+    async def settings(self, ctx: commands.Context):
+        """
+        View current settings for this server/channel
+        
+        Usage: [p]chatbot settings
+        
+        Shows:
+        - Bot enabled/disabled state
+        - Search enabled/disabled state
+        - Current personality
+        - Rate limit settings
+        """
+        # Get current settings
+        enabled = await self.config.guild(ctx.guild).enabled()
+        search_enabled = await self.config.guild(ctx.guild).search_enabled()
+        personality = await self.config.channel(ctx.channel).personality()
+        
+        settings_embed = discord.Embed(
+            title="⚙️ Current Settings",
+            color=discord.Color.green()
+        )
+        settings_embed.add_field(
+            name="Bot Status",
+            value="✅ Enabled" if enabled else "❌ Disabled",
+            inline=True
+        )
+        settings_embed.add_field(
+            name="Web Search",
+            value="✅ Enabled" if search_enabled else "❌ Disabled",
+            inline=True
+        )
+        settings_embed.add_field(
+            name="Personality",
+            value=personality if personality else "Default",
+            inline=False
+        )
+        settings_embed.add_field(
+            name="Rate Limits",
+            value=f"Max {self.RATE_LIMIT_MAX} messages per {self.RATE_LIMIT_MINUTES} minutes",
+            inline=True
+        )
+        
+        await ctx.send(embed=settings_embed)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -767,77 +983,6 @@ code
                 print(f"Error processing message: {str(e)}")
                 error_msg = f"Sorry {message.author.mention}, I encountered an error: {str(e)}"
                 await message.reply(error_msg)
-
-    @commands.group()
-    @commands.guild_only()
-    @commands.admin_or_permissions(administrator=True)
-    async def chatbot(self, ctx: commands.Context):
-        """Commands to manage the chat bot"""
-        pass
-
-    @chatbot.command()
-    @commands.is_owner()
-    async def setapikey(self, ctx: commands.Context, api_key: str):
-        """Set the Gemini API key (owner only)
-        
-        Get your API key from: https://makersuite.google.com/app/apikey"""
-        # Delete the message to hide the API key
-        try:
-            await ctx.message.delete()
-        except:
-            pass
-
-        await self.config.api_key.set(api_key)
-        if await self.initialize():
-            await ctx.send("API key set and validated successfully! I'm ready to chat.")
-        else:
-            await ctx.send("Failed to initialize with the provided API key. Please check if it's valid.")
-
-    @chatbot.command()
-    async def maxhistory(self, ctx: commands.Context, amount: int):
-        """Set the maximum number of messages to keep in conversation history"""
-        if amount < 1 or amount > 50:
-            await ctx.send("Please choose a number between 1 and 50")
-            return
-            
-        await self.config.guild(ctx.guild).max_history.set(amount)
-        await ctx.send(f"Maximum conversation history set to {amount} messages")
-
-    @chatbot.command()
-    async def ratelimit(self, ctx: commands.Context, messages_per_minute: int):
-        """Set the rate limit (messages per minute)"""
-        if messages_per_minute < 1 or messages_per_minute > 60:
-            await ctx.send("Please choose a number between 1 and 60")
-            return
-            
-        await self.config.guild(ctx.guild).rate_limit.set(messages_per_minute)
-        await ctx.send(f"Rate limit set to {messages_per_minute} messages per minute")
-
-    @chatbot.command()
-    async def timezone(self, ctx: commands.Context, timezone_name: str):
-        """Set the timezone for the server (e.g., 'America/New_York')"""
-        try:
-            pytz.timezone(timezone_name)
-            await self.config.guild(ctx.guild).timezone.set(timezone_name)
-            time_info = await self.get_current_time_info(ctx.guild.id)
-            await ctx.send(f"Timezone set to {timezone_name}\n\n{time_info}")
-        except pytz.exceptions.UnknownTimeZoneError:
-            await ctx.send(f"Invalid timezone. Please use a valid timezone name (e.g., 'America/New_York', 'Europe/London')")
-
-    @chatbot.command()
-    async def toggle(self, ctx: commands.Context):
-        """Toggle the chat bot on/off"""
-        current = await self.config.guild(ctx.guild).enabled()
-        await self.config.guild(ctx.guild).enabled.set(not current)
-        state = "enabled" if not current else "disabled"
-        await ctx.send(f"Chat bot is now {state}")
-
-    @chatbot.command()
-    async def clearhistory(self, ctx: commands.Context):
-        """Clear conversation history for this server"""
-        if ctx.channel.id in self.active_conversations:
-            del self.active_conversations[ctx.channel.id]
-        await ctx.send("Conversation history cleared!")
 
 async def setup(bot):
     cog = DiscordChatBot(bot)
