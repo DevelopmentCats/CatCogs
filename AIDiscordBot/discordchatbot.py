@@ -40,6 +40,13 @@ class DiscordChatBot(commands.Cog):
         self.typing_channels: set = set()
         self.model = None
         self.search_service = None
+        
+        # Constants
+        self.DISCORD_MESSAGE_LIMIT = 2000
+        self.RATE_LIMIT_MAX = 25  # Maximum messages per time window
+        self.RATE_LIMIT_MINUTES = 5  # Time window in minutes
+        self.GEMINI_MAX_INPUT = 30720     # Gemini's input token limit (approximate in characters)
+        self.GEMINI_MAX_OUTPUT = 2048     # Keep responses reasonable
 
         # Discord markdown formatting guide for the AI
         self.discord_formatting = """
@@ -61,11 +68,6 @@ code
 - User mention: Just use their display name, no special formatting needed
 - Channel mention: #channel-name
 """
-
-        # Constants for message limits
-        self.DISCORD_MESSAGE_LIMIT = 2000  # Discord's message length limit
-        self.GEMINI_MAX_INPUT = 30720     # Gemini's input token limit (approximate in characters)
-        self.GEMINI_MAX_OUTPUT = 2048     # Keep responses reasonable
 
     async def initialize(self) -> bool:
         """Initialize the Gemini API client"""
@@ -208,7 +210,7 @@ code
         # Remove old timestamps
         self.rate_limits[channel_id] = [
             t for t in self.rate_limits[channel_id] 
-            if now - datetime.fromisoformat(t) < timedelta(minutes=1)
+            if now - datetime.fromisoformat(t) < timedelta(minutes=self.RATE_LIMIT_MINUTES)
         ]
 
         guild = self.bot.get_channel(channel_id).guild
