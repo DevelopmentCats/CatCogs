@@ -576,10 +576,7 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
         except Exception as e:
             error_msg = str(e)
             self.log.error(f"Search error - Query: {query}, Error: {error_msg}")
-            if "quota" in error_msg.lower():@red_commands.group()
-            @red_commands.guild_only()
-            @red_commands.is_owner()
-            @red_commands.admin_or_permissions(administrator=True)
+            if "quota" in error_msg.lower():
                 return "Search quota exceeded. Please try again later or contact the bot owner."
             elif "invalid" in error_msg.lower() and "key" in error_msg.lower():
                 return "Search API configuration error. Please contact the bot owner."
