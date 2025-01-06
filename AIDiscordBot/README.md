@@ -1,155 +1,71 @@
-# DiscordChatBot - Gemini AI Powered Discord Bot
+# 🤖 Gemini AI Discord Bot
 
-A sophisticated Red-DiscordBot cog that creates an intelligent chat bot using Google's Gemini AI. This bot can engage in natural conversations while maintaining context awareness of both the server and time.
+A powerful Discord bot powered by Google's Gemini-Pro AI model, featuring intelligent conversation, web search capabilities, and dynamic personality customization.
 
-## 🌟 Features
+## ✨ Features
 
-- 🤖 Intelligent conversations using Google's Gemini AI
-- 💭 Multi-question handling in single messages
-- 🧠 Conversation memory with configurable history
-- 🌍 Server context awareness
-- ⏰ Time zone support with accurate time references
-- ⚡ Real-time typing indicators
-- 🛡️ Rate limiting and safety features
-- 🎯 Precise mention-based activation
-- 📝 Discord-native formatting
-- 👤 User nickname awareness
-
-## 📋 Prerequisites
-
-- Red-DiscordBot instance (v3.5.0+)
-- Google Gemini API key (get it from https://makersuite.google.com/app/apikey)
+- 🧠 **Advanced AI Conversations**: Powered by Google's Gemini-Pro model
+- 🔍 **Web Search Integration**: Real-time information from the web
+- 🎭 **Customizable Personality**: Adapt the bot's personality per channel
+- 📚 **Conversation Memory**: Maintains context for natural discussions
+- ⚡ **Rate Limiting**: Smart message handling to prevent spam
 
 ## 🚀 Installation
 
-1. Add the repository to your bot:
+1. **Install the Cog**
    ```
-   [p]repo add discordchatbot <repository_url>
-   ```
-
-2. Install the cog:
-   ```
-   [p]cog install discordchatbot
+   [p]cog install catcogs AIDiscordBot
+   [p]load AIDiscordBot
    ```
 
-3. Load the cog:
+2. **Configure API Keys (Required)**
    ```
-   [p]load discordchatbot
-   ```
-
-4. Set your Gemini API key (bot owner only):
-   ```
-   [p]chatbot setapikey <your_api_key>
+   [p]chatbot setapikey <your_gemini_api_key>
    ```
 
-## ⚙️ Configuration Commands
-
-All configuration commands start with `[p]chatbot` and require administrator permissions unless noted.
-
-### Essential Setup
-
-| Command | Description | Example | Permission |
-|---------|-------------|---------|------------|
-| `setapikey <key>` | Set Gemini API key | `[p]chatbot setapikey your_key_here` | Bot Owner |
-| `timezone <timezone>` | Set server timezone | `[p]chatbot timezone America/Chicago` | Admin |
-| `toggle` | Enable/disable the bot | `[p]chatbot toggle` | Admin |
-
-### Advanced Settings
-
-| Command | Description | Parameters | Example |
-|---------|-------------|------------|---------|
-| `maxhistory <amount>` | Set max conversation history | `amount`: 1-50 messages | `[p]chatbot maxhistory 20` |
-| `ratelimit <amount>` | Set rate limit | `amount`: 1-60 messages per minute | `[p]chatbot ratelimit 10` |
-| `clearhistory` | Clear conversation history | None | `[p]chatbot clearhistory` |
+3. **Set Up Web Search (Optional)**
+   ```
+   [p]chatbot searchkey <your_search_api_key>
+   [p]chatbot searchid <your_search_engine_id>
+   [p]chatbot togglesearch
+   ```
 
 ## 💬 Usage
 
-### Starting a Conversation
-
-To chat with the bot, simply mention it in any channel:
+### Basic Interaction
+Simply mention the bot (@BotName) to start chatting!
 ```
-@BotName How are you today?
-```
-
-### Multi-Question Messages
-
-You can ask multiple questions in one message:
-```
-@BotName What time is it? How's the weather? What's new?
+@BotName Hello! How are you today?
 ```
 
-### Discord Formatting
+### Available Commands
 
-The bot understands and uses Discord's native formatting:
-- **Bold** text using `**text**`
-- *Italic* text using `*text*`
-- `Code blocks` for code snippets
-- > Quotes for references
-- Bullet points for lists
-- Emojis for expression
+#### Configuration
+- `[p]chatbot setapikey <key>` - Set Gemini API key (Admin only)
+- `[p]chatbot toggle` - Enable/disable bot
+- `[p]chatbot personality [text]` - View/set bot personality
+- `[p]chatbot reset` - Reset conversation history
+- `[p]chatbot clearrate` - Clear rate limits
 
-## 🎯 Features in Detail
+#### Search Configuration
+- `[p]chatbot searchkey <key>` - Set Search API key (Admin only)
+- `[p]chatbot searchid <id>` - Set Search Engine ID (Admin only)
+- `[p]chatbot togglesearch` - Enable/disable search
 
-### Time Awareness
-- Maintains accurate time information
-- Responds with time-appropriate context
-- Supports all standard timezone formats
-- Remembers server-specific timezone settings
+#### Status Commands
+- `[p]chatbot status` - Check bot status
+- `[p]chatbot settings` - View current settings
 
-### Conversation Memory
-- Maintains context across messages
-- Configurable history length (1-50 messages)
-- Privacy-focused with easy clearing
-- Stores user nicknames for personalized interaction
+## 📝 Getting API Keys
 
-### Server Context
-- Aware of server name and details
-- Maintains server-specific settings
-- Adapts responses to server context
-- Channel-aware responses
+### Gemini API Key
+1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Create or select a project
+3. Enable the Gemini API
+4. Create API credentials
 
-### Safety Features
-- Configurable rate limiting
-- Proper error handling
-- Resource cleanup
-- Memory management
-- Administrator-only configuration
-
-## 🔒 Privacy & Data
-
-- No permanent data storage
-- Conversation history stored temporarily in memory
-- Easily clearable with `[p]chatbot clearhistory`
-- No personal information retained
-- Compliant with Discord's privacy guidelines
-
-## 👥 Support & Community
-
-- For issues: Open an issue in the repository
-- For questions: Join our Discord support server
-- For updates: Watch the repository
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
-## 📜 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 👨‍💻 Author
-
-**DeveloperCats**
-
-## 📝 Changelog
-
-### Version 1.0.0
-- Initial release
-- Full Gemini AI integration
-- Discord-native formatting
-- Time awareness
-- Multi-question handling
+### Google Custom Search (Optional)
+1. Visit [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+2. Create a project and enable Custom Search API
+3. Create API credentials
+4. Create a [Custom Search Engine](https://programmablesearchengine.google.com/)
