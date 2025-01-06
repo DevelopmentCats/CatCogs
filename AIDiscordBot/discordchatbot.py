@@ -408,14 +408,17 @@ class DiscordChatBot(red_commands.Cog):
             # Get response from appropriate model
             try:
                 if images:
-                    # For vision model, we need to combine text and images
-                    content_parts = [{'text': prompt}]
-                    for img in images:
-                        content_parts.append({'image': img})
+                    # For vision model, we need to combine text and images into parts
+                    content = {
+                        'parts': [
+                            {'text': prompt},
+                            *images  # Each image is already formatted with inline_data
+                        ]
+                    }
                     
                     chat = self.vision_model.start_chat(history=[])
                     response = await asyncio.to_thread(
-                        lambda: chat.send_message(content_parts).text
+                        lambda: chat.send_message(content).text
                     )
                 else:
                     # Use text model for regular chat
@@ -729,7 +732,7 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
             self.log.error(f"Error in should_perform_search: {str(e)}")
             return False, ""
 
-    async def _process_images(self, message: discord.Message) -> Tuple[List[Image.Image], str]:
+    async def _process_images(self, message: discord.Message) -> Tuple[List[dict], str]:
         """Process images from the message or referenced message"""
         images = []
         image_context = ""
@@ -739,7 +742,15 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
             try:
                 data = await attachment.read()
                 image = Image.open(io.BytesIO(data))
-                return image
+                # Convert to bytes in memory
+                img_byte_arr = io.BytesIO()
+                image.save(img_byte_arr, format=image.format or 'PNG')
+                img_byte_arr = img_byte_arr.getvalue()
+                
+                return {
+                    'mime_type': attachment.content_type or 'image/png',
+                    'data': img_byte_arr
+                }
             except Exception as e:
                 self.log.error(f"Error downloading/processing image: {str(e)}")
                 return None
@@ -748,9 +759,9 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
         if message.attachments:
             for attachment in message.attachments:
                 if attachment.content_type and attachment.content_type.startswith('image/'):
-                    image = await download_image(attachment)
-                    if image:
-                        images.append(image)
+                    image_data = await download_image(attachment)
+                    if image_data:
+                        images.append({'inline_data': image_data})
                         image_context += f"[Image from {message.author.display_name}] "
 
         # Check for images in referenced message
@@ -759,9 +770,9 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
             if ref_msg.attachments:
                 for attachment in ref_msg.attachments:
                     if attachment.content_type and attachment.content_type.startswith('image/'):
-                        image = await download_image(attachment)
-                        if image:
-                            images.append(image)
+                        image_data = await download_image(attachment)
+                        if image_data:
+                            images.append({'inline_data': image_data})
                             image_context += f"[Referenced image from {ref_msg.author.display_name}] "
 
         return images, image_context
