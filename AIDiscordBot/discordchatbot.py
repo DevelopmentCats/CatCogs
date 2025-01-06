@@ -644,7 +644,7 @@ code
             return f"Recent topics: {topics[-1]}"
         return ""
 
-    @commands.group()
+    @commands.group(invoke_without_command=True)
     @commands.guild_only()
     async def chatbot(self, ctx: commands.Context):
         """
@@ -669,8 +669,53 @@ code
         - status: Check bot's current status
         - settings: View current settings
         """
+        # Only send help if no subcommand was invoked
         if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
+            embed = discord.Embed(
+                title="🤖 Gemini AI Chatbot Help",
+                description="Here are all available commands:",
+                color=discord.Color.blue()
+            )
+            
+            embed.add_field(
+                name="📝 Basic Usage",
+                value="Simply mention the bot (@BotName) to start chatting!",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="⚙️ Configuration Commands",
+                value="`setapikey` - Set Gemini API key (Admin)\n"
+                      "`toggle` - Enable/disable bot\n"
+                      "`personality` - Set bot personality\n"
+                      "`reset` - Reset conversation\n"
+                      "`clearrate` - Clear rate limits",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🔍 Search Configuration",
+                value="`searchkey` - Set Search API key (Admin)\n"
+                      "`searchid` - Set Search Engine ID (Admin)\n"
+                      "`togglesearch` - Enable/disable search",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📊 Status Commands",
+                value="`status` - Check bot status\n"
+                      "`settings` - View current settings",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="ℹ️ Detailed Help",
+                value="Use `~chatbot <command>` for detailed help on each command\n"
+                      "Example: `~chatbot personality`",
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
 
     @chatbot.command()
     @commands.is_owner()
