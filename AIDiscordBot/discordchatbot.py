@@ -5,7 +5,7 @@ from redbot.core import commands, Config
 from discord.ext import commands as dpy_commands
 import discord
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import pytz
 from googleapiclient.discovery import build
 
@@ -863,7 +863,8 @@ code
         - Bot enabled/disabled state
         """
         # Check API status
-        api_status = "✅ Connected" if self.model else "❌ Not connected"
+        api_key = await self.config.api_key()
+        api_status = "✅ Connected" if (self.model and api_key) else "❌ Not connected"
         
         # Check search status
         search_key = await self.config.search_api_key()
@@ -882,10 +883,24 @@ code
             title="🤖 Bot Status",
             color=discord.Color.blue()
         )
-        status_embed.add_field(name="Bot State", value=bot_status, inline=True)
-        status_embed.add_field(name="API Status", value=api_status, inline=True)
-        status_embed.add_field(name="Search Status", value=search_status, inline=True)
-        status_embed.add_field(name="Rate Limits", value=f"{rate_count} messages in current window", inline=True)
+        
+        # Add API key info if admin
+        if await self.bot.is_owner(ctx.author):
+            api_key_truncated = f"{api_key[:6]}...{api_key[-4:]}" if api_key else "Not Set"
+            status_embed.add_field(
+                name="🔑 API Key",
+                value=f"`{api_key_truncated}`",
+                inline=True
+            )
+        
+        status_embed.add_field(name="🤖 Bot State", value=bot_status, inline=True)
+        status_embed.add_field(name="🔌 API Status", value=api_status, inline=True)
+        status_embed.add_field(name="🔍 Search Status", value=search_status, inline=True)
+        status_embed.add_field(
+            name="⚡ Rate Limits", 
+            value=f"{rate_count}/{self.RATE_LIMIT_MAX} messages in {self.RATE_LIMIT_MINUTES}min window", 
+            inline=True
+        )
         
         await ctx.send(embed=status_embed)
 
