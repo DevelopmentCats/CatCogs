@@ -15,39 +15,46 @@ class DiscordChatBot(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
-        
-        default_global = {
-            "api_key": None,         # Gemini API key
-            "search_api_key": None,  # Google Custom Search API key
-            "search_engine_id": None # Custom Search Engine ID
-        }
-        
-        default_guild = {
-            "max_history": 10,      # Maximum number of messages to keep in history
-            "enabled": True,        # Toggle for enabling/disabling the bot
-            "rate_limit": 5,        # Messages per minute
-            "max_response_time": 30, # Maximum seconds to wait for response
-            "timezone": 'America/Chicago', # Default timezone
-            "search_enabled": True  # Toggle for web search capability
-        }
-
-        self.config.register_global(**default_global)
-        self.config.register_guild(**default_guild)
-
-        # Store active conversations and rate limiting
-        self.active_conversations: Dict[int, List[dict]] = {}
-        self.rate_limits: Dict[int, List[datetime]] = {}
-        self.typing_channels: set = set()
+        self.typing_channels = set()
+        self.rate_limits = {}
         self.model = None
         self.search_service = None
         
         # Constants
         self.DISCORD_MESSAGE_LIMIT = 2000
-        self.RATE_LIMIT_MAX = 25  # Maximum messages per time window
-        self.RATE_LIMIT_MINUTES = 5  # Time window in minutes
+        self.RATE_LIMIT_MAX = 50  # Maximum messages per time window
+        self.RATE_LIMIT_MINUTES = 15  # Time window in minutes
         self.GEMINI_MAX_INPUT = 30720     # Gemini's input token limit (approximate in characters)
         self.GEMINI_MAX_OUTPUT = 2048     # Keep responses reasonable
+        
+        default_guild = {
+            "enabled": True,
+            "max_history": 10,
+            "rate_limit": 25,
+            "timezone": "UTC",
+            "search_enabled": False,
+            "api_key": None  # Move API key to guild config
+        }
+        
+        default_channel = {
+            "history": [],
+            "personality": ""
+        }
+        
+        default_global = {
+            "search_api_key": None,  # Search API key is global
+            "search_engine_id": None  # Search Engine ID is global
+        }
+        
+        self.config.register_guild(**default_guild)
+        self.config.register_channel(**default_channel)
+        self.config.register_global(**default_global)
 
+        # Store active conversations and rate limiting
+        self.active_conversations: Dict[int, List[dict]] = {}
+        self.model = None
+        self.search_service = None
+        
         # Discord markdown formatting guide for the AI
         self.discord_formatting = """
 Discord Text Formatting Guide:
@@ -465,7 +472,7 @@ code
                 guild = self.bot.get_channel(channel_id).guild
                 search_enabled = await self.config.guild(guild).search_enabled()
                 if search_enabled and await self.should_perform_search(message):
-                    search_results = await self.perform_web_search(message)
+                    search_results = await self.perform_web_search(message, None)
                     if search_results:
                         search_context = search_results
             
@@ -541,237 +548,79 @@ code
             print(f"Unexpected Error: {str(e)}")
             return f"I ran into an unexpected problem, {user_mention}. Please try again!"
 
-    async def perform_web_search(self, query: str, num_results: int = 3) -> str:
-        """Perform a web search and return formatted results"""
+    async def perform_web_search(self, query: str, ctx) -> str:
+        """Perform a web search using Google Custom Search API"""
         try:
-            if not self.search_service:
-                return ""
-
+            search_api_key = await self.config.search_api_key()
             search_engine_id = await self.config.search_engine_id()
-            if not search_engine_id:
-                return ""
-
+            
+            if not search_api_key or not search_engine_id:
+                return "Web search is not configured. Please ask the bot owner to set up the search API."
+            
+            if not self.search_service:
+                self.search_service = build('customsearch', 'v1', developerKey=search_api_key)
+            
+            # Log the search
+            guild_name = ctx.guild.name if ctx.guild else "DM"
+            channel_name = ctx.channel.name if hasattr(ctx.channel, 'name') else "DM"
+            print(f"[Search] Guild: {guild_name}, Channel: {channel_name}, User: {ctx.author}, Query: {query}")
+            
+            # Perform the search
             result = self.search_service.cse().list(
                 q=query,
                 cx=search_engine_id,
-                num=num_results
+                num=5
             ).execute()
-
-            search_results = []
-            for item in result.get('items', []):
-                search_results.append({
-                    'title': item['title'],
-                    'snippet': item['snippet'],
-                    'link': item['link']
-                })
-
-            if search_results:
-                formatted_results = "Here's relevant information from the web:\n\n"
-                for res in search_results:
-                    formatted_results += f"Source: {res['title']}\n"
-                    formatted_results += f"Summary: {res['snippet']}\n"
-                    formatted_results += f"URL: {res['link']}\n\n"
-                return formatted_results
-            return ""
-
-        except Exception as e:
-            print(f"Search error: {str(e)}")
-            return ""
-
-    def _summarize_history(self, history: List[dict], current_user: str = None) -> str:
-        """Create a brief summary of the conversation history"""
-        if not history:
-            return f"This is the start of our conversation with {current_user}."
-        
-        # Count messages per user
-        user_messages = {}
-        for entry in history:
-            if 'metadata' in entry and 'user_name' in entry['metadata']:
-                user = entry['metadata']['user_name']
-                user_messages[user] = user_messages.get(user, 0) + 1
-        
-        # Create summary with emphasis on current user
-        summary_parts = []
-        for user, count in user_messages.items():
-            if user == current_user:
-                summary_parts.insert(0, f"{user} (current speaker, {count} messages)")
-            else:
-                summary_parts.append(f"{user} ({count} messages)")
-        
-        time_span = ""
-        if len(history) >= 2:
-            try:
-                first_time = datetime.fromisoformat(history[0].get('timestamp', ''))
-                last_time = datetime.fromisoformat(history[-1].get('timestamp', ''))
-                duration = last_time - first_time
-                if duration.total_seconds() < 3600:  # Less than an hour
-                    time_span = f"over {int(duration.total_seconds() / 60)} minutes"
-                else:
-                    time_span = f"over {int(duration.total_seconds() / 3600)} hours"
-            except (ValueError, TypeError):
-                time_span = ""
-        
-        topics = self._extract_conversation_topics(history[-5:], current_user)
-        
-        return (
-            f"Ongoing conversation with {', '.join(summary_parts)} {time_span}. "
-            f"{topics if topics else ''}"
-        )
-
-    def _extract_conversation_topics(self, recent_history: List[dict], current_user: str = None) -> str:
-        """Extract main topics from recent messages to maintain context without being too specific"""
-        if not recent_history:
-            return ""
             
-        topics = []
-        for entry in recent_history:
-            if 'parts' in entry and entry['parts']:
-                message = entry['parts'][0].get('text', '')
-                user = entry['metadata'].get('user_name', '')
-                
-                # Extract key nouns or phrases that might be important for context
-                if len(message.split()) > 3:  # Only consider substantial messages
-                    # Clean the message to avoid any problematic content
-                    cleaned_message = message.split(':')[-1].strip()
-                    if len(cleaned_message) > 50:
-                        cleaned_message = cleaned_message[:50] + "..."
-                    
-                    # Add user context to the topic
-                    if user == current_user:
-                        topics.append(f"your previous message: {cleaned_message}")
-                    else:
-                        topics.append(f"previous topic from {user}: {cleaned_message}")
-                    
-        if topics:
-            return f"Recent topics: {topics[-1]}"
-        return ""
+            if 'items' not in result:
+                return "No results found."
+            
+            search_results = []
+            for item in result['items'][:3]:  # Get top 3 results
+                title = item.get('title', 'No title')
+                snippet = item.get('snippet', 'No description')
+                link = item.get('link', '')
+                search_results.append(f"**{title}**\n{snippet}\n{link}\n")
+            
+            return "\n\n".join(search_results)
+            
+        except Exception as e:
+            print(f"[Search Error] {str(e)}")
+            return f"An error occurred while performing the web search: {str(e)}"
 
-    @commands.group(invoke_without_command=True)
+    @commands.group()
     @commands.guild_only()
     async def chatbot(self, ctx: commands.Context):
-        """
-        Gemini AI Chatbot Commands
-        
-        This is a powerful AI chatbot powered by Google's Gemini-Pro model.
-        Simply mention the bot (@BotName) to start chatting!
-        
-        Configuration Commands:
-        - setapikey: Set the Gemini API key (Admin only)
-        - toggle: Enable/disable the bot
-        - personality: View or set the bot's personality
-        - reset: Reset conversation history
-        - clearrate: Clear rate limit counters
-        
-        Search Configuration:
-        - searchkey: Set Google Custom Search API key (Admin only)
-        - searchid: Set Google Custom Search Engine ID (Admin only)
-        - togglesearch: Enable/disable web search capability
-        
-        Status Commands:
-        - status: Check bot's current status
-        - settings: View current settings
-        """
-        # Only send help if no subcommand was invoked
+        """Gemini AI Chatbot Commands"""
         if ctx.invoked_subcommand is None:
-            embed = discord.Embed(
-                title="🤖 Gemini AI Chatbot Help",
-                description="Here are all available commands:",
-                color=discord.Color.blue()
-            )
-            
-            embed.add_field(
-                name="📝 Basic Usage",
-                value="Simply mention the bot (@BotName) to start chatting!",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="⚙️ Configuration Commands",
-                value="`setapikey` - Set Gemini API key (Admin)\n"
-                      "`toggle` - Enable/disable bot\n"
-                      "`personality` - Set bot personality\n"
-                      "`reset` - Reset conversation\n"
-                      "`clearrate` - Clear rate limits",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="🔍 Search Configuration",
-                value="`searchkey` - Set Search API key (Admin)\n"
-                      "`searchid` - Set Search Engine ID (Admin)\n"
-                      "`togglesearch` - Enable/disable search",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="📊 Status Commands",
-                value="`status` - Check bot status\n"
-                      "`settings` - View current settings",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="ℹ️ Detailed Help",
-                value="Use `~chatbot <command>` for detailed help on each command\n"
-                      "Example: `~chatbot personality`",
-                inline=False
-            )
-            
-            await ctx.send(embed=embed)
+            await ctx.send_help(ctx.command)
 
     @chatbot.command()
     @commands.is_owner()
-    async def setapikey(self, ctx: commands.Context, api_key: str):
+    async def searchkey(self, ctx: commands.Context, key: str):
         """
-        Set the Gemini API key (Admin only)
+        Set the Google Custom Search API key (Bot Owner Only)
         
-        Usage: [p]chatbot setapikey <your_api_key>
-        Example: [p]chatbot setapikey AIzaSyXXXXXXXXXXXXXXXXXXXXXX
-        
-        Get your API key from: https://makersuite.google.com/app/apikey
+        This key will be used for all servers where search is enabled.
         """
-        # Delete the message to hide the API key
+        await self.config.search_api_key.set(key)
+        await ctx.send("Search API key has been set. Use `searchid` to set the search engine ID.")
+        # Delete the command message for security
         try:
             await ctx.message.delete()
         except:
             pass
-        
-        await self.config.api_key.set(api_key)
-        await self.initialize()  # Reinitialize with new key
-        await ctx.send("API key has been set! I'm ready to chat. 🤖")
 
     @chatbot.command()
-    @commands.admin_or_permissions(administrator=True)
-    async def searchkey(self, ctx: commands.Context, api_key: str):
-        """
-        Set the Google Custom Search API key (Admin only)
-        
-        Usage: [p]chatbot searchkey <your_api_key>
-        Example: [p]chatbot searchkey AIzaSyXXXXXXXXXXXXXXXXXXXXXX
-        
-        Get your API key from: https://console.cloud.google.com/apis/credentials
-        """
-        try:
-            await ctx.message.delete()
-        except:
-            pass
-        
-        await self.config.search_api_key.set(api_key)
-        await ctx.send("Search API key has been set! 🔍")
-
-    @chatbot.command()
-    @commands.admin_or_permissions(administrator=True)
+    @commands.is_owner()
     async def searchid(self, ctx: commands.Context, engine_id: str):
         """
-        Set the Google Custom Search Engine ID (Admin only)
+        Set the Google Custom Search Engine ID (Bot Owner Only)
         
-        Usage: [p]chatbot searchid <your_engine_id>
-        Example: [p]chatbot searchid 123456789:abcdefghijk
-        
-        Get your Search Engine ID from: https://programmablesearchengine.google.com/
+        This ID will be used for all servers where search is enabled.
         """
         await self.config.search_engine_id.set(engine_id)
-        await ctx.send("Search Engine ID has been set! 🔍")
+        await ctx.send("Search engine ID has been set. Use `togglesearch` to enable search in this server.")
 
     @chatbot.command()
     @commands.admin_or_permissions(administrator=True)
@@ -787,7 +636,7 @@ code
         current = await self.config.guild(ctx.guild).search_enabled()
         await self.config.guild(ctx.guild).search_enabled.set(not current)
         status = "enabled" if not current else "disabled"
-        await ctx.send(f"Web search has been {status} for this server! 🔍")
+        await ctx.send(f"Web search has been {status} for this server!")
 
     @chatbot.command()
     @commands.admin_or_permissions(administrator=True)
@@ -802,7 +651,7 @@ code
         current = await self.config.guild(ctx.guild).enabled()
         await self.config.guild(ctx.guild).enabled.set(not current)
         status = "enabled" if not current else "disabled"
-        await ctx.send(f"I have been {status} for this server! 🤖")
+        await ctx.send(f"I have been {status} for this server!")
 
     @chatbot.command()
     async def personality(self, ctx: commands.Context, *, new_personality: str = None):
@@ -818,12 +667,12 @@ code
         if new_personality is None:
             current = await self.config.channel(ctx.channel).personality()
             if not current:
-                await ctx.send("I'm currently using my default personality! 😊")
+                await ctx.send("I'm currently using my default personality!")
             else:
                 await ctx.send(f"My current personality is: {current}")
         else:
             await self.config.channel(ctx.channel).personality.set(new_personality)
-            await ctx.send("My personality has been updated! 😊")
+            await ctx.send("My personality has been updated!")
 
     @chatbot.command()
     async def reset(self, ctx: commands.Context):
@@ -835,7 +684,7 @@ code
         This will clear all stored message history for this channel.
         """
         await self.config.channel(ctx.channel).history.set([])
-        await ctx.send("Conversation history has been reset! 🔄")
+        await ctx.send("Conversation history has been reset!")
 
     @chatbot.command()
     @commands.admin_or_permissions(administrator=True)
@@ -849,7 +698,7 @@ code
         """
         if ctx.channel.id in self.rate_limits:
             del self.rate_limits[ctx.channel.id]
-        await ctx.send("Rate limit counters have been cleared! ⚡")
+        await ctx.send("Rate limit counters have been cleared!")
 
     @chatbot.command()
     async def status(self, ctx: commands.Context):
@@ -1007,7 +856,7 @@ code
                 search_context = ""
                 if await self.config.guild(message.guild).search_enabled():
                     if await self.should_perform_search(clean_content):
-                        search_results = await self.perform_web_search(clean_content)
+                        search_results = await self.perform_web_search(clean_content, message)
                         if search_results:
                             search_context = search_results
                             print(f"Search performed for query: {clean_content}")
