@@ -1,58 +1,73 @@
-import discord
-from discord.ext import commands
-from redbot.core import commands as red_commands
-from redbot.core import Config
+import asyncio
+from typing import Dict, List, Optional
 import google.generativeai as genai
-from googleapiclient.discovery import build
+from redbot.core import commands, Config
+from discord.ext import commands as dpy_commands
+import discord
+import re
 from datetime import datetime, timezone, timedelta
 import pytz
-import asyncio
-from typing import Dict, List, Optional, Tuple
+from googleapiclient.discovery import build
 
 class DiscordChatBot(commands.Cog):
-    """A Discord chatbot powered by Google's Gemini AI"""
+    """A sophisticated chat bot using Google's Gemini AI"""
 
     def __init__(self, bot):
         self.bot = bot
         self.config = Config.get_conf(self, identifier=1234567890)
-        self.typing_channels = set()
-        self.rate_limits = {}
+        
+        default_global = {
+            "api_key": None,         # Gemini API key
+            "search_api_key": None,  # Google Custom Search API key
+            "search_engine_id": None # Custom Search Engine ID
+        }
+        
+        default_guild = {
+            "max_history": 10,      # Maximum number of messages to keep in history
+            "enabled": True,        # Toggle for enabling/disabling the bot
+            "rate_limit": 5,        # Messages per minute
+            "max_response_time": 30, # Maximum seconds to wait for response
+            "timezone": 'America/Chicago', # Default timezone
+            "search_enabled": True  # Toggle for web search capability
+        }
+
+        self.config.register_global(**default_global)
+        self.config.register_guild(**default_guild)
+
+        # Store active conversations and rate limiting
+        self.active_conversations: Dict[int, List[dict]] = {}
+        self.rate_limits: Dict[int, List[datetime]] = {}
+        self.typing_channels: set = set()
         self.model = None
         self.search_service = None
         
         # Constants
         self.DISCORD_MESSAGE_LIMIT = 2000
-        self.RATE_LIMIT_MAX = 50  # Maximum messages per time window
-        self.RATE_LIMIT_MINUTES = 15  # Time window in minutes
+        self.RATE_LIMIT_MAX = 25  # Maximum messages per time window
+        self.RATE_LIMIT_MINUTES = 5  # Time window in minutes
         self.GEMINI_MAX_INPUT = 30720     # Gemini's input token limit (approximate in characters)
         self.GEMINI_MAX_OUTPUT = 2048     # Keep responses reasonable
-        self.DEFAULT_TIMEZONE = 'America/Chicago'  # Default timezone
-        
-        default_guild = {
-            "enabled": True,
-            "max_history": 10,
-            "rate_limit": 25,
-            "timezone": self.DEFAULT_TIMEZONE,  # Use the constant
-            "search_enabled": False,
-            "api_key": None
-        }
-        
-        default_channel = {
-            "history": [],
-            "personality": ""
-        }
-        
-        default_global = {
-            "search_api_key": None,  # Search API key is global
-            "search_engine_id": None  # Search Engine ID is global
-        }
-        
-        self.config.register_guild(**default_guild)
-        self.config.register_channel(**default_channel)
-        self.config.register_global(**default_global)
 
-        # Store active conversations
-        self.active_conversations: Dict[int, List[dict]] = {}
+        # Discord markdown formatting guide for the AI
+        self.discord_formatting = """
+Discord Text Formatting Guide:
+- Bold: **text**
+- Italic: *text* or _text_
+- Bold Italic: ***text***
+- Underline: __text__
+- Strikethrough: ~~text~~
+- Code block: ```language
+code
+```
+- Inline code: `text`
+- Quote: > text
+- Spoiler: ||text||
+- Bullet points: • text
+- Numbered list: 1. text
+- Emoji: Use Discord emoji format :emoji_name:
+- User mention: Just use their display name, no special formatting needed
+- Channel mention: #channel-name
+"""
 
     async def initialize(self) -> bool:
         """Initialize the Gemini API client"""
@@ -61,10 +76,15 @@ class DiscordChatBot(commands.Cog):
             if not api_key:
                 print("No API key configured")
                 return False
-
+                
             genai.configure(api_key=api_key)
             
-            # Initialize model with safety settings
+            # Initialize search service if credentials are available
+            search_api_key = await self.config.search_api_key()
+            if search_api_key:
+                self.search_service = build("customsearch", "v1", developerKey=search_api_key)
+            
+            # Configure model with enhanced capabilities
             generation_config = {
                 "temperature": 0.9,
                 "top_p": 1,
@@ -73,50 +93,37 @@ class DiscordChatBot(commands.Cog):
             }
             
             safety_settings = [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE"
+                },
             ]
             
+            # Use Gemini-Pro model with math capabilities
             self.model = genai.GenerativeModel(
                 model_name="gemini-pro",
                 generation_config=generation_config,
                 safety_settings=safety_settings
             )
             
-            # Initialize search service if keys are available
-            search_api_key = await self.config.search_api_key()
-            if search_api_key:
-                self.search_service = build('customsearch', 'v1', developerKey=search_api_key)
-            
+            print("Successfully initialized Gemini API")
             return True
             
         except Exception as e:
             print(f"Error initializing Gemini API: {str(e)}")
             return False
-
-    async def get_gemini_response(self, prompt: str) -> Optional[str]:
-        """Get a response from Gemini with proper error handling"""
-        try:
-            if not self.model:
-                if not await self.initialize():
-                    return "I'm not properly configured yet. Please ask an admin to set up my API key."
-
-            chat = self.model.start_chat(history=[])
-            response = await asyncio.to_thread(
-                lambda: chat.send_message(prompt).text
-            )
-            
-            # Ensure response doesn't exceed Discord's limit
-            if len(response) > self.DISCORD_MESSAGE_LIMIT:
-                response = response[:self.DISCORD_MESSAGE_LIMIT-100] + "..."
-            
-            return response
-
-        except Exception as e:
-            print(f"Error getting Gemini response: {str(e)}")
-            return None
 
     def split_into_questions(self, text: str) -> List[str]:
         """Split a message into multiple questions/statements"""
@@ -194,71 +201,34 @@ class DiscordChatBot(commands.Cog):
             if (current_time - datetime.fromisoformat(msg['metadata']['timestamp'])).total_seconds() < 86400
         ]
 
-    async def _check_rate_limit(self, channel_id: int, message: discord.Message) -> bool:
-        """Check if the channel has hit its rate limit"""
-        now = datetime.now(timezone.utc)
-        
-        # Initialize rate limits for this channel if needed
+    async def check_rate_limit(self, channel_id: int) -> bool:
+        """Check if the channel has hit rate limit"""
+        now = datetime.now()
         if channel_id not in self.rate_limits:
             self.rate_limits[channel_id] = []
-        
+
         # Remove old timestamps
         self.rate_limits[channel_id] = [
             t for t in self.rate_limits[channel_id] 
             if now - datetime.fromisoformat(t) < timedelta(minutes=self.RATE_LIMIT_MINUTES)
         ]
-        
-        # Check if we're over the limit
-        if len(self.rate_limits[channel_id]) >= self.RATE_LIMIT_MAX:
-            return False
-        
-        # Add new timestamp
-        self.rate_limits[channel_id].append(now.isoformat())
-        return True
 
-    def format_discord_message(self, text: str) -> str:
-        """Format message for Discord, ensuring proper markdown and length limits"""
-        if not text:
-            return ""
-            
-        # Ensure code blocks are properly closed
-        open_blocks = text.count("```")
-        if open_blocks % 2 != 0:
-            text += "\n```"
-            
-        # Ensure all formatting is properly closed
-        for char in ["*", "_", "~", "|"]:
-            count = text.count(char)
-            if count % 2 != 0:
-                text += char
-                
-        # Truncate if too long
-        if len(text) > self.DISCORD_MESSAGE_LIMIT:
-            text = text[:self.DISCORD_MESSAGE_LIMIT-100] + "..."
-            
-        return text
+        guild = self.bot.get_channel(channel_id).guild
+        rate_limit = await self.config.guild(guild).rate_limit()
+        return len(self.rate_limits[channel_id]) >= rate_limit
 
-    async def get_current_time_info(self, guild_id: int = None) -> str:
+    async def get_current_time_info(self, guild_id: int) -> str:
         """Get formatted time information based on guild's timezone"""
-        try:
-            # Get timezone setting, default to America/Chicago if not set
-            if guild_id:
-                guild_timezone = await self.config.guild_from_id(guild_id).timezone()
-            else:
-                guild_timezone = self.DEFAULT_TIMEZONE
-
-            # Get current time in UTC
-            utc_now = datetime.now(timezone.utc)
-            
-            # Convert to guild's timezone
-            local_tz = pytz.timezone(guild_timezone)
-            local_time = utc_now.astimezone(local_tz)
-            
-            return f"Current time: {local_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
-            
-        except Exception as e:
-            print(f"Error getting time info: {str(e)}")
-            return f"Current time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        guild = self.bot.get_guild(guild_id)
+        timezone = await self.config.guild(guild).timezone()
+        tz = pytz.timezone(timezone)
+        now = datetime.now(tz)
+        
+        return (
+            f"Current time: {now.strftime('%Y-%m-%d %I:%M %p %Z')}\n"
+            f"Day of week: {now.strftime('%A')}\n"
+            f"Date: {now.strftime('%B %d, %Y')}"
+        )
 
     def get_bot_info(self) -> str:
         """Get information about the bot itself"""
@@ -338,87 +308,185 @@ class DiscordChatBot(commands.Cog):
             
         return "I can't respond to that due to safety concerns. Let's keep the conversation friendly and appropriate!"
 
-    async def should_perform_search(self, message: str) -> tuple[bool, str]:
-        """
-        Ask Gemini if a web search would be helpful for this message and get the search query
-        Returns a tuple of (should_search: bool, search_query: str)
-        """
+    async def should_perform_search(self, message: str) -> bool:
+        """Determine if a message might benefit from web search using Gemini's analysis"""
         try:
-            prompt = f"""Analyze if this message requires current or factual information that would benefit from a web search.
-If a search is needed, provide a search query that would best find the relevant information.
-Only recommend a search for questions about:
-1. Current events or news
-2. Facts that may change over time
-3. Specific details that need verification
-4. Comparisons or trends
-5. Technical documentation or specifications
+            analysis_prompt = f"""
+            You are an AI assistant analyzing if a message requires current or factual information from the web.
+            
+            Message to analyze: "{message}"
+            
+            Analyze ONLY if this message would significantly benefit from current web information.
+            Consider:
+            1. Need for current events, prices, or real-time data
+            2. Request for facts that may be outdated in training data
+            3. Questions about recent changes, updates, or trends
+            4. Need for current comparisons or statistics
+            5. Queries about ongoing events or developments
+            
+            IMPORTANT:
+            - Only return 'true' if web data would SIGNIFICANTLY improve the response
+            - Return 'false' for general knowledge, opinions, or conversational queries
+            - Respond with ONLY 'true' or 'false', nothing else
+            """
 
-Message: {message}
-
-Respond in this exact format:
-SEARCH_NEEDED: true/false
-SEARCH_QUERY: <the optimal search query if search is needed, otherwise leave blank>
-
-Example responses:
-SEARCH_NEEDED: true
-SEARCH_QUERY: latest iPhone 15 Pro Max specifications and features 2024
-
-SEARCH_NEEDED: false
-SEARCH_QUERY:"""
-
-            response = await self.get_gemini_response(prompt)
-            if not response:
-                return False, ""
-
-            # Parse the response
-            lines = response.strip().split('\n')
-            if len(lines) < 2:
-                return False, ""
-
-            search_needed = lines[0].split(': ')[1].lower() == 'true'
-            search_query = lines[1].split(': ')[1] if len(lines[1].split(': ')) > 1 else ""
-
-            return search_needed, search_query
+            chat = self.model.start_chat(history=[])
+            response = await asyncio.to_thread(
+                lambda: chat.send_message(analysis_prompt).text.strip().lower()
+            )
+            
+            return response == 'true'
 
         except Exception as e:
-            print(f"Error in should_perform_search: {str(e)}")
-            return False, ""
+            print(f"Error in search analysis: {str(e)}")
+            return False
 
-    async def process_message(self, message: discord.Message, user_mention: str, clean_content: str) -> str:
+    def _prepare_prompt(self, message: str, context: str, history: List[dict], current_user: str, search_results: str = "") -> str:
+        """Prepare prompt while respecting Gemini's input limits"""
+        # Get current time in both UTC and local time
+        current_utc = datetime.now(timezone.utc)
+        current_local = datetime.now()
+        
+        # Start with essential components and clear user identification
+        prompt_template = (
+            "=== Current Date and Time ===\n"
+            "IMPORTANT - Current Time Information:\n"
+            "UTC: {utc_time}\n"
+            "Local: {local_time}\n"
+            "You MUST be aware of this time context when responding.\n\n"
+            
+            "=== Current User ===\n"
+            "You are talking to: {current_user}\n"
+            "IMPORTANT: Only mention and respond to the current user above.\n\n"
+            
+            "{web_search}"
+            
+            "=== Your Capabilities ===\n"
+            "You are powered by Google's Gemini-Pro AI model and can:\n\n"
+            
+            "1. Mathematical & Scientific Abilities:\n"
+            "   - Perform complex calculations and mathematical reasoning\n"
+            "   - Solve equations and mathematical problems\n"
+            "   - Explain scientific concepts and theories\n"
+            "   - Work with statistics and data analysis\n\n"
+            
+            "2. Programming & Technical:\n"
+            "   - Write, explain, and debug code in multiple languages\n"
+            "   - Provide technical explanations and documentation\n"
+            "   - Help with software architecture and design\n"
+            "   - Explain technical concepts clearly\n\n"
+            
+            "3. Language & Communication:\n"
+            "   - Engage in natural conversations\n"
+            "   - Help with writing and editing\n"
+            "   - Explain complex topics simply\n"
+            "   - Assist with language learning\n\n"
+            
+            "4. Analysis & Problem Solving:\n"
+            "   - Break down complex problems\n"
+            "   - Provide step-by-step explanations\n"
+            "   - Offer multiple perspectives\n"
+            "   - Help with decision-making\n\n"
+            
+            "5. Knowledge & Information:\n"
+            "   - Share knowledge about various topics\n"
+            "   - Explain historical events and concepts\n"
+            "   - Discuss current affairs (up to training cutoff)\n"
+            "   - Provide educational assistance\n\n"
+            
+            "When responding:\n"
+            "- Show detailed work for calculations\n"
+            "- Provide clear explanations\n"
+            "- Use appropriate formatting\n"
+            "- Double-check accuracy\n"
+            "- Stay within ethical boundaries\n"
+            "- Consider the current time when discussing events\n"
+            "- If web search results are provided:\n"
+            "  * Use them to enhance but not dominate your response\n"
+            "  * Blend them naturally with your knowledge\n"
+            "  * Maintain your conversational style\n\n"
+            
+            "=== Response Length Requirements ===\n"
+            "CRITICAL: Your response MUST be less than {response_limit} characters. Do not exceed this limit.\n"
+            "If you need to provide a long explanation:\n"
+            "1. Focus on the most important points\n"
+            "2. Be concise and clear\n"
+            "3. Break into multiple messages if necessary\n"
+            "4. Never truncate mid-sentence\n\n"
+            
+            "=== Current Message ===\n"
+            "User message: {message}\n\n"
+            
+            "=== Response Guidelines ===\n"
+            "1. You are ONLY responding to {current_user}\n"
+            "2. Focus on the current message\n"
+            "3. Keep responses natural and conversational\n"
+            "4. Never mention other users from history\n"
+            "5. Keep responses appropriate and friendly\n"
+            "6. If unsure about content safety, give a generic response\n"
+            "7. IMPORTANT: Keep your response under {response_limit} characters\n"
+            "8. ALWAYS consider the current date/time when discussing time-sensitive topics\n\n"
+        )
+        
+        # Add web search section if results exist
+        web_search_section = ""
+        if search_results:
+            web_search_section = (
+                "=== Current Web Information ===\n"
+                "Use this current information to enhance your response while maintaining your conversational style:\n"
+                f"{search_results}\n\n"
+            )
+        
+        # Format times as ISO format with timezone info
+        utc_time_str = current_utc.isoformat()
+        local_time_str = current_local.isoformat()
+        
+        # Calculate available space
+        base_prompt = prompt_template.format(
+            message=message,
+            current_user=current_user,
+            response_limit=self.DISCORD_MESSAGE_LIMIT,
+            web_search=web_search_section,
+            utc_time=utc_time_str,
+            local_time=local_time_str
+        )
+        
+        return base_prompt
+
+    async def process_message(self, message: str, context: str, history: List[dict], channel_id: int = None, user_name: str = None, user_mention: str = None) -> str:
         """Process a single message through Gemini"""
         try:
-            # Get conversation history
-            history = await self.get_conversation_history(message.channel.id)
+            # Get history specific to current user
+            user_history = await self.get_conversation_history(channel_id, user_name)
             
             # Check if search might be helpful
             search_context = ""
-            if message.guild:
-                search_enabled = await self.config.guild(message.guild).search_enabled()
-                if search_enabled:
-                    should_search, search_query = await self.should_perform_search(clean_content)
-                    if should_search and search_query:
-                        search_results = await self.perform_web_search(search_query, message)
-                        if search_results:
-                            search_context = f"Here is some relevant information I found:\n{search_results}\n\n"
-                            print(f"Search performed with query: {search_query}")
+            if channel_id:
+                guild = self.bot.get_channel(channel_id).guild
+                search_enabled = await self.config.guild(guild).search_enabled()
+                if search_enabled and await self.should_perform_search(message):
+                    search_results = await self.perform_web_search(message)
+                    if search_results:
+                        search_context = search_results
             
             # Format history for better context
             formatted_history = []
-            for entry in history:  
+            for entry in user_history:  # Only use user-specific history
                 if 'parts' in entry and entry['parts']:
                     message_text = entry['parts'][0].get('text', '')
+                    entry_user = entry['metadata'].get('user_name', '')
                     
                     # Clean the message text
                     message_text = self._clean_message(message_text)
                     
                     # Format message based on who sent it
-                    if entry['metadata'].get('user_name') == message.author.display_name:
+                    if entry_user == user_name:
                         formatted_text = f"You: {message_text}"
                     else:
                         formatted_text = f"Assistant: {message_text}"
                     
                     formatted_history.append({
-                        "role": entry.get("role", "user"),  
+                        "role": entry.get("role", "user"),  # Ensure valid role
                         "parts": [{"text": formatted_text}]
                     })
             
@@ -426,14 +494,17 @@ SEARCH_QUERY:"""
                 chat = self.model.start_chat(history=formatted_history)
             except Exception as e:
                 print(f"Error starting chat: {str(e)}")
-                chat = self.model.start_chat(history=[])  
+                chat = self.model.start_chat(history=[])  # Start fresh if history causes issues
+            
+            # Clean the current message
+            clean_message = self._clean_message(message)
             
             # Prepare prompt using the original template with search results
             prompt = self._prepare_prompt(
-                message=clean_content,
-                context=self.get_bot_personality(message.guild, message.channel, message.author.display_name),
-                history=history,
-                current_user=message.author.display_name,
+                message=clean_message,
+                context=context,
+                history=user_history,
+                current_user=user_name,
                 search_results=search_context
             )
             
@@ -447,14 +518,14 @@ SEARCH_QUERY:"""
                     return f"I generated a response that was too long ({len(response_text)} characters). Let me try again with a more concise answer, {user_mention}."
                 
                 # Replace the first occurrence of the user's name with their mention
-                if message.author.display_name in response_text:
-                    response_text = response_text.replace(message.author.display_name, user_mention, 1)
+                if user_name in response_text and user_mention:
+                    response_text = response_text.replace(user_name, user_mention, 1)
                 return response_text
                 
             except Exception as e:
                 error_str = str(e)
                 print(f"Gemini Error: {error_str}")
-                friendly_error = self._handle_safety_error(error_str, message.channel.id)
+                friendly_error = self._handle_safety_error(error_str, channel_id)
                 if friendly_error:
                     return friendly_error
                     
@@ -470,86 +541,240 @@ SEARCH_QUERY:"""
             print(f"Unexpected Error: {str(e)}")
             return f"I ran into an unexpected problem, {user_mention}. Please try again!"
 
-    async def perform_web_search(self, query: str, ctx) -> str:
-        """Perform a web search using Google Custom Search API"""
+    async def perform_web_search(self, query: str, num_results: int = 3) -> str:
+        """Perform a web search and return formatted results"""
         try:
-            search_api_key = await self.config.search_api_key()
-            search_engine_id = await self.config.search_engine_id()
-            
-            if not search_api_key or not search_engine_id:
-                return "Web search is not configured. Please ask the bot owner to set up the search API."
-            
             if not self.search_service:
-                self.search_service = build('customsearch', 'v1', developerKey=search_api_key)
-            
-            # Log the search with context awareness
-            if ctx:
-                guild_name = ctx.guild.name if ctx.guild else "DM"
-                channel_name = ctx.channel.name if hasattr(ctx.channel, 'name') else "DM"
-                user_name = str(ctx.author)
-                print(f"[Search] Guild: {guild_name}, Channel: {channel_name}, User: {user_name}, Query: {query}")
-            else:
-                print(f"[Search] Internal Query: {query}")
-            
-            # Perform the search
+                return ""
+
+            search_engine_id = await self.config.search_engine_id()
+            if not search_engine_id:
+                return ""
+
             result = self.search_service.cse().list(
                 q=query,
                 cx=search_engine_id,
-                num=5
+                num=num_results
             ).execute()
-            
-            if 'items' not in result:
-                return "No results found."
-            
-            search_results = []
-            for item in result['items'][:3]:  # Get top 3 results
-                title = item.get('title', 'No title')
-                snippet = item.get('snippet', 'No description')
-                link = item.get('link', '')
-                search_results.append(f"**{title}**\n{snippet}\n{link}\n")
-            
-            return "\n\n".join(search_results)
-            
-        except Exception as e:
-            print(f"[Search Error] {str(e)}")
-            return f"An error occurred while performing the web search: {str(e)}"
 
-    @commands.group()
+            search_results = []
+            for item in result.get('items', []):
+                search_results.append({
+                    'title': item['title'],
+                    'snippet': item['snippet'],
+                    'link': item['link']
+                })
+
+            if search_results:
+                formatted_results = "Here's relevant information from the web:\n\n"
+                for res in search_results:
+                    formatted_results += f"Source: {res['title']}\n"
+                    formatted_results += f"Summary: {res['snippet']}\n"
+                    formatted_results += f"URL: {res['link']}\n\n"
+                return formatted_results
+            return ""
+
+        except Exception as e:
+            print(f"Search error: {str(e)}")
+            return ""
+
+    def _summarize_history(self, history: List[dict], current_user: str = None) -> str:
+        """Create a brief summary of the conversation history"""
+        if not history:
+            return f"This is the start of our conversation with {current_user}."
+        
+        # Count messages per user
+        user_messages = {}
+        for entry in history:
+            if 'metadata' in entry and 'user_name' in entry['metadata']:
+                user = entry['metadata']['user_name']
+                user_messages[user] = user_messages.get(user, 0) + 1
+        
+        # Create summary with emphasis on current user
+        summary_parts = []
+        for user, count in user_messages.items():
+            if user == current_user:
+                summary_parts.insert(0, f"{user} (current speaker, {count} messages)")
+            else:
+                summary_parts.append(f"{user} ({count} messages)")
+        
+        time_span = ""
+        if len(history) >= 2:
+            try:
+                first_time = datetime.fromisoformat(history[0].get('timestamp', ''))
+                last_time = datetime.fromisoformat(history[-1].get('timestamp', ''))
+                duration = last_time - first_time
+                if duration.total_seconds() < 3600:  # Less than an hour
+                    time_span = f"over {int(duration.total_seconds() / 60)} minutes"
+                else:
+                    time_span = f"over {int(duration.total_seconds() / 3600)} hours"
+            except (ValueError, TypeError):
+                time_span = ""
+        
+        topics = self._extract_conversation_topics(history[-5:], current_user)
+        
+        return (
+            f"Ongoing conversation with {', '.join(summary_parts)} {time_span}. "
+            f"{topics if topics else ''}"
+        )
+
+    def _extract_conversation_topics(self, recent_history: List[dict], current_user: str = None) -> str:
+        """Extract main topics from recent messages to maintain context without being too specific"""
+        if not recent_history:
+            return ""
+            
+        topics = []
+        for entry in recent_history:
+            if 'parts' in entry and entry['parts']:
+                message = entry['parts'][0].get('text', '')
+                user = entry['metadata'].get('user_name', '')
+                
+                # Extract key nouns or phrases that might be important for context
+                if len(message.split()) > 3:  # Only consider substantial messages
+                    # Clean the message to avoid any problematic content
+                    cleaned_message = message.split(':')[-1].strip()
+                    if len(cleaned_message) > 50:
+                        cleaned_message = cleaned_message[:50] + "..."
+                    
+                    # Add user context to the topic
+                    if user == current_user:
+                        topics.append(f"your previous message: {cleaned_message}")
+                    else:
+                        topics.append(f"previous topic from {user}: {cleaned_message}")
+                    
+        if topics:
+            return f"Recent topics: {topics[-1]}"
+        return ""
+
+    @commands.group(invoke_without_command=True)
     @commands.guild_only()
     async def chatbot(self, ctx: commands.Context):
-        """Gemini AI Chatbot Commands"""
+        """
+        Gemini AI Chatbot Commands
+        
+        This is a powerful AI chatbot powered by Google's Gemini-Pro model.
+        Simply mention the bot (@BotName) to start chatting!
+        
+        Configuration Commands:
+        - setapikey: Set the Gemini API key (Admin only)
+        - toggle: Enable/disable the bot
+        - personality: View or set the bot's personality
+        - reset: Reset conversation history
+        - clearrate: Clear rate limit counters
+        
+        Search Configuration:
+        - searchkey: Set Google Custom Search API key (Admin only)
+        - searchid: Set Google Custom Search Engine ID (Admin only)
+        - togglesearch: Enable/disable web search capability
+        
+        Status Commands:
+        - status: Check bot's current status
+        - settings: View current settings
+        """
+        # Only send help if no subcommand was invoked
         if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
+            embed = discord.Embed(
+                title="🤖 Gemini AI Chatbot Help",
+                description="Here are all available commands:",
+                color=discord.Color.blue()
+            )
+            
+            embed.add_field(
+                name="📝 Basic Usage",
+                value="Simply mention the bot (@BotName) to start chatting!",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="⚙️ Configuration Commands",
+                value="`setapikey` - Set Gemini API key (Admin)\n"
+                      "`toggle` - Enable/disable bot\n"
+                      "`personality` - Set bot personality\n"
+                      "`reset` - Reset conversation\n"
+                      "`clearrate` - Clear rate limits",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🔍 Search Configuration",
+                value="`searchkey` - Set Search API key (Admin)\n"
+                      "`searchid` - Set Search Engine ID (Admin)\n"
+                      "`togglesearch` - Enable/disable search",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📊 Status Commands",
+                value="`status` - Check bot status\n"
+                      "`settings` - View current settings",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="ℹ️ Detailed Help",
+                value="Use `~chatbot <command>` for detailed help on each command\n"
+                      "Example: `~chatbot personality`",
+                inline=False
+            )
+            
+            await ctx.send(embed=embed)
 
     @chatbot.command()
-    @red_commands.is_owner()
-    async def searchkey(self, ctx: commands.Context, key: str):
+    @commands.is_owner()
+    async def setapikey(self, ctx: commands.Context, api_key: str):
         """
-        Set the Google Custom Search API key (Bot Owner Only)
+        Set the Gemini API key (Admin only)
         
-        This key will be used for all servers where search is enabled.
+        Usage: [p]chatbot setapikey <your_api_key>
+        Example: [p]chatbot setapikey AIzaSyXXXXXXXXXXXXXXXXXXXXXX
+        
+        Get your API key from: https://makersuite.google.com/app/apikey
         """
-        await self.config.search_api_key.set(key)
-        await ctx.send("Search API key has been set. Use `searchid` to set the search engine ID.")
-        # Delete the command message for security
+        # Delete the message to hide the API key
         try:
             await ctx.message.delete()
         except:
             pass
+        
+        await self.config.api_key.set(api_key)
+        await self.initialize()  # Reinitialize with new key
+        await ctx.send("API key has been set! I'm ready to chat. 🤖")
 
     @chatbot.command()
-    @red_commands.is_owner()
+    @commands.admin_or_permissions(administrator=True)
+    async def searchkey(self, ctx: commands.Context, api_key: str):
+        """
+        Set the Google Custom Search API key (Admin only)
+        
+        Usage: [p]chatbot searchkey <your_api_key>
+        Example: [p]chatbot searchkey AIzaSyXXXXXXXXXXXXXXXXXXXXXX
+        
+        Get your API key from: https://console.cloud.google.com/apis/credentials
+        """
+        try:
+            await ctx.message.delete()
+        except:
+            pass
+        
+        await self.config.search_api_key.set(api_key)
+        await ctx.send("Search API key has been set! 🔍")
+
+    @chatbot.command()
+    @commands.admin_or_permissions(administrator=True)
     async def searchid(self, ctx: commands.Context, engine_id: str):
         """
-        Set the Google Custom Search Engine ID (Bot Owner Only)
+        Set the Google Custom Search Engine ID (Admin only)
         
-        This ID will be used for all servers where search is enabled.
+        Usage: [p]chatbot searchid <your_engine_id>
+        Example: [p]chatbot searchid 123456789:abcdefghijk
+        
+        Get your Search Engine ID from: https://programmablesearchengine.google.com/
         """
         await self.config.search_engine_id.set(engine_id)
-        await ctx.send("Search engine ID has been set. Use `togglesearch` to enable search in this server.")
+        await ctx.send("Search Engine ID has been set! 🔍")
 
     @chatbot.command()
-    @red_commands.admin_or_permissions(administrator=True)
+    @commands.admin_or_permissions(administrator=True)
     async def togglesearch(self, ctx: commands.Context):
         """
         Toggle web search capability for this server
@@ -562,10 +787,10 @@ SEARCH_QUERY:"""
         current = await self.config.guild(ctx.guild).search_enabled()
         await self.config.guild(ctx.guild).search_enabled.set(not current)
         status = "enabled" if not current else "disabled"
-        await ctx.send(f"Web search has been {status} for this server!")
+        await ctx.send(f"Web search has been {status} for this server! 🔍")
 
     @chatbot.command()
-    @red_commands.admin_or_permissions(administrator=True)
+    @commands.admin_or_permissions(administrator=True)
     async def toggle(self, ctx: commands.Context):
         """
         Toggle the bot on/off for this server
@@ -577,7 +802,7 @@ SEARCH_QUERY:"""
         current = await self.config.guild(ctx.guild).enabled()
         await self.config.guild(ctx.guild).enabled.set(not current)
         status = "enabled" if not current else "disabled"
-        await ctx.send(f"I have been {status} for this server!")
+        await ctx.send(f"I have been {status} for this server! 🤖")
 
     @chatbot.command()
     async def personality(self, ctx: commands.Context, *, new_personality: str = None):
@@ -593,12 +818,12 @@ SEARCH_QUERY:"""
         if new_personality is None:
             current = await self.config.channel(ctx.channel).personality()
             if not current:
-                await ctx.send("I'm currently using my default personality!")
+                await ctx.send("I'm currently using my default personality! 😊")
             else:
                 await ctx.send(f"My current personality is: {current}")
         else:
             await self.config.channel(ctx.channel).personality.set(new_personality)
-            await ctx.send("My personality has been updated!")
+            await ctx.send("My personality has been updated! 😊")
 
     @chatbot.command()
     async def reset(self, ctx: commands.Context):
@@ -610,10 +835,10 @@ SEARCH_QUERY:"""
         This will clear all stored message history for this channel.
         """
         await self.config.channel(ctx.channel).history.set([])
-        await ctx.send("Conversation history has been reset!")
+        await ctx.send("Conversation history has been reset! 🔄")
 
     @chatbot.command()
-    @red_commands.admin_or_permissions(administrator=True)
+    @commands.admin_or_permissions(administrator=True)
     async def clearrate(self, ctx: commands.Context):
         """
         Clear rate limit counters for this channel (Admin only)
@@ -624,7 +849,7 @@ SEARCH_QUERY:"""
         """
         if ctx.channel.id in self.rate_limits:
             del self.rate_limits[ctx.channel.id]
-        await ctx.send("Rate limit counters have been cleared!")
+        await ctx.send("Rate limit counters have been cleared! ⚡")
 
     @chatbot.command()
     async def status(self, ctx: commands.Context):
@@ -729,60 +954,97 @@ SEARCH_QUERY:"""
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Handle incoming messages"""
-        # Ignore messages from bots
-        if message.author.bot:
+        if message.author.bot or not message.guild:
             return
 
-        # Check if message mentions the bot
-        if not self.bot.user in message.mentions:
+        # Get the bot's user
+        bot_user = self.bot.user
+        if not bot_user:
             return
 
-        # Get guild settings
-        if message.guild:
-            enabled = await self.config.guild(message.guild).enabled()
-            if not enabled:
+        # Check if bot was mentioned
+        was_mentioned = bot_user.mentioned_in(message)
+        bot_mention = f'<@{bot_user.id}>'
+        starts_with_mention = message.content.startswith(bot_mention)
+
+        # Only respond to mentions
+        if not (was_mentioned or starts_with_mention):
+            return
+
+        # Get clean message content
+        clean_content = message.clean_content.replace(f'@{bot_user.display_name}', '').strip()
+        if not clean_content:
+            return
+
+        # Check if API is configured
+        if not self.model:
+            if not await self.initialize():
+                await message.reply(f"Please ask an admin to set up my API key using the `[p]chatbot setapikey` command, {message.author.mention}")
                 return
-        
-        # Start typing indicator
-        self.typing_channels.add(message.channel.id)
+
+        # Check if bot is enabled in this guild
+        enabled = await self.config.guild(message.guild).enabled()
+        if not enabled:
+            await message.reply(f"Sorry {message.author.mention}, I'm currently disabled in this server.")
+            return
+
+        # Check rate limit
+        if await self.check_rate_limit(message.channel.id):
+            await message.reply(f"I'm receiving too many messages! Please wait a moment before trying again, {message.author.mention}")
+            return
+
         async with message.channel.typing():
             try:
-                # Clean the message content
-                clean_content = message.clean_content.replace(f'@{self.bot.user.display_name}', '').strip()
+                # Get user's display name and mention
+                user_name = message.author.display_name
                 user_mention = message.author.mention
 
-                # Check rate limits
-                if not await self._check_rate_limit(message.channel.id, message):
-                    await message.channel.send(
-                        f"Sorry {user_mention}, you're sending messages too quickly. Please wait a moment."
-                    )
-                    return
+                # Get conversation history and personality
+                history = await self.get_conversation_history(message.channel.id)
+                personality = await self.get_bot_personality(message.guild, message.channel, user_name)
 
-                # Process the message
-                response = await self.process_message(message, user_mention, clean_content)
-                
-                if response:
-                    # Split response if it's too long
-                    if len(response) > self.DISCORD_MESSAGE_LIMIT:
-                        chunks = [response[i:i + self.DISCORD_MESSAGE_LIMIT] 
-                                for i in range(0, len(response), self.DISCORD_MESSAGE_LIMIT)]
-                        for chunk in chunks:
-                            await message.channel.send(chunk)
-                    else:
-                        await message.channel.send(response)
+                # Check if search is needed and get search results
+                search_context = ""
+                if await self.config.guild(message.guild).search_enabled():
+                    if await self.should_perform_search(clean_content):
+                        search_results = await self.perform_web_search(clean_content)
+                        if search_results:
+                            search_context = search_results
+                            print(f"Search performed for query: {clean_content}")
+                            print(f"Search results found: {bool(search_results)}")
+
+                # Process the message with all context
+                response = await self.process_message(
+                    message=clean_content,
+                    context=personality,
+                    history=history,
+                    channel_id=message.channel.id,
+                    user_name=user_name,
+                    user_mention=user_mention
+                )
+
+                # Update history if not a safety response
+                if "safety concerns" not in response.lower():
+                    await self.add_to_history(message.channel.id, "user", clean_content, user_name)
+                    await self.add_to_history(message.channel.id, "assistant", response, bot_user.display_name)
+
+                    # Update rate limit
+                    if message.channel.id not in self.rate_limits:
+                        self.rate_limits[message.channel.id] = []
+                    self.rate_limits[message.channel.id].append(datetime.now().isoformat())
+
+                # Send response in chunks if needed
+                if len(response) > 2000:
+                    chunks = [response[i:i + 1900] for i in range(0, len(response), 1900)]
+                    for chunk in chunks:
+                        await message.reply(chunk)
                 else:
-                    await message.channel.send(
-                        f"Sorry {user_mention}, I couldn't generate a response. Please try again."
-                    )
+                    await message.reply(response)
 
             except Exception as e:
-                print(f"Unexpected Error: {str(e)}")
-                await message.channel.send(
-                    f"Sorry {user_mention}, something went wrong. Please try again later."
-                )
-            finally:
-                # Remove typing indicator
-                self.typing_channels.discard(message.channel.id)
+                print(f"Error processing message: {str(e)}")
+                error_msg = f"Sorry {message.author.mention}, I encountered an error: {str(e)}"
+                await message.reply(error_msg)
 
 async def setup(bot):
     cog = DiscordChatBot(bot)
