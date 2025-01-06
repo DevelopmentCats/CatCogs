@@ -576,15 +576,18 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
         except Exception as e:
             error_msg = str(e)
             self.log.error(f"Search error - Query: {query}, Error: {error_msg}")
-            if "quota" in error_msg.lower():
+            if "quota" in error_msg.lower():@red_commands.group()
+            @red_commands.guild_only()
+            @red_commands.is_owner()
+            @red_commands.admin_or_permissions(administrator=True)
                 return "Search quota exceeded. Please try again later or contact the bot owner."
             elif "invalid" in error_msg.lower() and "key" in error_msg.lower():
                 return "Search API configuration error. Please contact the bot owner."
             else:
                 return "An error occurred while performing the web search. Please try again later."
 
-    @commands.group()
-    @commands.guild_only()
+    @red_commands.group()
+    @red_commands.guild_only()
     async def chatbot(self, ctx: commands.Context):
         """Gemini AI Chatbot Commands"""
         if ctx.invoked_subcommand is None:
@@ -795,8 +798,8 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
         
         await ctx.send(embed=settings_embed)
 
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
+    @red_commands.Cog.listener()
+    async def on_message_without_command(self, message: discord.Message):
         """Handle incoming messages"""
         # Ignore messages from bots
         if message.author.bot:
@@ -845,7 +848,7 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
                     )
 
             except Exception as e:
-                print(f"Unexpected Error: {str(e)}")
+                self.log.error(f"Error processing message: {str(e)}")
                 await message.channel.send(
                     f"Sorry {user_mention}, something went wrong. Please try again later."
                 )
