@@ -33,6 +33,7 @@ class DiscordChatBot(red_commands.Cog):
         self.GEMINI_MAX_INPUT = 30720     # Gemini's input token limit (approximate in characters)
         self.GEMINI_MAX_OUTPUT = 2048     # Keep responses reasonable
         self.DEFAULT_TIMEZONE = 'America/Chicago'  # Default timezone
+        self.max_history_length = 10
         
         default_guild = {
             "enabled": True,
@@ -58,7 +59,7 @@ class DiscordChatBot(red_commands.Cog):
         self.config.register_global(**default_global)
 
         # Store active conversations
-        self.active_conversations: Dict[int, List[dict]] = {}
+        self.conversation_history: Dict[int, List[dict]] = {}
 
     async def initialize(self) -> bool:
         """Initialize the Gemini API client"""
@@ -145,37 +146,21 @@ class DiscordChatBot(red_commands.Cog):
         splits = re.split(r'(?<=[.!?])\s+', text.strip())
         return [s for s in splits if s]
 
-    async def get_conversation_history(self, channel_id: int, current_user: str = None) -> List[dict]:
-        """Get conversation history with proper user context"""
-        if channel_id not in self.active_conversations:
-            return []
-            
-        history = self.active_conversations[channel_id]
+    async def get_conversation_history(self, channel_id: int, user_name: str = None) -> List[Dict]:
+        """Get conversation history for a channel"""
+        if channel_id not in self.conversation_history:
+            self.conversation_history[channel_id] = []
         
-        # Filter out old messages (older than 24 hours)
-        current_time = datetime.now()
-        history = [
-            msg for msg in history
-            if (current_time - datetime.fromisoformat(msg['metadata']['timestamp'])).total_seconds() < 86400
+        # Return the last few messages from history
+        history = self.conversation_history[channel_id][-self.max_history_length:]
+        return [
+            {
+                'role': entry.get('role', 'user'),
+                'content': entry.get('content', ''),
+                'name': entry.get('user_name', user_name) if entry.get('role') == 'user' else None
+            }
+            for entry in history
         ]
-        
-        # Only include messages from the current conversation context
-        if current_user:
-            filtered_history = []
-            for msg in history[-10:]:  # Look at last 10 messages
-                msg_user = msg['metadata'].get('user_name', '')
-                
-                # Include messages if they're from the current user or responses to them
-                if msg_user == current_user or (
-                    filtered_history and 
-                    filtered_history[-1]['metadata'].get('user_name') == current_user
-                ):
-                    filtered_history.append(msg)
-            history = filtered_history[-5:]  # Keep last 5 relevant messages
-        else:
-            history = history[-5:]  # Keep last 5 messages if no specific user
-            
-        return history
 
     def _clean_message(self, message: str) -> str:
         """Clean message content by removing unwanted prefixes and formatting"""
@@ -187,8 +172,8 @@ class DiscordChatBot(red_commands.Cog):
 
     async def add_to_history(self, channel_id: int, role: str, message: str, user_name: str = None) -> None:
         """Add a message to the conversation history"""
-        if channel_id not in self.active_conversations:
-            self.active_conversations[channel_id] = []
+        if channel_id not in self.conversation_history:
+            self.conversation_history[channel_id] = []
             
         # Clean the message before storing
         clean_message = self._clean_message(message)
@@ -199,20 +184,18 @@ class DiscordChatBot(red_commands.Cog):
         # Add metadata to help with context
         entry = {
             "role": gemini_role,  # Only use "user" or "model" for Gemini
-            "parts": [{"text": clean_message}],
-            "metadata": {
-                "user_name": user_name,
-                "timestamp": datetime.now().isoformat()
-            }
+            "content": clean_message,
+            "user_name": user_name,
+            "timestamp": datetime.now().isoformat()
         }
         
-        self.active_conversations[channel_id].append(entry)
+        self.conversation_history[channel_id].append(entry)
         
         # Cleanup old messages (older than 24 hours)
         current_time = datetime.now()
-        self.active_conversations[channel_id] = [
-            msg for msg in self.active_conversations[channel_id]
-            if (current_time - datetime.fromisoformat(msg['metadata']['timestamp'])).total_seconds() < 86400
+        self.conversation_history[channel_id] = [
+            msg for msg in self.conversation_history[channel_id]
+            if (current_time - datetime.fromisoformat(msg['timestamp'])).total_seconds() < 86400
         ]
 
     async def _check_rate_limit(self, channel_id: int, message: discord.Message) -> bool:
@@ -343,9 +326,9 @@ class DiscordChatBot(red_commands.Cog):
 
         # If this was a high-risk safety error, clear recent history
         if highest_level >= 2 and channel_id is not None:  # MEDIUM or HIGH risk
-            if channel_id in self.active_conversations:
+            if channel_id in self.conversation_history:
                 # Keep only the first few messages to maintain some context
-                self.active_conversations[channel_id] = self.active_conversations[channel_id][:2]
+                self.conversation_history[channel_id] = self.conversation_history[channel_id][:2]
         
         if highest_category:
             friendly_category = highest_category.replace("_", " ").title()
@@ -362,16 +345,36 @@ class DiscordChatBot(red_commands.Cog):
     async def process_message(self, message: discord.Message, user_mention: str, clean_content: str) -> str:
         """Process a single message through Gemini"""
         try:
+            # Process images if any
+            images = []
+            image_context = ""
+            has_images = False
+            try:
+                images, image_context = await self._process_images(message)
+                has_images = bool(images)
+            except Exception as e:
+                self.log.error(f"Error processing images: {str(e)}")
+            
             # Get conversation history
             history = await self.get_conversation_history(message.channel.id, message.author.display_name)
             
             # Format history for Gemini - each entry should be a simple string
             formatted_history = []
-            for entry in history:
-                formatted_history.append({
-                    'role': entry['role'],
-                    'parts': [{'text': entry['content']}] if entry['role'] == 'user' else [{'text': entry['content']}]
-                })
+            try:
+                for entry in history:
+                    if entry['role'] == 'user':
+                        formatted_history.append({
+                            'role': 'user',
+                            'parts': [{'text': f"{entry['name']}: {entry['content']}"}]
+                        })
+                    else:
+                        formatted_history.append({
+                            'role': 'model',
+                            'parts': [{'text': entry['content']}]
+                        })
+            except Exception as e:
+                self.log.error(f"Error formatting history: {str(e)}")
+                formatted_history = []  # Reset history if there's an error
             
             # Check if we should perform a web search
             search_context = ""
@@ -385,22 +388,18 @@ class DiscordChatBot(red_commands.Cog):
                 except Exception as e:
                     self.log.error(f"Error during web search: {str(e)}")
             
-            # Process images if any
-            images = []
-            image_context = ""
-            try:
-                images, image_context = await self._process_images(message)
-            except Exception as e:
-                self.log.error(f"Error processing images: {str(e)}")
-            
             # Prepare prompt using the original template with search results and image context
-            prompt = self._prepare_prompt(
-                message=clean_content,
-                context=await self.get_bot_personality(message.guild, message.channel, message.author.display_name),
-                history=history,
-                current_user=message.author.display_name,
-                search_results=search_context
-            )
+            try:
+                prompt = self._prepare_prompt(
+                    message=clean_content,
+                    context=await self.get_bot_personality(message.guild, message.channel, message.author.display_name),
+                    history=history,
+                    current_user=message.author.display_name,
+                    search_results=search_context
+                )
+            except Exception as e:
+                self.log.error(f"Error preparing prompt: {str(e)}")
+                prompt = clean_content  # Fallback to just the message if prompt preparation fails
             
             if images:
                 prompt += f"\n\nI'm also seeing: {image_context}\nPlease analyze these images in relation to the message."
@@ -410,13 +409,16 @@ class DiscordChatBot(red_commands.Cog):
                 if images:
                     # For vision model, we need to combine text and images into parts
                     content = {
-                        'parts': [
-                            {'text': prompt},
-                            *images  # Each image is already formatted with inline_data
-                        ]
+                        'contents': [{
+                            'parts': [
+                                {'text': prompt},
+                                *images  # Each image is already formatted with inline_data
+                            ]
+                        }]
                     }
                     
                     chat = self.vision_model.start_chat(history=[])
+                    self.log.debug(f"Sending vision request with content: {content}")
                     response = await asyncio.to_thread(
                         lambda: chat.send_message(content).text
                     )
@@ -432,11 +434,15 @@ class DiscordChatBot(red_commands.Cog):
                 
                 response_text = self._clean_message(response)
                 
-                # Add to conversation history
+                # Add to conversation history - include note about images but not the image data
+                message_to_save = clean_content
+                if has_images:
+                    message_to_save += f"\n[Shared {len(images)} image(s)]"
+                
                 await self.add_to_history(
                     message.channel.id,
                     "user",
-                    clean_content,
+                    message_to_save,
                     message.author.display_name
                 )
                 await self.add_to_history(
@@ -450,6 +456,7 @@ class DiscordChatBot(red_commands.Cog):
             except Exception as e:
                 error_str = str(e)
                 self.log.error(f"Error getting Gemini response: {error_str}")
+                self.log.error(f"Full error context: {e.__class__.__name__}: {str(e)}")
                 
                 if "safety" in error_str.lower() or "blocked" in error_str.lower():
                     return f"I can't process that message due to content safety restrictions, {user_mention}. Let's keep our conversation friendly!"
@@ -462,9 +469,10 @@ class DiscordChatBot(red_commands.Cog):
             
         except Exception as e:
             self.log.error(f"Unexpected error in process_message: {str(e)}")
+            self.log.error(f"Full error context: {e.__class__.__name__}: {str(e)}")
             return f"I ran into an unexpected problem, {user_mention}. Please try again!"
 
-    def _prepare_prompt(self, message: str, context: str, history: List[dict], current_user: str, search_results: str = "") -> str:
+    def _prepare_prompt(self, message: str, context: str, history: List[Dict], current_user: str, search_results: str = "") -> str:
         """Prepare prompt while respecting Gemini's input limits"""
         # Get current time in both UTC and local time
         current_utc = datetime.now(timezone.utc)
@@ -527,7 +535,7 @@ class DiscordChatBot(red_commands.Cog):
             "- If web search results are provided:\n"
             "  * Use them to enhance but not dominate your response\n"
             "  * Blend them naturally with your knowledge\n"
-            "  * Maintain your conversational style\n\n"
+            "  - Maintain your conversational style\n\n"
             
             "=== Response Length Requirements ===\n"
             "CRITICAL: Your response MUST be less than {response_limit} characters. Do not exceed this limit.\n"
