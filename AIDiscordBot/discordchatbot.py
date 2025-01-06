@@ -36,8 +36,7 @@ class DiscordChatBot(red_commands.Cog):
             "max_history": 10,
             "rate_limit": 25,
             "timezone": self.DEFAULT_TIMEZONE,  # Use the constant
-            "search_enabled": False,
-            "api_key": None
+            "search_enabled": False
         }
         
         default_channel = {
@@ -46,6 +45,7 @@ class DiscordChatBot(red_commands.Cog):
         }
         
         default_global = {
+            "api_key": None,  # Gemini API key is global
             "search_api_key": None,  # Search API key is global
             "search_engine_id": None  # Search Engine ID is global
         }
@@ -341,84 +341,6 @@ class DiscordChatBot(red_commands.Cog):
             
         return "I can't respond to that due to safety concerns. Let's keep the conversation friendly and appropriate!"
 
-    async def should_perform_search(self, message: str) -> tuple[bool, str]:
-        """
-        Ask Gemini if a web search would be helpful for this message and get the search query
-        Returns a tuple of (should_search: bool, search_query: str)
-        """
-        try:
-            prompt = f"""Analyze if this message requires current or factual information that would benefit from a web search.
-If a search is needed, generate a precise and focused search query that would best find the relevant information.
-
-ONLY recommend a search for questions about:
-1. Current events, news, or trending topics
-2. Facts that may change over time (prices, statistics, rankings)
-3. Product information, reviews, or comparisons
-4. Technical documentation or specifications
-5. Recent developments in any field
-6. Location-specific information
-7. Time-sensitive information
-
-DO NOT recommend a search for:
-1. Basic facts or general knowledge
-2. Hypothetical scenarios
-3. Personal opinions or advice
-4. Mathematical calculations
-5. Code explanations
-6. Grammar or language questions
-7. Simple definitions
-
-Message: {message}
-
-Respond in this exact format:
-SEARCH_NEEDED: true/false
-SEARCH_QUERY: <only if search is needed, create a focused and specific search query that will yield relevant results>
-
-Example good responses:
-SEARCH_NEEDED: true
-SEARCH_QUERY: iPhone 15 Pro Max price and specifications 2024
-
-SEARCH_NEEDED: false
-SEARCH_QUERY:
-
-Example bad responses:
-SEARCH_NEEDED: true
-SEARCH_QUERY: what is python programming (too general, not time-sensitive)
-
-SEARCH_NEEDED: true
-SEARCH_QUERY: how to bake cookies (not requiring current information)"""
-
-            response = await self.get_gemini_response(prompt)
-            if not response:
-                return False, ""
-
-            # Parse the response
-            lines = response.strip().split('\n')
-            if len(lines) < 2:
-                return False, ""
-
-            search_needed = lines[0].split(': ')[1].lower() == 'true'
-            search_query = lines[1].split(': ')[1] if len(lines[1].split(': ')) > 1 else ""
-
-            # Additional validation of the search query
-            if search_needed and not search_query.strip():
-                self.log.debug("Search was recommended but no query was generated")
-                return False, ""  # Don't search if query is empty
-            if len(search_query) > 128:
-                self.log.debug(f"Search query truncated from {len(search_query)} characters to 128")
-                search_query = search_query[:128]  # Limit query length
-
-            if search_needed:
-                self.log.info(f"Search recommended for message: '{message}' with query: '{search_query}'")
-            else:
-                self.log.debug(f"Search not recommended for message: '{message}'")
-
-            return search_needed, search_query
-
-        except Exception as e:
-            self.log.error(f"Error in should_perform_search: {str(e)}")
-            return False, ""
-
     async def process_message(self, message: discord.Message, user_mention: str, clean_content: str) -> str:
         """Process a single message through Gemini"""
         try:
@@ -505,6 +427,118 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
             print(f"Unexpected Error: {str(e)}")
             return f"I ran into an unexpected problem, {user_mention}. Please try again!"
 
+    def _prepare_prompt(self, message: str, context: str, history: List[dict], current_user: str, search_results: str = "") -> str:
+        """Prepare prompt while respecting Gemini's input limits"""
+        # Get current time in both UTC and local time
+        current_utc = datetime.now(timezone.utc)
+        current_local = datetime.now()
+        
+        # Start with essential components and clear user identification
+        prompt_template = (
+            "=== Current Date and Time ===\n"
+            "IMPORTANT - Current Time Information:\n"
+            "UTC: {utc_time}\n"
+            "Local: {local_time}\n"
+            "You MUST be aware of this time context when responding.\n\n"
+            
+            "=== Current User ===\n"
+            "You are talking to: {current_user}\n"
+            "IMPORTANT: Only mention and respond to the current user above.\n\n"
+            
+            "{web_search}"
+            
+            "=== Your Capabilities ===\n"
+            "You are powered by Google's Gemini-Pro AI model and can:\n\n"
+            
+            "1. Mathematical & Scientific Abilities:\n"
+            "   - Perform complex calculations and mathematical reasoning\n"
+            "   - Solve equations and mathematical problems\n"
+            "   - Explain scientific concepts and theories\n"
+            "   - Work with statistics and data analysis\n\n"
+            
+            "2. Programming & Technical:\n"
+            "   - Write, explain, and debug code in multiple languages\n"
+            "   - Provide technical explanations and documentation\n"
+            "   - Help with software architecture and design\n"
+            "   - Explain technical concepts clearly\n\n"
+            
+            "3. Language & Communication:\n"
+            "   - Engage in natural conversations\n"
+            "   - Help with writing and editing\n"
+            "   - Explain complex topics simply\n"
+            "   - Assist with language learning\n\n"
+            
+            "4. Analysis & Problem Solving:\n"
+            "   - Break down complex problems\n"
+            "   - Provide step-by-step explanations\n"
+            "   - Offer multiple perspectives\n"
+            "   - Help with decision-making\n\n"
+            
+            "5. Knowledge & Information:\n"
+            "   - Share knowledge about various topics\n"
+            "   - Explain historical events and concepts\n"
+            "   - Discuss current affairs (up to training cutoff)\n"
+            "   - Provide educational assistance\n\n"
+            
+            "When responding:\n"
+            "- Show detailed work for calculations\n"
+            "- Provide clear explanations\n"
+            "- Use appropriate formatting\n"
+            "- Double-check accuracy\n"
+            "- Stay within ethical boundaries\n"
+            "- Consider the current time when discussing events\n"
+            "- If web search results are provided:\n"
+            "  * Use them to enhance but not dominate your response\n"
+            "  * Blend them naturally with your knowledge\n"
+            "  * Maintain your conversational style\n\n"
+            
+            "=== Response Length Requirements ===\n"
+            "CRITICAL: Your response MUST be less than {response_limit} characters. Do not exceed this limit.\n"
+            "If you need to provide a long explanation:\n"
+            "1. Focus on the most important points\n"
+            "2. Be concise and clear\n"
+            "3. Break into multiple messages if necessary\n"
+            "4. Never truncate mid-sentence\n\n"
+            
+            "=== Current Message ===\n"
+            "User message: {message}\n\n"
+            
+            "=== Response Guidelines ===\n"
+            "1. You are ONLY responding to {current_user}\n"
+            "2. Focus on the current message\n"
+            "3. Keep responses natural and conversational\n"
+            "4. Never mention other users from history\n"
+            "5. Keep responses appropriate and friendly\n"
+            "6. If unsure about content safety, give a generic response\n"
+            "7. IMPORTANT: Keep your response under {response_limit} characters\n"
+            "8. ALWAYS consider the current date/time when discussing time-sensitive topics\n\n"
+        )
+        
+        # Add web search section if results exist
+        web_search_section = ""
+        if search_results:
+            web_search_section = (
+                "=== Current Web Information ===\n"
+                "Use this current information to enhance your response while maintaining your conversational style:\n"
+                f"{search_results}\n\n"
+            )
+        
+        # Format times as ISO format with timezone info
+        utc_time_str = current_utc.isoformat()
+        local_time_str = current_local.isoformat()
+        
+        # Calculate available space
+        base_prompt = prompt_template.format(
+            message=message,
+            current_user=current_user,
+            response_limit=self.DISCORD_MESSAGE_LIMIT,
+            web_search=web_search_section,
+            utc_time=utc_time_str,
+            local_time=local_time_str
+        )
+        
+        return base_prompt
+
     async def perform_web_search(self, query: str, ctx) -> str:
         """Perform a web search using Google Custom Search API"""
         try:
@@ -582,6 +616,84 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
                 return "Search API configuration error. Please contact the bot owner."
             else:
                 return "An error occurred while performing the web search. Please try again later."
+
+    async def should_perform_search(self, message: str) -> tuple[bool, str]:
+        """
+        Ask Gemini if a web search would be helpful for this message and get the search query
+        Returns a tuple of (should_search: bool, search_query: str)
+        """
+        try:
+            prompt = f"""Analyze if this message requires current or factual information that would benefit from a web search.
+If a search is needed, generate a precise and focused search query that would best find the relevant information.
+
+ONLY recommend a search for questions about:
+1. Current events, news, or trending topics
+2. Facts that may change over time (prices, statistics, rankings)
+3. Product information, reviews, or comparisons
+4. Technical documentation or specifications
+5. Recent developments in any field
+6. Location-specific information
+7. Time-sensitive information
+
+DO NOT recommend a search for:
+1. Basic facts or general knowledge
+2. Hypothetical scenarios
+3. Personal opinions or advice
+4. Mathematical calculations
+5. Code explanations
+6. Grammar or language questions
+7. Simple definitions
+
+Message: {message}
+
+Respond in this exact format:
+SEARCH_NEEDED: true/false
+SEARCH_QUERY: <only if search is needed, create a focused and specific search query that will yield relevant results>
+
+Example good responses:
+SEARCH_NEEDED: true
+SEARCH_QUERY: iPhone 15 Pro Max price and specifications 2024
+
+SEARCH_NEEDED: false
+SEARCH_QUERY:
+
+Example bad responses:
+SEARCH_NEEDED: true
+SEARCH_QUERY: what is python programming (too general, not time-sensitive)
+
+SEARCH_NEEDED: true
+SEARCH_QUERY: how to bake cookies (not requiring current information)"""
+
+            response = await self.get_gemini_response(prompt)
+            if not response:
+                return False, ""
+
+            # Parse the response
+            lines = response.strip().split('\n')
+            if len(lines) < 2:
+                return False, ""
+
+            search_needed = lines[0].split(': ')[1].lower() == 'true'
+            search_query = lines[1].split(': ')[1] if len(lines[1].split(': ')) > 1 else ""
+
+            # Additional validation of the search query
+            if search_needed and not search_query.strip():
+                self.log.debug("Search was recommended but no query was generated")
+                return False, ""  # Don't search if query is empty
+            if len(search_query) > 128:
+                self.log.debug(f"Search query truncated from {len(search_query)} characters to 128")
+                search_query = search_query[:128]  # Limit query length
+
+            if search_needed:
+                self.log.info(f"Search recommended for message: '{message}' with query: '{search_query}'")
+            else:
+                self.log.debug(f"Search not recommended for message: '{message}'")
+
+            return search_needed, search_query
+
+        except Exception as e:
+            self.log.error(f"Error in should_perform_search: {str(e)}")
+            return False, ""
 
     @red_commands.group()
     @red_commands.guild_only()
