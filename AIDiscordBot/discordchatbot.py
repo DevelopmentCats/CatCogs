@@ -407,20 +407,14 @@ class DiscordChatBot(red_commands.Cog):
             # Get response from appropriate model
             try:
                 if images:
-                    # For vision model, we need to combine text and images into parts
-                    content = {
-                        'contents': [{
-                            'parts': [
-                                {'text': prompt},
-                                *images  # Each image is already formatted with inline_data
-                            ]
-                        }]
-                    }
+                    # For vision model, combine text and images into a single list of parts
+                    parts = [{'text': prompt}]
+                    parts.extend(images)  # Each image is already formatted with inline_data
                     
                     chat = self.vision_model.start_chat(history=[])
-                    self.log.debug(f"Sending vision request with content: {content}")
+                    self.log.debug(f"Sending vision request with parts: {parts}")
                     response = await asyncio.to_thread(
-                        lambda: chat.send_message(content).text
+                        lambda: chat.send_message(parts).text
                     )
                 else:
                     # Use text model for regular chat
