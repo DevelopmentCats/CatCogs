@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from redbot.core import commands as red_commands
 from redbot.core import Config
 import google.generativeai as genai
 from googleapiclient.discovery import build
@@ -521,7 +522,7 @@ SEARCH_QUERY:"""
             await ctx.send_help(ctx.command)
 
     @chatbot.command()
-    @commands.is_owner()
+    @red_commands.is_owner()
     async def searchkey(self, ctx: commands.Context, key: str):
         """
         Set the Google Custom Search API key (Bot Owner Only)
@@ -537,7 +538,7 @@ SEARCH_QUERY:"""
             pass
 
     @chatbot.command()
-    @commands.is_owner()
+    @red_commands.is_owner()
     async def searchid(self, ctx: commands.Context, engine_id: str):
         """
         Set the Google Custom Search Engine ID (Bot Owner Only)
@@ -548,7 +549,7 @@ SEARCH_QUERY:"""
         await ctx.send("Search engine ID has been set. Use `togglesearch` to enable search in this server.")
 
     @chatbot.command()
-    @commands.admin_or_permissions(administrator=True)
+    @red_commands.admin_or_permissions(administrator=True)
     async def togglesearch(self, ctx: commands.Context):
         """
         Toggle web search capability for this server
@@ -564,7 +565,7 @@ SEARCH_QUERY:"""
         await ctx.send(f"Web search has been {status} for this server!")
 
     @chatbot.command()
-    @commands.admin_or_permissions(administrator=True)
+    @red_commands.admin_or_permissions(administrator=True)
     async def toggle(self, ctx: commands.Context):
         """
         Toggle the bot on/off for this server
@@ -612,7 +613,7 @@ SEARCH_QUERY:"""
         await ctx.send("Conversation history has been reset!")
 
     @chatbot.command()
-    @commands.admin_or_permissions(administrator=True)
+    @red_commands.admin_or_permissions(administrator=True)
     async def clearrate(self, ctx: commands.Context):
         """
         Clear rate limit counters for this channel (Admin only)
