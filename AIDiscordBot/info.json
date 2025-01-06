@@ -10,7 +10,8 @@
     "requirements": [
         "google-generativeai",
         "pytz",
-        "typing-extensions"
+        "typing-extensions",
+        "google-api-python-client"
     ],
     "tags": [
         "chatbot",

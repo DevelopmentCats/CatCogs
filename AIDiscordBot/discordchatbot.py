@@ -7,6 +7,7 @@ import discord
 import re
 from datetime import datetime, timedelta
 import pytz
+from googleapiclient.discovery import build
 
 class DiscordChatBot(commands.Cog):
     """A sophisticated chat bot using Google's Gemini AI"""
@@ -16,15 +17,18 @@ class DiscordChatBot(commands.Cog):
         self.config = Config.get_conf(self, identifier=1234567890)
         
         default_global = {
-            "api_key": None  # Gemini API key
+            "api_key": None,         # Gemini API key
+            "search_api_key": None,  # Google Custom Search API key
+            "search_engine_id": None # Custom Search Engine ID
         }
         
         default_guild = {
-            "max_history": 10,  # Maximum number of messages to keep in history
-            "enabled": True,  # Toggle for enabling/disabling the bot
-            "rate_limit": 5,  # Messages per minute
-            "max_response_time": 30,  # Maximum seconds to wait for response
-            "timezone": 'America/Chicago'  # Default timezone
+            "max_history": 10,      # Maximum number of messages to keep in history
+            "enabled": True,        # Toggle for enabling/disabling the bot
+            "rate_limit": 5,        # Messages per minute
+            "max_response_time": 30, # Maximum seconds to wait for response
+            "timezone": 'America/Chicago', # Default timezone
+            "search_enabled": True  # Toggle for web search capability
         }
 
         self.config.register_global(**default_global)
@@ -35,6 +39,7 @@ class DiscordChatBot(commands.Cog):
         self.rate_limits: Dict[int, List[datetime]] = {}
         self.typing_channels: set = set()
         self.model = None
+        self.search_service = None
 
         # Discord markdown formatting guide for the AI
         self.discord_formatting = """
@@ -71,6 +76,11 @@ code
                 return False
                 
             genai.configure(api_key=api_key)
+            
+            # Initialize search service if credentials are available
+            search_api_key = await self.config.search_api_key()
+            if search_api_key:
+                self.search_service = build("customsearch", "v1", developerKey=search_api_key)
             
             # Configure model with enhanced capabilities
             generation_config = {
@@ -296,13 +306,58 @@ code
             
         return "I can't respond to that due to safety concerns. Let's keep the conversation friendly and appropriate!"
 
-    def _prepare_prompt(self, message: str, context: str, history: List[dict], current_user: str) -> str:
+    async def should_perform_search(self, message: str) -> bool:
+        """Determine if a message might benefit from web search using Gemini's analysis"""
+        try:
+            analysis_prompt = f"""
+            You are an AI assistant analyzing if a message requires current or factual information from the web.
+            
+            Message to analyze: "{message}"
+            
+            Analyze ONLY if this message would significantly benefit from current web information.
+            Consider:
+            1. Need for current events, prices, or real-time data
+            2. Request for facts that may be outdated in training data
+            3. Questions about recent changes, updates, or trends
+            4. Need for current comparisons or statistics
+            5. Queries about ongoing events or developments
+            
+            IMPORTANT:
+            - Only return 'true' if web data would SIGNIFICANTLY improve the response
+            - Return 'false' for general knowledge, opinions, or conversational queries
+            - Respond with ONLY 'true' or 'false', nothing else
+            """
+
+            chat = self.model.start_chat(history=[])
+            response = await asyncio.to_thread(
+                lambda: chat.send_message(analysis_prompt).text.strip().lower()
+            )
+            
+            return response == 'true'
+
+        except Exception as e:
+            print(f"Error in search analysis: {str(e)}")
+            return False
+
+    def _prepare_prompt(self, message: str, context: str, history: List[dict], current_user: str, search_results: str = "") -> str:
         """Prepare prompt while respecting Gemini's input limits"""
+        # Get current time in both UTC and local time
+        current_utc = datetime.now(timezone.utc)
+        current_local = datetime.now()
+        
         # Start with essential components and clear user identification
         prompt_template = (
+            "=== Current Date and Time ===\n"
+            "IMPORTANT - Current Time Information:\n"
+            "UTC: {utc_time}\n"
+            "Local: {local_time}\n"
+            "You MUST be aware of this time context when responding.\n\n"
+            
             "=== Current User ===\n"
             "You are talking to: {current_user}\n"
             "IMPORTANT: Only mention and respond to the current user above.\n\n"
+            
+            "{web_search}"
             
             "=== Your Capabilities ===\n"
             "You are powered by Google's Gemini-Pro AI model and can:\n\n"
@@ -342,7 +397,12 @@ code
             "- Provide clear explanations\n"
             "- Use appropriate formatting\n"
             "- Double-check accuracy\n"
-            "- Stay within ethical boundaries\n\n"
+            "- Stay within ethical boundaries\n"
+            "- Consider the current time when discussing events\n"
+            "- If web search results are provided:\n"
+            "  * Use them to enhance but not dominate your response\n"
+            "  * Blend them naturally with your knowledge\n"
+            "  * Maintain your conversational style\n\n"
             
             "=== Response Length Requirements ===\n"
             "CRITICAL: Your response MUST be less than {response_limit} characters. Do not exceed this limit.\n"
@@ -362,14 +422,31 @@ code
             "4. Never mention other users from history\n"
             "5. Keep responses appropriate and friendly\n"
             "6. If unsure about content safety, give a generic response\n"
-            "7. IMPORTANT: Keep your response under {response_limit} characters\n\n"
+            "7. IMPORTANT: Keep your response under {response_limit} characters\n"
+            "8. ALWAYS consider the current date/time when discussing time-sensitive topics\n\n"
         )
+        
+        # Add web search section if results exist
+        web_search_section = ""
+        if search_results:
+            web_search_section = (
+                "=== Current Web Information ===\n"
+                "Use this current information to enhance your response while maintaining your conversational style:\n"
+                f"{search_results}\n\n"
+            )
+        
+        # Format times as ISO format with timezone info
+        utc_time_str = current_utc.isoformat()
+        local_time_str = current_local.isoformat()
         
         # Calculate available space
         base_prompt = prompt_template.format(
             message=message,
             current_user=current_user,
-            response_limit=self.DISCORD_MESSAGE_LIMIT
+            response_limit=self.DISCORD_MESSAGE_LIMIT,
+            web_search=web_search_section,
+            utc_time=utc_time_str,
+            local_time=local_time_str
         )
         
         return base_prompt
@@ -379,6 +456,16 @@ code
         try:
             # Get history specific to current user
             user_history = await self.get_conversation_history(channel_id, user_name)
+            
+            # Check if search might be helpful
+            search_context = ""
+            if channel_id:
+                guild = self.bot.get_channel(channel_id).guild
+                search_enabled = await self.config.guild(guild).search_enabled()
+                if search_enabled and await self.should_perform_search(message):
+                    search_results = await self.perform_web_search(message)
+                    if search_results:
+                        search_context = search_results
             
             # Format history for better context
             formatted_history = []
@@ -410,8 +497,14 @@ code
             # Clean the current message
             clean_message = self._clean_message(message)
             
-            # Prepare prompt with length limits and user context
-            prompt = self._prepare_prompt(clean_message, context, user_history, user_name)
+            # Prepare prompt using the original template with search results
+            prompt = self._prepare_prompt(
+                message=clean_message,
+                context=context,
+                history=user_history,
+                current_user=user_name,
+                search_results=search_context
+            )
             
             try:
                 response = chat.send_message(prompt)
@@ -445,6 +538,43 @@ code
         except Exception as e:
             print(f"Unexpected Error: {str(e)}")
             return f"I ran into an unexpected problem, {user_mention}. Please try again!"
+
+    async def perform_web_search(self, query: str, num_results: int = 3) -> str:
+        """Perform a web search and return formatted results"""
+        try:
+            if not self.search_service:
+                return ""
+
+            search_engine_id = await self.config.search_engine_id()
+            if not search_engine_id:
+                return ""
+
+            result = self.search_service.cse().list(
+                q=query,
+                cx=search_engine_id,
+                num=num_results
+            ).execute()
+
+            search_results = []
+            for item in result.get('items', []):
+                search_results.append({
+                    'title': item['title'],
+                    'snippet': item['snippet'],
+                    'link': item['link']
+                })
+
+            if search_results:
+                formatted_results = "Here's relevant information from the web:\n\n"
+                for res in search_results:
+                    formatted_results += f"Source: {res['title']}\n"
+                    formatted_results += f"Summary: {res['snippet']}\n"
+                    formatted_results += f"URL: {res['link']}\n\n"
+                return formatted_results
+            return ""
+
+        except Exception as e:
+            print(f"Search error: {str(e)}")
+            return ""
 
     def _summarize_history(self, history: List[dict], current_user: str = None) -> str:
         """Create a brief summary of the conversation history"""
@@ -514,102 +644,129 @@ code
             return f"Recent topics: {topics[-1]}"
         return ""
 
+    @commands.is_owner()
+    @commands.command()
+    async def setsearchapi(self, ctx: commands.Context, api_key: str):
+        """Set the Google Custom Search API key (owner only)"""
+        try:
+            await ctx.message.delete()
+        except:
+            pass
+
+        await self.config.search_api_key.set(api_key)
+        self.search_service = build("customsearch", "v1", developerKey=api_key)
+        await ctx.send("Search API key has been set!")
+
+    @commands.is_owner()
+    @commands.command()
+    async def setsearchengine(self, ctx: commands.Context, engine_id: str):
+        """Set the Custom Search Engine ID (owner only)"""
+        await self.config.search_engine_id.set(engine_id)
+        await ctx.send("Search Engine ID has been set!")
+
+    @commands.admin()
+    @commands.command()
+    async def togglesearch(self, ctx: commands.Context):
+        """Toggle web search capability for the server"""
+        current = await self.config.guild(ctx.guild).search_enabled()
+        await self.config.guild(ctx.guild).search_enabled.set(not current)
+        status = "enabled" if not current else "disabled"
+        await ctx.send(f"Web search has been {status} for this server.")
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Listen for messages that mention the bot"""
+        """Handle incoming messages"""
         if message.author.bot or not message.guild:
             return
 
-        # Check if the bot is mentioned
-        if self.bot.user in message.mentions:
-            typing_task = None
+        # Get the bot's user
+        bot_user = self.bot.user
+        if not bot_user:
+            return
+
+        # Check if bot was mentioned
+        was_mentioned = bot_user.mentioned_in(message)
+        bot_mention = f'<@{bot_user.id}>'
+        starts_with_mention = message.content.startswith(bot_mention)
+
+        # Only respond to mentions
+        if not (was_mentioned or starts_with_mention):
+            return
+
+        # Get clean message content
+        clean_content = message.clean_content.replace(f'@{bot_user.display_name}', '').strip()
+        if not clean_content:
+            return
+
+        # Check if API is configured
+        if not self.model:
+            if not await self.initialize():
+                await message.reply(f"Please ask an admin to set up my API key using the `[p]chatbot setapikey` command, {message.author.mention}")
+                return
+
+        # Check if bot is enabled in this guild
+        enabled = await self.config.guild(message.guild).enabled()
+        if not enabled:
+            await message.reply(f"Sorry {message.author.mention}, I'm currently disabled in this server.")
+            return
+
+        # Check rate limit
+        if await self.check_rate_limit(message.channel.id):
+            await message.reply(f"I'm receiving too many messages! Please wait a moment before trying again, {message.author.mention}")
+            return
+
+        async with message.channel.typing():
             try:
-                # Add to typing channels before starting the task
-                self.typing_channels.add(message.channel.id)
-                typing_task = asyncio.create_task(self.maintain_typing(message.channel))
-                
-                # Get user's display name (nickname if set, otherwise display name)
-                user_name = message.author.nick or message.author.display_name
-                # Store the mention format for proper Discord mentions
+                # Get user's display name and mention
+                user_name = message.author.display_name
                 user_mention = message.author.mention
 
-                # Check if API is configured
-                if not self.model:
-                    if not await self.initialize():
-                        await message.reply(f"Please ask an admin to set up my API key using the `[p]chatbot setapikey` command, {user_mention}")
-                        return
-
-                # Check if bot is enabled in this guild
-                enabled = await self.config.guild(message.guild).enabled()
-                if not enabled:
-                    await message.reply(f"Sorry {user_mention}, I'm currently disabled in this server.")
-                    return
-
-                # Check rate limit
-                if await self.check_rate_limit(message.channel.id):
-                    await message.reply(f"I'm receiving too many messages! Please wait a moment before trying again, {user_mention}")
-                    return
-
-                # Remove bot mention and clean the message
-                user_message = message.content.replace(f'<@{self.bot.user.id}>', '').strip()
-                user_message = self._clean_message(user_message)
-
-                # Get conversation history and personality with time context
+                # Get conversation history and personality
                 history = await self.get_conversation_history(message.channel.id)
                 personality = await self.get_bot_personality(message.guild, message.channel, user_name)
 
-                # Process the entire message as one query
+                # Check if search is needed and get search results
+                search_context = ""
+                if await self.config.guild(message.guild).search_enabled():
+                    if await self.should_perform_search(clean_content):
+                        search_results = await self.perform_web_search(clean_content)
+                        if search_results:
+                            search_context = search_results
+                            print(f"Search performed for query: {clean_content}")
+                            print(f"Search results found: {bool(search_results)}")
+
+                # Process the message with all context
                 response = await self.process_message(
-                    message=user_message,
+                    message=clean_content,
                     context=personality,
                     history=history,
                     channel_id=message.channel.id,
                     user_name=user_name,
                     user_mention=user_mention
                 )
-                
+
+                # Update history if not a safety response
                 if "safety concerns" not in response.lower():
-                    # Add to history only if it wasn't a safety error
-                    await self.add_to_history(message.channel.id, "user", user_message, user_name)
-                    await self.add_to_history(message.channel.id, "assistant", response, self.bot.user.display_name)
+                    await self.add_to_history(message.channel.id, "user", clean_content, user_name)
+                    await self.add_to_history(message.channel.id, "assistant", response, bot_user.display_name)
 
                     # Update rate limit
                     if message.channel.id not in self.rate_limits:
                         self.rate_limits[message.channel.id] = []
                     self.rate_limits[message.channel.id].append(datetime.now().isoformat())
 
-                    # Clean and send response
-                    final_response = self._clean_message(response)
-                    await message.reply(final_response)
+                # Send response in chunks if needed
+                if len(response) > 2000:
+                    chunks = [response[i:i + 1900] for i in range(0, len(response), 1900)]
+                    for chunk in chunks:
+                        await message.reply(chunk)
                 else:
-                    await message.reply(f"I can't process that message, {user_mention}. Let's try a different topic!")
+                    await message.reply(response)
 
             except Exception as e:
-                error_msg = f"An unexpected error occurred: {str(e)}"
-                await message.reply(f"{error_msg}, {user_mention}")
-            
-            finally:
-                # Clean up typing indicator
-                if message.channel.id in self.typing_channels:
-                    self.typing_channels.remove(message.channel.id)
-                if typing_task and not typing_task.done():
-                    typing_task.cancel()
-                    try:
-                        await typing_task
-                    except asyncio.CancelledError:
-                        pass
-
-    async def maintain_typing(self, channel: discord.TextChannel):
-        """Maintain typing indicator while processing"""
-        try:
-            while channel.id in self.typing_channels:
-                async with channel.typing():
-                    await asyncio.sleep(1)  # Shorter sleep time for more responsive typing
-        except Exception as e:
-            print(f"Error in typing indicator: {e}")
-        finally:
-            if channel.id in self.typing_channels:
-                self.typing_channels.remove(channel.id)
+                print(f"Error processing message: {str(e)}")
+                error_msg = f"Sorry {message.author.mention}, I encountered an error: {str(e)}"
+                await message.reply(error_msg)
 
     @commands.group()
     @commands.guild_only()
