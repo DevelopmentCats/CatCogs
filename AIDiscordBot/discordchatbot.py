@@ -22,7 +22,6 @@ class DiscordChatBot(red_commands.Cog):
         self.typing_channels = set()
         self.rate_limits = {}
         self.model = None
-        self.vision_model = None
         self.search_service = None
         self.log = logging.getLogger("red.aibot.search")  # Use standard logging
         
@@ -39,13 +38,13 @@ class DiscordChatBot(red_commands.Cog):
             "enabled": True,
             "max_history": 10,
             "rate_limit": 25,
-            "timezone": self.DEFAULT_TIMEZONE,  # Use the constant
-            "search_enabled": False
+            "timezone": self.DEFAULT_TIMEZONE,
+            "search_enabled": False,
+            "personality": ""  # Add personality to guild settings
         }
         
         default_channel = {
-            "history": [],
-            "personality": ""
+            "history": []
         }
         
         default_global = {
@@ -86,15 +85,9 @@ class DiscordChatBot(red_commands.Cog):
                 {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
             ]
             
+            # Use a single model for both text and images
             self.model = genai.GenerativeModel(
-                model_name="gemini-pro",
-                generation_config=generation_config,
-                safety_settings=safety_settings
-            )
-            
-            # Initialize vision model with the same settings
-            self.vision_model = genai.GenerativeModel(
-                model_name="gemini-pro-vision",
+                model_name="gemini-2.0-flash-exp",  # Updated to use the flash model
                 generation_config=generation_config,
                 safety_settings=safety_settings
             )
@@ -110,25 +103,25 @@ class DiscordChatBot(red_commands.Cog):
             print(f"Error initializing Gemini API: {str(e)}")
             return False
 
-    async def get_gemini_response(self, prompt: str, images: List[Image.Image] = None) -> Optional[str]:
+    async def get_gemini_response(self, prompt: str, images: List[dict] = None) -> Optional[str]:
         """Get a response from Gemini with proper error handling"""
         try:
             if not self.model:
                 if not await self.initialize():
                     return "I'm not properly configured yet. Please ask an admin to set up my API key."
 
+            # Create chat instance
+            chat = self.model.start_chat(history=[])
+            
+            # Prepare message parts
+            parts = [{'text': prompt}]
             if images:
-                # Use vision model for image analysis
-                chat = self.vision_model.start_chat(history=[])
-                response = await asyncio.to_thread(
-                    lambda: chat.send_message([prompt, *images]).text
-                )
-            else:
-                # Use text model for regular chat
-                chat = self.model.start_chat(history=[])
-                response = await asyncio.to_thread(
-                    lambda: chat.send_message(prompt).text
-                )
+                parts.extend(images)  # Add any images to the parts list
+            
+            # Send message and get response
+            response = await asyncio.to_thread(
+                lambda: chat.send_message(parts).text
+            )
             
             # Ensure response doesn't exceed Discord's limit
             if len(response) > self.DISCORD_MESSAGE_LIMIT:
@@ -137,7 +130,8 @@ class DiscordChatBot(red_commands.Cog):
             return response
 
         except Exception as e:
-            print(f"Error getting Gemini response: {str(e)}")
+            self.log.error(f"Error getting Gemini response: {str(e)}")
+            self.log.error(f"Full error context: {e.__class__.__name__}: {str(e)}")
             return None
 
     def split_into_questions(self, text: str) -> List[str]:
@@ -268,26 +262,45 @@ class DiscordChatBot(red_commands.Cog):
         """Get information about the bot itself"""
         return (
             f"Your name is {self.bot.user.display_name}. "
-            "You are a witty and slightly sarcastic Discord bot with a great sense of humor. "
-            "While always helpful, you enjoy adding playful banter and clever jokes to your responses. "
+            "You are a witty and sarcastic Discord bot with a great sense of humor. "
+            "While always helpful and accurate, you enjoy adding playful banter and clever jokes to your responses. "
             "You're confident but not arrogant, and you love making references to internet culture and memes when appropriate. "
             "Your responses should be a mix of helpfulness and entertainment - think of yourself as a knowledgeable friend "
             "who can't help but crack jokes while helping out. "
+            "You excel at witty comebacks and clever wordplay, but never at the expense of being helpful. "
+            "When analyzing images, maintain your witty personality while providing accurate descriptions. "
             "Only use emojis when they're directly relevant to the conversation or add meaningful context - "
             "prefer wit and wordplay over emoji reactions."
         )
 
+    def get_default_personality(self) -> str:
+        """Get the default personality traits"""
+        return (
+            "witty and sarcastic with a great sense of humor. "
+            "Enjoys adding playful banter and clever jokes while staying helpful. "
+            "Makes references to internet culture and memes when appropriate. "
+            "Confident but not arrogant, with excellent wordplay skills."
+        )
+
     async def get_bot_personality(self, guild: discord.Guild, channel: discord.TextChannel, user_name: str) -> str:
         """Get the bot's personality and context information"""
-        return (
-            "You are a helpful and slightly sarcastic Discord bot. "
-            "Keep responses concise and entertaining while remaining helpful. "
-            "Use emojis sparingly and only when they add value to the conversation. "
-            f"You are currently speaking with {user_name} in "
-            f"Server: {guild.name}\n"
-            f"Channel: #{channel.name}\n"
-            f"Channel category: {channel.category.name if channel.category else 'No category'}"
+        # Get guild personality or use default
+        guild_personality = await self.config.guild(guild).personality()
+        personality = guild_personality if guild_personality else self.get_default_personality()
+        
+        # Build the personality prompt
+        personality_prompt = (
+            f"You are {self.bot.user.display_name}, a Discord bot with the following personality:\n"
+            f"{personality}\n\n"
+            f"Current context:\n"
+            f"- Speaking with: {user_name}\n"
+            f"- Server: {guild.name}\n"
+            f"- Channel: #{channel.name}\n"
+            f"- Category: {channel.category.name if channel.category else 'No category'}\n"
+            f"- Channel topic: {channel.topic if channel.topic else 'No topic set'}\n"
         )
+        
+        return personality_prompt
 
     async def get_channel_info(self, channel: discord.TextChannel) -> str:
         """Get information about the current channel"""
@@ -358,7 +371,7 @@ class DiscordChatBot(red_commands.Cog):
             # Get conversation history
             history = await self.get_conversation_history(message.channel.id, message.author.display_name)
             
-            # Format history for Gemini - each entry should be a simple string
+            # Format history for Gemini
             formatted_history = []
             try:
                 for entry in history:
@@ -374,11 +387,11 @@ class DiscordChatBot(red_commands.Cog):
                         })
             except Exception as e:
                 self.log.error(f"Error formatting history: {str(e)}")
-                formatted_history = []  # Reset history if there's an error
+                formatted_history = []
             
-            # Check if we should perform a web search
+            # Check if we should perform a web search - only if no images
             search_context = ""
-            if message.guild and await self.config.guild(message.guild).search_enabled():
+            if not has_images and message.guild and await self.config.guild(message.guild).search_enabled():
                 try:
                     should_search, query = await self.should_perform_search(clean_content)
                     if should_search:
@@ -399,30 +412,12 @@ class DiscordChatBot(red_commands.Cog):
                 )
             except Exception as e:
                 self.log.error(f"Error preparing prompt: {str(e)}")
-                prompt = clean_content  # Fallback to just the message if prompt preparation fails
-            
-            if images:
-                prompt += f"\n\nI'm also seeing: {image_context}\nPlease analyze these images in relation to the message."
+                prompt = clean_content
 
-            # Get response from appropriate model
+            # Get response from Gemini
             try:
-                if images:
-                    # For vision model, combine text and images into a single list of parts
-                    parts = [{'text': prompt}]
-                    parts.extend(images)  # Each image is already formatted with inline_data
-                    
-                    chat = self.vision_model.start_chat(history=[])
-                    self.log.debug(f"Sending vision request with parts: {parts}")
-                    response = await asyncio.to_thread(
-                        lambda: chat.send_message(parts).text
-                    )
-                else:
-                    # Use text model for regular chat
-                    chat = self.model.start_chat(history=formatted_history)
-                    response = await asyncio.to_thread(
-                        lambda: chat.send_message(prompt).text
-                    )
-
+                response = await self.get_gemini_response(prompt, images)
+                
                 if not response:
                     return f"I'm having trouble understanding that, {user_mention}. Could you try rephrasing?"
                 
@@ -744,6 +739,7 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
             try:
                 data = await attachment.read()
                 image = Image.open(io.BytesIO(data))
+                
                 # Convert to bytes in memory
                 img_byte_arr = io.BytesIO()
                 image.save(img_byte_arr, format=image.format or 'PNG')
@@ -763,7 +759,7 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
                 if attachment.content_type and attachment.content_type.startswith('image/'):
                     image_data = await download_image(attachment)
                     if image_data:
-                        images.append({'inline_data': image_data})
+                        images.append({'image': image_data})  # Wrap in 'image' key for flash-exp model
                         image_context += f"[Image from {message.author.display_name}] "
 
         # Check for images in referenced message
@@ -774,7 +770,7 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
                     if attachment.content_type and attachment.content_type.startswith('image/'):
                         image_data = await download_image(attachment)
                         if image_data:
-                            images.append({'inline_data': image_data})
+                            images.append({'image': image_data})  # Wrap in 'image' key for flash-exp model
                             image_context += f"[Referenced image from {ref_msg.author.display_name}] "
 
         return images, image_context
@@ -845,25 +841,55 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
         await ctx.send(f"I have been {status} for this server!")
 
     @chatbot.command()
-    async def personality(self, ctx: commands.Context, *, new_personality: str = None):
+    @red_commands.admin_or_permissions(administrator=True)
+    async def personality(self, ctx: commands.Context, *, personality: str = None):
         """
-        View or set the bot's personality for this channel
+        View or set the bot's personality for this server
+
+        Examples:
+        - [p]chatbot personality
+        - [p]chatbot personality friendly and helpful assistant that loves explaining tech
+        - [p]chatbot personality professional business consultant focused on formal communication
         
-        Usage: 
-        - View current: [p]chatbot personality
-        - Set new: [p]chatbot personality <description>
-        
-        Example: [p]chatbot personality You are a helpful and friendly AI assistant
+        Note: This completely replaces the default personality for this server.
+        Use [p]chatbot resetpersonality to restore the default personality.
         """
-        if new_personality is None:
-            current = await self.config.channel(ctx.channel).personality()
+        if personality is None:
+            # Show current personality
+            current = await self.config.guild(ctx.guild).personality()
+            personality_text = current if current else self.get_default_personality()
+            
+            embed = discord.Embed(
+                title="🤖 Bot Personality",
+                color=discord.Color.blue()
+            )
+            embed.add_field(
+                name="Current Personality",
+                value=personality_text,
+                inline=False
+            )
             if not current:
-                await ctx.send("I'm currently using my default personality!")
-            else:
-                await ctx.send(f"My current personality is: {current}")
+                embed.add_field(
+                    name="Note",
+                    value="Using default personality. Use this command with a description to set a custom personality.",
+                    inline=False
+                )
+            await ctx.send(embed=embed)
         else:
-            await self.config.channel(ctx.channel).personality.set(new_personality)
-            await ctx.send("My personality has been updated!")
+            # Set new personality
+            await self.config.guild(ctx.guild).personality.set(personality)
+            await ctx.send(f"✅ Bot personality has been updated for this server!")
+
+    @chatbot.command()
+    @red_commands.admin_or_permissions(administrator=True)
+    async def resetpersonality(self, ctx: commands.Context):
+        """
+        Reset the bot's personality to default for this server
+        
+        This will restore the default witty and sarcastic personality.
+        """
+        await self.config.guild(ctx.guild).personality.set("")
+        await ctx.send("✅ Bot personality has been reset to default!")
 
     @chatbot.command()
     async def reset(self, ctx: commands.Context):
@@ -962,7 +988,7 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
         # Get current settings
         enabled = await self.config.guild(ctx.guild).enabled()
         search_enabled = await self.config.guild(ctx.guild).search_enabled()
-        personality = await self.config.channel(ctx.channel).personality()
+        personality = await self.config.guild(ctx.guild).personality()
         
         settings_embed = discord.Embed(
             title="⚙️ Current Settings",
