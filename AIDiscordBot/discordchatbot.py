@@ -10,6 +10,8 @@ import asyncio
 from typing import Dict, List, Optional, Tuple
 import re
 import logging
+from PIL import Image
+import io
 
 class DiscordChatBot(red_commands.Cog):
     """A Discord chatbot powered by Google's Gemini AI"""
@@ -20,6 +22,7 @@ class DiscordChatBot(red_commands.Cog):
         self.typing_channels = set()
         self.rate_limits = {}
         self.model = None
+        self.vision_model = None
         self.search_service = None
         self.log = logging.getLogger("red.aibot.search")  # Use standard logging
         
@@ -88,6 +91,13 @@ class DiscordChatBot(red_commands.Cog):
                 safety_settings=safety_settings
             )
             
+            # Initialize vision model with the same settings
+            self.vision_model = genai.GenerativeModel(
+                model_name="gemini-pro-vision",
+                generation_config=generation_config,
+                safety_settings=safety_settings
+            )
+            
             # Initialize search service if keys are available
             search_api_key = await self.config.search_api_key()
             if search_api_key:
@@ -99,17 +109,25 @@ class DiscordChatBot(red_commands.Cog):
             print(f"Error initializing Gemini API: {str(e)}")
             return False
 
-    async def get_gemini_response(self, prompt: str) -> Optional[str]:
+    async def get_gemini_response(self, prompt: str, images: List[Image.Image] = None) -> Optional[str]:
         """Get a response from Gemini with proper error handling"""
         try:
             if not self.model:
                 if not await self.initialize():
                     return "I'm not properly configured yet. Please ask an admin to set up my API key."
 
-            chat = self.model.start_chat(history=[])
-            response = await asyncio.to_thread(
-                lambda: chat.send_message(prompt).text
-            )
+            if images:
+                # Use vision model for image analysis
+                chat = self.vision_model.start_chat(history=[])
+                response = await asyncio.to_thread(
+                    lambda: chat.send_message([prompt, *images]).text
+                )
+            else:
+                # Use text model for regular chat
+                chat = self.model.start_chat(history=[])
+                response = await asyncio.to_thread(
+                    lambda: chat.send_message(prompt).text
+                )
             
             # Ensure response doesn't exceed Discord's limit
             if len(response) > self.DISCORD_MESSAGE_LIMIT:
@@ -345,86 +363,94 @@ class DiscordChatBot(red_commands.Cog):
         """Process a single message through Gemini"""
         try:
             # Get conversation history
-            history = await self.get_conversation_history(message.channel.id)
+            history = await self.get_conversation_history(message.channel.id, message.author.display_name)
             
-            # Check if search might be helpful
-            search_context = ""
-            if message.guild:
-                search_enabled = await self.config.guild(message.guild).search_enabled()
-                if search_enabled:
-                    should_search, search_query = await self.should_perform_search(clean_content)
-                    if should_search and search_query:
-                        search_results = await self.perform_web_search(search_query, message)
-                        if search_results:
-                            search_context = f"Here is some relevant information I found:\n{search_results}\n\n"
-                            print(f"Search performed with query: {search_query}")
-            
-            # Format history for better context
+            # Format history for Gemini
             formatted_history = []
-            for entry in history:  
-                if 'parts' in entry and entry['parts']:
-                    message_text = entry['parts'][0].get('text', '')
-                    
-                    # Clean the message text
-                    message_text = self._clean_message(message_text)
-                    
-                    # Format message based on who sent it
-                    if entry['metadata'].get('user_name') == message.author.display_name:
-                        formatted_text = f"You: {message_text}"
-                    else:
-                        formatted_text = f"Assistant: {message_text}"
-                    
-                    formatted_history.append({
-                        "role": entry.get("role", "user"),  
-                        "parts": [{"text": formatted_text}]
-                    })
+            for entry in history:
+                formatted_history.append({
+                    'role': entry['role'],
+                    'parts': [entry['content']]
+                })
+            
+            # Check if we should perform a web search
+            search_context = ""
+            if message.guild and await self.config.guild(message.guild).search_enabled():
+                try:
+                    should_search, query = await self.should_perform_search(clean_content)
+                    if should_search:
+                        search_results = await self.perform_web_search(query, message)
+                        if search_results:
+                            search_context = f"\nRelevant search results:\n{search_results}\n"
+                except Exception as e:
+                    self.log.error(f"Error during web search: {str(e)}")
+                    # Continue without search results
             
             try:
                 chat = self.model.start_chat(history=formatted_history)
             except Exception as e:
-                print(f"Error starting chat: {str(e)}")
+                self.log.error(f"Error starting chat: {str(e)}")
                 chat = self.model.start_chat(history=[])  
             
-            # Prepare prompt using the original template with search results
+            # Process images if any
+            images = []
+            image_context = ""
+            try:
+                images, image_context = await self._process_images(message)
+            except Exception as e:
+                self.log.error(f"Error processing images: {str(e)}")
+                # Continue without images
+            
+            # Prepare prompt using the original template with search results and image context
             prompt = self._prepare_prompt(
                 message=clean_content,
-                context=self.get_bot_personality(message.guild, message.channel, message.author.display_name),
+                context=await self.get_bot_personality(message.guild, message.channel, message.author.display_name),
                 history=history,
                 current_user=message.author.display_name,
                 search_results=search_context
             )
             
+            if images:
+                prompt += f"\n\nI'm also seeing: {image_context}\nPlease analyze these images in relation to the message."
+            
+            # Get response from appropriate model
             try:
-                response = chat.send_message(prompt)
-                response_text = self._clean_message(response.text)
+                response = await self.get_gemini_response(prompt, images)
+                if not response:
+                    return f"I'm having trouble understanding that, {user_mention}. Could you try rephrasing?"
+                    
+                response_text = self._clean_message(response)
                 
-                # Check if response exceeds Discord limit
-                if len(response_text) >= self.DISCORD_MESSAGE_LIMIT:
-                    print(f"Warning: Response exceeded length limit ({len(response_text)} chars)")
-                    return f"I generated a response that was too long ({len(response_text)} characters). Let me try again with a more concise answer, {user_mention}."
+                # Add to conversation history
+                await self.add_to_history(
+                    message.channel.id,
+                    "user",
+                    clean_content,
+                    message.author.display_name
+                )
+                await self.add_to_history(
+                    message.channel.id,
+                    "assistant",
+                    response_text
+                )
                 
-                # Replace the first occurrence of the user's name with their mention
-                if message.author.display_name in response_text:
-                    response_text = response_text.replace(message.author.display_name, user_mention, 1)
                 return response_text
                 
             except Exception as e:
                 error_str = str(e)
-                print(f"Gemini Error: {error_str}")
-                friendly_error = self._handle_safety_error(error_str, message.channel.id)
-                if friendly_error:
-                    return friendly_error
-                    
-                if "blocked" in error_str.lower():
-                    return f"I can't process that message, {user_mention}. Let's keep our conversation friendly!"
-                elif "quota" in error_str.lower():
-                    return f"I've hit my rate limit. Please try again in a moment, {user_mention}!"
+                self.log.error(f"Error getting Gemini response: {error_str}")
+                
+                if "safety" in error_str.lower() or "blocked" in error_str.lower():
+                    return f"I can't process that message due to content safety restrictions, {user_mention}. Let's keep our conversation friendly!"
+                elif "quota" in error_str.lower() or "rate" in error_str.lower():
+                    return f"I've hit my rate limit, {user_mention}. Please try again in a moment!"
+                elif "image" in error_str.lower():
+                    return f"I had trouble processing the image(s), {user_mention}. Please make sure they're in a supported format (JPEG, PNG, WEBP)."
                 else:
-                    print(f"Gemini Error: {error_str}")
                     return f"I encountered an issue processing your message, {user_mention}. Could you try rephrasing it?"
-                    
+            
         except Exception as e:
-            print(f"Unexpected Error: {str(e)}")
+            self.log.error(f"Unexpected error in process_message: {str(e)}")
             return f"I ran into an unexpected problem, {user_mention}. Please try again!"
 
     def _prepare_prompt(self, message: str, context: str, history: List[dict], current_user: str, search_results: str = "") -> str:
@@ -694,6 +720,43 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
         except Exception as e:
             self.log.error(f"Error in should_perform_search: {str(e)}")
             return False, ""
+
+    async def _process_images(self, message: discord.Message) -> Tuple[List[Image.Image], str]:
+        """Process images from the message or referenced message"""
+        images = []
+        image_context = ""
+        
+        # Function to download and convert image
+        async def download_image(attachment):
+            try:
+                data = await attachment.read()
+                image = Image.open(io.BytesIO(data))
+                return image
+            except Exception as e:
+                self.log.error(f"Error downloading/processing image: {str(e)}")
+                return None
+
+        # Check for images in the current message
+        if message.attachments:
+            for attachment in message.attachments:
+                if attachment.content_type and attachment.content_type.startswith('image/'):
+                    image = await download_image(attachment)
+                    if image:
+                        images.append(image)
+                        image_context += f"[Image from {message.author.display_name}] "
+
+        # Check for images in referenced message
+        if message.reference and message.reference.resolved:
+            ref_msg = message.reference.resolved
+            if ref_msg.attachments:
+                for attachment in ref_msg.attachments:
+                    if attachment.content_type and attachment.content_type.startswith('image/'):
+                        image = await download_image(attachment)
+                        if image:
+                            images.append(image)
+                            image_context += f"[Referenced image from {ref_msg.author.display_name}] "
+
+        return images, image_context
 
     @red_commands.group()
     @red_commands.guild_only()

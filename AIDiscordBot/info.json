@@ -11,14 +11,13 @@
         "google-generativeai",
         "pytz",
         "typing-extensions",
-        "google-api-python-client"
+        "google-api-python-client",
+        "Pillow"
     ],
     "tags": [
-        "chatbot",
-        "ai",
-        "gemini",
-        "conversation",
         "utility",
+        "ai",
+        "chat",
         "fun"
     ],
     "min_bot_version": "3.5.0",
