@@ -745,9 +745,12 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
                 image.save(img_byte_arr, format=image.format or 'PNG')
                 img_byte_arr = img_byte_arr.getvalue()
                 
+                # Format for flash-exp model
                 return {
-                    'mime_type': attachment.content_type or 'image/png',
-                    'data': img_byte_arr
+                    'inline_data': {
+                        'mime_type': attachment.content_type or 'image/png',
+                        'data': img_byte_arr
+                    }
                 }
             except Exception as e:
                 self.log.error(f"Error downloading/processing image: {str(e)}")
@@ -759,7 +762,7 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
                 if attachment.content_type and attachment.content_type.startswith('image/'):
                     image_data = await download_image(attachment)
                     if image_data:
-                        images.append({'image': image_data})  # Wrap in 'image' key for flash-exp model
+                        images.append(image_data)  # Don't wrap in 'image' key
                         image_context += f"[Image from {message.author.display_name}] "
 
         # Check for images in referenced message
@@ -770,7 +773,7 @@ SEARCH_QUERY: how to bake cookies (not requiring current information)"""
                     if attachment.content_type and attachment.content_type.startswith('image/'):
                         image_data = await download_image(attachment)
                         if image_data:
-                            images.append({'image': image_data})  # Wrap in 'image' key for flash-exp model
+                            images.append(image_data)  # Don't wrap in 'image' key
                             image_context += f"[Referenced image from {ref_msg.author.display_name}] "
 
         return images, image_context
