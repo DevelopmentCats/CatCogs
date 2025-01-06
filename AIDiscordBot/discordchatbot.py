@@ -9,6 +9,7 @@ import pytz
 import asyncio
 from typing import Dict, List, Optional, Tuple
 import re
+import logging
 
 class DiscordChatBot(commands.Cog):
     """A Discord chatbot powered by Google's Gemini AI"""
@@ -20,7 +21,7 @@ class DiscordChatBot(commands.Cog):
         self.rate_limits = {}
         self.model = None
         self.search_service = None
-        self.log = bot.get_logger("red.aibot.search")  # Add logger
+        self.log = logging.getLogger("red.aibot.search")  # Use standard logging
         
         # Constants
         self.DISCORD_MESSAGE_LIMIT = 2000
