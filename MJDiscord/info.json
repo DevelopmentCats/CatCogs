@@ -1,0 +1,13 @@
+{
+    "name": "MJDiscord",
+    "author": ["DeveloperCats"],
+    "description": "Generate images using MidJourney through Discord bot commands",
+    "short": "MidJourney image generation integration",
+    "tags": ["midjourney", "ai", "image", "art"],
+    "install_msg": "Thanks for installing MJDiscord! Use `[p]mjset setup` to configure the integration.",
+    "end_user_data_statement": "This cog stores MidJourney API credentials for the bot owner. No end-user data is stored.",
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+} 
