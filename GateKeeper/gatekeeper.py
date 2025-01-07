@@ -48,6 +48,16 @@ class GateKeeper(commands.Cog):
         
         # Start background task for cleanup
         self.cleanup_task = self.bot.loop.create_task(self.periodic_cleanup())
+        
+        # Sync slash commands
+        async def sync_slash_commands():
+            try:
+                await self.bot.tree.sync()
+                log.info("Successfully synced slash commands")
+            except Exception as e:
+                log.error(f"Failed to sync slash commands: {e}")
+            
+        self.bot.loop.create_task(sync_slash_commands())
 
     def cog_unload(self):
         """Cleanup on cog unload"""
@@ -173,6 +183,7 @@ class GateKeeper(commands.Cog):
 
     @commands.hybrid_group(name="gatekeeper", aliases=["gk"])
     @commands.guild_only()
+    @app_commands.guild_only()
     async def _gatekeeper(self, ctx: commands.Context):
         """🔒 Security system for protecting your Discord server
 
@@ -184,6 +195,7 @@ class GateKeeper(commands.Cog):
 
     @_gatekeeper.command(name="settings")
     @commands.guild_only()
+    @app_commands.guild_only()
     @checks.admin_or_permissions(administrator=True)
     async def show_settings(self, ctx: commands.Context):
         """😺 Show current GateKeeper settings"""
@@ -379,6 +391,7 @@ class GateKeeper(commands.Cog):
 
     @commands.hybrid_command(name="gkblacklist")
     @commands.guild_only()
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(
         user="The user to blacklist from verification"
@@ -425,6 +438,7 @@ class GateKeeper(commands.Cog):
 
     @commands.hybrid_command(name="gkunblacklist")
     @commands.guild_only()
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(
         user="The user to remove from the blacklist"
@@ -455,6 +469,7 @@ class GateKeeper(commands.Cog):
 
     @commands.hybrid_command(name="stats")
     @commands.guild_only()
+    @app_commands.guild_only()
     async def show_stats(self, ctx: commands.Context):
         """📊 Show verification statistics for the server"""
         if not ctx.guild:
@@ -531,6 +546,7 @@ class GateKeeper(commands.Cog):
 
     @commands.hybrid_command(name="vouch")
     @commands.guild_only()
+    @app_commands.guild_only()
     @app_commands.describe(
         member="The member you want to vouch for"
     )
@@ -606,6 +622,7 @@ class GateKeeper(commands.Cog):
 
     @commands.hybrid_command(name="vouchinfo")
     @commands.guild_only()
+    @app_commands.guild_only()
     @app_commands.describe(
         member="The member to check verification status for (defaults to yourself)"
     )
@@ -696,6 +713,7 @@ class GateKeeper(commands.Cog):
 
     @commands.hybrid_command(name="supervouch")
     @commands.guild_only()
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(
         member="The member to instantly verify",
@@ -765,6 +783,7 @@ class GateKeeper(commands.Cog):
 
     @commands.hybrid_command(name="massverify")
     @commands.guild_only()
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(
         members_string="List of members to verify (mention or ID, separated by spaces)"
@@ -1262,6 +1281,7 @@ class GateKeeper(commands.Cog):
 
     @commands.hybrid_command(name="setup")
     @commands.guild_only()
+    @app_commands.guild_only()
     @checks.admin_or_permissions(administrator=True)
     async def setup_gatekeeper(self, ctx: commands.Context):
         """🔧 Interactive setup wizard for GateKeeper"""
