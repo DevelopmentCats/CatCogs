@@ -48,16 +48,15 @@ class GateKeeper(commands.Cog):
         
         # Start background task for cleanup
         self.cleanup_task = self.bot.loop.create_task(self.periodic_cleanup())
-        
-        # Sync slash commands
-        async def sync_slash_commands():
-            try:
-                await self.bot.tree.sync()
-                log.info("Successfully synced slash commands")
-            except Exception as e:
-                log.error(f"Failed to sync slash commands: {e}")
-            
-        self.bot.loop.create_task(sync_slash_commands())
+
+    async def cog_load(self):
+        """Runs when cog is loaded"""
+        try:
+            # This is the proper way to sync app commands for Red
+            await self.bot.tree.sync()
+            log.info("Successfully synced slash commands")
+        except Exception as e:
+            log.error(f"Failed to sync slash commands: {e}")
 
     def cog_unload(self):
         """Cleanup on cog unload"""
