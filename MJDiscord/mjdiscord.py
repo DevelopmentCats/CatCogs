@@ -1,28 +1,68 @@
 from typing import Optional, Literal, Dict, Any
 import discord
+import aiohttp
 import asyncio
 import json
 import re
 import logging
+import websockets
+import base64
 from datetime import datetime, timedelta
+from io import BytesIO
+from PIL import Image
 from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, pagify
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
+from discord import app_commands
 
 # Set up logging
 log = logging.getLogger("red.mjdiscord")
 
-# Emoji reactions for different actions
-UPSCALE_REACTIONS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
-VARIATION_REACTIONS = ["🔄"]
-CUSTOM_ZOOM_REACTIONS = ["🔍"]
-BETA_REACTIONS = ["🅱️"]
-ASPECT_RATIOS = ["1:1", "16:9", "2:3", "4:3", "3:2", "2:1", "1:2"]  # Available aspect ratios
+# Constants for MidJourney API
+API_VERSION = "v1"
+API_BASE_URL = "https://api.midjourney.com"
+WS_URL = "wss://api.midjourney.com/ws"
+
+# Available model versions and parameters
+MODEL_VERSIONS = {
+    "5.0": "MJ_V5",
+    "5.1": "MJ_V5.1",
+    "5.2": "MJ_V5.2",
+    "niji": "NIJI_V5",
+    "turbo": "MJ_TURBO"
+}
+
+# Reaction controls for image manipulation
+CONTROL_REACTIONS = {
+    "🔄": "rerun",      # Rerun the same prompt
+    "⬆️": "upscale",    # Upscale the image
+    "🎲": "vary",       # Create variations
+    "💾": "save",       # Save to favorites
+    "❌": "delete",     # Delete the message
+    "1️⃣": "vary_1",    # Variation options
+    "2️⃣": "vary_2",
+    "3️⃣": "vary_3",
+    "4️⃣": "vary_4"
+}
+
+# Upscale options
+UPSCALE_REACTIONS = {
+    "2️⃣": "2x",
+    "4️⃣": "4x"
+}
+
+# Variation strength options
+VARIATION_STRENGTH = {
+    "🔵": 0.3,  # Subtle variations
+    "🟢": 0.5,  # Moderate variations
+    "🟡": 0.7   # Strong variations
+}
+
+ASPECT_RATIOS = ["1:1", "16:9", "2:3", "4:3", "3:2", "2:1", "1:2"]
 STYLE_VALUES = range(0, 1001)  # 0-1000 for --stylize
 CHAOS_VALUES = range(0, 101)   # 0-100 for --chaos
 QUALITY_VALUES = [".25", ".5", "1"]  # Quality values for --quality
-VERSION_VALUES = ["5.1", "5.2", "niji"]  # MJ model versions
 SEED_PATTERN = re.compile(r'^\d{1,10}$')  # Seed validation pattern
 
 # Emoji indicators for different states and features
@@ -39,7 +79,7 @@ EMOJIS = {
     "link": "🔗",
     "time": "⏰",
     "roles": "👥",
-    "channel": "📺",
+    "api": "🔌",
     "jobs": "📋",
     "quality": "💎",
     "style": "🖌️",
@@ -60,14 +100,14 @@ COLORS = {
     "processing": discord.Color.from_rgb(59, 165, 93)
 }
 
-# Progress bar for visual feedback
 def get_progress_bar(percent: int) -> str:
+    """Generate a visual progress bar"""
     filled = "█" * (percent // 10)
     empty = "░" * (10 - (percent // 10))
     return f"{filled}{empty} {percent}%"
 
 class MJDiscord(commands.Cog):
-    """MidJourney integration for Red-DiscordBot"""
+    """MidJourney API integration for Red-DiscordBot"""
 
     def __init__(self, bot: Red):
         self.bot = bot
@@ -78,68 +118,221 @@ class MJDiscord(commands.Cog):
         )
         
         default_global = {
-            "mj_channel_id": None,     # Channel where MidJourney bot is active
-            "mj_server_id": None,      # Server where MidJourney bot is active
-            "mj_bot_id": None,         # MidJourney bot's ID
-            "allowed_roles": [],       # Roles allowed to use the cog
-            "is_configured": False,    # Whether the cog is configured
-            "auto_reactions": True,    # Whether to automatically add reactions
-            "max_jobs_per_user": 3,    # Maximum concurrent jobs per user
-            "cooldown_minutes": 1      # Cooldown between commands
+            "api_key": None,
+            "webhook_url": None,
+            "allowed_roles": [],
+            "is_configured": False,
+            "auto_reactions": True,
+            "max_jobs_per_user": 3,
+            "cooldown_minutes": 1,
+            "default_model": "5.2"
         }
         
         self.config.register_global(**default_global)
         
-        # Store active imagine requests and their original channels
-        self.active_requests: Dict[int, Dict[str, Any]] = {}  # user_id -> {message, channel, type}
-        self.message_cache: Dict[str, Dict[str, Any]] = {}    # message_id -> {user_id, type, original_msg}
-
-        # Start background tasks
-        try:
-            self.cleanup_task = self.bot.loop.create_task(self.cleanup_old_requests())
-            self.cache_cleanup_task = self.bot.loop.create_task(self.cleanup_message_cache())
-        except Exception as e:
-            log.error(f"Error starting cleanup tasks: {e}")
-            raise
+        # Store active jobs and their status
+        self.active_jobs: Dict[str, Dict[str, Any]] = {}
+        self.user_jobs: Dict[int, set[str]] = {}
+        self.active_controls: Dict[int, Dict[str, Any]] = {}
         
-        # Register message listener
-        self.bot.add_listener(self.on_message, "on_message")
-        self.bot.add_listener(self.on_reaction_add, "on_reaction_add")
+        # API session
+        self.session: Optional[aiohttp.ClientSession] = None
+        self.ws: Optional[websockets.WebSocketClientProtocol] = None
+        
+        # Start background tasks
+        self.bg_tasks = []
+        self.start_background_tasks()
 
-    def cog_unload(self):
+    async def cog_load(self) -> None:
+        """Register app commands when the cog loads."""
+        await self.bot.tree.sync()
+
+    async def cog_unload(self) -> None:
         """Cleanup when cog is unloaded"""
-        self.cleanup_task.cancel()
-        self.cache_cleanup_task.cancel()
+        for task in self.bg_tasks:
+            task.cancel()
+        
+        if self.session and not self.session.closed:
+            asyncio.create_task(self.session.close())
+        
+        if self.ws and not self.ws.closed:
+            asyncio.create_task(self.ws.close())
 
-    async def cleanup_message_cache(self):
-        """Background task to clean up old message cache entries"""
+    def start_background_tasks(self):
+        """Start all background tasks"""
+        try:
+            self.bg_tasks.extend([
+                self.bot.loop.create_task(self.init_api_session()),
+                self.bot.loop.create_task(self.cleanup_old_jobs()),
+                self.bot.loop.create_task(self.ws_handler())
+            ])
+        except Exception as e:
+            log.error(f"Error starting background tasks: {e}")
+            raise
+
+    async def init_api_session(self):
+        """Initialize API session and websocket connection"""
+        if self.session and not self.session.closed:
+            await self.session.close()
+        
+        settings = await self.config.all()
+        if not settings["api_key"]:
+            return
+        
+        self.session = aiohttp.ClientSession(
+            base_url=API_BASE_URL,
+            headers={
+                "Authorization": f"Bearer {settings['api_key']}",
+                "Content-Type": "application/json"
+            }
+        )
+
+    async def ws_handler(self):
+        """Handle WebSocket connection for real-time updates"""
         while True:
             try:
-                current_time = datetime.now()
-                # Clean up cache entries older than 2 hours
-                self.message_cache = {
-                    msg_id: data
-                    for msg_id, data in self.message_cache.items()
-                    if current_time - data.get("timestamp", current_time) < timedelta(hours=2)
-                }
-                await asyncio.sleep(300)  # Run every 5 minutes
-            except asyncio.CancelledError:
-                break
+                settings = await self.config.all()
+                if not settings["api_key"]:
+                    await asyncio.sleep(60)
+                    continue
+                
+                async with websockets.connect(
+                    WS_URL,
+                    extra_headers={"Authorization": f"Bearer {settings['api_key']}"}
+                ) as ws:
+                    self.ws = ws
+                    async for message in ws:
+                        await self.handle_ws_message(json.loads(message))
+                        
+            except websockets.exceptions.ConnectionClosed:
+                log.warning("WebSocket connection closed. Reconnecting...")
+                await asyncio.sleep(5)
             except Exception as e:
-                log.error(f"Error in message cache cleanup task: {e}")
-                await asyncio.sleep(300)
+                log.error(f"WebSocket error: {e}")
+                await asyncio.sleep(5)
 
-    async def cleanup_old_requests(self):
-        """Background task to clean up old requests"""
+    async def handle_ws_message(self, data: Dict[str, Any]):
+        """Handle incoming WebSocket messages"""
+        job_id = data.get("job_id")
+        if not job_id or job_id not in self.active_jobs:
+            return
+        
+        job = self.active_jobs[job_id]
+        status = data.get("status", "unknown")
+        progress = data.get("progress", 0)
+        
+        try:
+            # Update progress message
+            embed = discord.Embed(
+                title=f"{EMOJIS['art']} Image Generation in Progress",
+                description=get_progress_bar(progress),
+                color=COLORS["processing"]
+            )
+            
+            embed.add_field(
+                name=f"{EMOJIS['info']} Status",
+                value=f"{EMOJIS['loading']} {status.title()}...",
+                inline=False
+            )
+            
+            await job["message"].edit(embed=embed)
+            
+            # Handle completion
+            if status == "completed" and (image_url := data.get("image_url")):
+                await self.handle_job_completion(job_id, image_url)
+            
+            # Handle failure
+            elif status == "failed":
+                await self.handle_job_failure(job_id, data.get("error", "Unknown error"))
+                
+        except Exception as e:
+            log.error(f"Error handling WebSocket message: {e}")
+
+    async def handle_job_completion(self, job_id: str, image_url: str):
+        """Handle successful job completion"""
+        job = self.active_jobs[job_id]
+        
+        embed = discord.Embed(
+            title=f"{EMOJIS['success']} Image Generated Successfully!",
+            color=COLORS["success"]
+        )
+        
+        embed.set_image(url=image_url)
+        
+        # Add prompt with proper formatting
+        prompt_value = job.get("prompt", "Unknown prompt")
+        if len(prompt_value) > 1024:
+            prompt_value = prompt_value[:1021] + "..."
+        embed.add_field(
+            name=f"{EMOJIS['wand']} Prompt",
+            value=box(prompt_value),
+            inline=False
+        )
+        
+        # Add completion time
+        duration = (datetime.now() - job["timestamp"]).seconds
+        embed.set_footer(text=f"Generated in {duration} seconds • React with controls below to modify")
+        
+        # Store the original parameters for reuse
+        embed.add_field(
+            name="Job ID",
+            value=job_id,
+            inline=False
+        )
+        
+        message = await job["message"].edit(embed=embed)
+        
+        # Add reaction controls
+        for reaction in CONTROL_REACTIONS.keys():
+            await message.add_reaction(reaction)
+        
+        # Store message info for reaction handling
+        self.active_controls[message.id] = {
+            "job_id": job_id,
+            "prompt": prompt_value,
+            "parameters": job.get("parameters", {}),
+            "image_url": image_url,
+            "user_id": job["user_id"]
+        }
+        
+        # Cleanup job but keep control info
+        self.active_jobs.pop(job_id)
+        if job["user_id"] in self.user_jobs:
+            self.user_jobs[job["user_id"]].remove(job_id)
+
+    async def handle_job_failure(self, job_id: str, error: str):
+        """Handle job failure"""
+        job = self.active_jobs[job_id]
+        
+        embed = discord.Embed(
+            title=f"{EMOJIS['error']} Image Generation Failed",
+            description=f"Error: {error}",
+            color=COLORS["error"]
+        )
+        
+        await job["message"].edit(embed=embed)
+        
+        # Cleanup
+        self.active_jobs.pop(job_id)
+        if job["user_id"] in self.user_jobs:
+            self.user_jobs[job["user_id"]].remove(job_id)
+
+    async def cleanup_old_jobs(self):
+        """Background task to clean up old jobs"""
         while True:
             try:
                 current_time = datetime.now()
-                # Clean up requests older than 1 hour
-                self.active_requests = {
-                    user_id: data
-                    for user_id, data in self.active_requests.items()
-                    if current_time - data.get("timestamp", current_time) < timedelta(hours=1)
-                }
+                # Clean up jobs older than 1 hour
+                expired_jobs = [
+                    job_id for job_id, job in self.active_jobs.items()
+                    if current_time - job["timestamp"] > timedelta(hours=1)
+                ]
+                
+                for job_id in expired_jobs:
+                    job = self.active_jobs.pop(job_id)
+                    if job["user_id"] in self.user_jobs:
+                        self.user_jobs[job["user_id"]].remove(job_id)
+                
                 await asyncio.sleep(300)  # Run every 5 minutes
             except asyncio.CancelledError:
                 break
@@ -147,295 +340,97 @@ class MJDiscord(commands.Cog):
                 log.error(f"Error in cleanup task: {e}")
                 await asyncio.sleep(300)
 
-    async def on_message(self, message: discord.Message):
-        """Handle MidJourney bot responses"""
-        if not message.author.bot or not message.embeds:
-            return
-
-        settings = await self.config.all()
-        if not settings["is_configured"] or message.author.id != settings["mj_bot_id"]:
-            return
-
-        # Check if this is a response to one of our requests
-        for user_id, request_data in self.active_requests.items():
-            if not request_data.get("waiting_response"):
-                continue
-
-            # Check if this is a MidJourney response
-            if len(message.embeds) > 0 and message.embeds[0].title and "Job ID:" in message.embeds[0].title:
-                original_msg = request_data.get("message")
-                original_channel = request_data.get("channel")
-
-                if not original_msg or not original_channel:
-                    continue
-
-                # Update the original message with the results
-                try:
-                    image_url = message.embeds[0].image.url if message.embeds[0].image else None
-                    if image_url:
-                        embed = discord.Embed(
-                            title=f"{EMOJIS['art']} Image Generated Successfully!",
-                            color=COLORS["success"]
-                        )
-                        embed.set_image(url=image_url)
-                        
-                        # Add prompt with proper formatting
-                        prompt_value = request_data.get("prompt", "Unknown prompt")
-                        if len(prompt_value) > 1024:
-                            prompt_value = prompt_value[:1021] + "..."
-                        embed.add_field(
-                            name=f"{EMOJIS['wand']} Prompt",
-                            value=box(prompt_value),
-                            inline=False
-                        )
-                        
-                        # Add controls explanation
-                        embed.add_field(
-                            name=f"{EMOJIS['info']} Available Actions",
-                            value=(
-                                "**Upscale Image:** Click 1️⃣-4️⃣\n"
-                                "**Create Variations:** Click 🔄\n"
-                            ),
-                            inline=False
-                        )
-                        
-                        # Add footer with job completion time
-                        embed.set_footer(
-                            text=f"Generated in {(datetime.now() - request_data.get('timestamp', datetime.now())).seconds} seconds"
-                        )
-
-                        await original_msg.edit(content=None, embed=embed)
-                        
-                        # Cache the message for reaction handling
-                        self.message_cache[message.id] = {
-                            "user_id": user_id,
-                            "type": "imagine",
-                            "original_msg": original_msg,
-                            "timestamp": datetime.now()
-                        }
-                        
-                        # Add reaction controls if enabled
-                        if settings["auto_reactions"]:
-                            try:
-                                for reaction in UPSCALE_REACTIONS + VARIATION_REACTIONS:
-                                    await message.add_reaction(reaction)
-                            except discord.Forbidden:
-                                log.warning(f"Missing permissions to add reactions in channel {message.channel.id}")
-                            except discord.HTTPException as e:
-                                log.error(f"Error adding reactions: {e}")
-                        
-                        # Mark request as completed
-                        request_data["waiting_response"] = False
-                        
-                except discord.NotFound:
-                    # Original message was deleted
-                    log.debug(f"Original message {original_msg.id} was deleted")
-                    pass
-                except discord.Forbidden:
-                    log.error(f"Missing permissions to edit message in channel {original_channel.id}")
-                except Exception as e:
-                    log.error(f"Error handling MidJourney response: {e}")
-                    try:
-                        await original_channel.send(f"❌ Error processing image: {str(e)}")
-                    except:
-                        pass
-
-    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
-        """Handle reactions on MidJourney images"""
-        if user.bot:
-            return
-
-        message = reaction.message
-        settings = await self.config.all()
-        
-        # Check if this is a cached message
-        cached_data = self.message_cache.get(message.id)
-        if not cached_data or cached_data["user_id"] != user.id:
-            return
-
-        # Handle different reaction types
-        try:
-            if str(reaction.emoji) in UPSCALE_REACTIONS:
-                number = UPSCALE_REACTIONS.index(str(reaction.emoji)) + 1
-                await self.handle_upscale(message, number, user, cached_data["original_msg"])
-            
-            elif str(reaction.emoji) in VARIATION_REACTIONS:
-                await self.handle_variation(message, user, cached_data["original_msg"])
-            
-            # Remove the user's reaction
-            await reaction.remove(user)
-            
-        except Exception as e:
-            print(f"Error handling reaction: {e}")
-
-    async def handle_upscale(self, message: discord.Message, number: int, user: discord.User, original_msg: discord.Message):
-        """Handle upscale reaction"""
-        settings = await self.config.all()
-        mj_channel = self.bot.get_channel(settings["mj_channel_id"])
-        
-        if not mj_channel:
-            return
-        
-        try:
-            # Send the upscale command
-            await mj_channel.send(f"/upscale {number}")
-            
-            # Update the original message
-            embed = original_msg.embeds[0]
-            embed.set_field_at(1, name="Status", value="Upscaling image... Please wait!")
-            await original_msg.edit(embed=embed)
-            
-            # Store the new request
-            self.active_requests[user.id] = {
-                "message": original_msg,
-                "channel": original_msg.channel,
-                "type": "upscale",
-                "waiting_response": True,
-                "timestamp": datetime.now()
-            }
-            
-        except Exception as e:
-            await original_msg.channel.send(f"❌ Error upscaling image: {str(e)}")
-
-    async def handle_variation(self, message: discord.Message, user: discord.User, original_msg: discord.Message):
-        """Handle variation reaction"""
-        settings = await self.config.all()
-        mj_channel = self.bot.get_channel(settings["mj_channel_id"])
-        
-        if not mj_channel:
-            return
-        
-        try:
-            # Send the variation command
-            await mj_channel.send(f"/variation")
-            
-            # Update the original message
-            embed = original_msg.embeds[0]
-            embed.set_field_at(1, name="Status", value="Creating variations... Please wait!")
-            await original_msg.edit(embed=embed)
-            
-            # Store the new request
-            self.active_requests[user.id] = {
-                "message": original_msg,
-                "channel": original_msg.channel,
-                "type": "variation",
-                "waiting_response": True,
-                "timestamp": datetime.now()
-            }
-            
-        except Exception as e:
-            await original_msg.channel.send(f"❌ Error creating variations: {str(e)}")
-
-    @commands.group()
+    @commands.hybrid_group(name="mjset")
     @commands.admin_or_permissions(administrator=True)
     async def mjset(self, ctx: commands.Context):
-        """Configure MidJourney integration settings"""
-        pass
+        """Configure MidJourney API integration settings."""
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help()
 
-    @mjset.command(name="setup")
-    async def setup(self, ctx: commands.Context):
-        """
-        Interactive setup for MidJourney integration
-        
-        This will guide you through:
-        1. Setting up the MidJourney channel
-        2. Configuring allowed roles
-        3. Verifying the setup
-        """
+    @mjset.command(name="apikey")
+    @app_commands.describe(api_key="Your MidJourney API key")
+    async def set_api_key(self, ctx: commands.Context, api_key: str):
+        """Set your MidJourney API key."""
+        # Delete the message containing the API key
         try:
-            # Step 1: Get MidJourney Channel
-            await ctx.send("Please mention or enter the ID of the channel where the MidJourney bot is active:")
+            await ctx.message.delete()
+        except:
+            pass
+        
+        async with self.config.all() as settings:
+            settings["api_key"] = api_key
+            settings["is_configured"] = True
+        
+        # Reinitialize API session
+        await self.init_api_session()
+        
+        await ctx.send(f"{EMOJIS['success']} API key configured successfully!")
+
+    @mjset.command(name="webhook")
+    @app_commands.describe(webhook_url="Discord webhook URL for updates (leave empty to disable)")
+    async def set_webhook(self, ctx: commands.Context, webhook_url: Optional[str] = None):
+        """Set a webhook URL for faster job updates (optional)."""
+        async with self.config.all() as settings:
+            settings["webhook_url"] = webhook_url
+        
+        if webhook_url:
+            await ctx.send(f"{EMOJIS['success']} Webhook URL configured successfully!")
+        else:
+            await ctx.send(f"{EMOJIS['info']} Webhook updates disabled.")
+
+    @mjset.command(name="roles")
+    async def set_roles(self, ctx: commands.Context):
+        """Configure which roles can use MidJourney commands."""
+        await ctx.send("Please mention the roles that should be allowed to use MidJourney commands (mention multiple roles in one message, or type 'everyone' to allow all users):")
+        
+        def check(m):
+            return m.author == ctx.author and m.channel == ctx.channel
+        
+        try:
+            msg = await self.bot.wait_for('message', check=check, timeout=60)
             
-            def channel_check(m):
-                return m.author == ctx.author and m.channel == ctx.channel
-            
-            msg = await self.bot.wait_for('message', check=channel_check, timeout=60)
-            
-            # Handle channel mention or ID
-            if msg.channel_mentions:
-                channel = msg.channel_mentions[0]
+            if msg.content.lower() == "everyone":
+                async with self.config.all() as settings:
+                    settings["allowed_roles"] = []
+                await ctx.send(f"{EMOJIS['success']} All users can now use MidJourney commands!")
             else:
-                try:
-                    channel = ctx.guild.get_channel(int(msg.content))
-                    if not channel:
-                        await ctx.send("❌ Invalid channel. Setup cancelled.")
-                        return
-                except ValueError:
-                    await ctx.send("❌ Invalid channel ID. Setup cancelled.")
-                    return
-            
-            # Step 2: Verify MidJourney bot in channel
-            mj_bot = None
-            for member in channel.members:
-                if member.bot and "midjourney" in member.name.lower():
-                    mj_bot = member
-                    break
-            
-            if not mj_bot:
-                await ctx.send("❌ MidJourney bot not found in the specified channel. Make sure the bot is added to the channel.")
-                return
-            
-            # Step 3: Get allowed roles
-            await ctx.send("Please mention the roles that should be allowed to use MidJourney commands (mention multiple roles in one message, or type 'everyone' to allow all users):")
-            
-            msg = await self.bot.wait_for('message', check=channel_check, timeout=60)
-            
-            allowed_roles = []
-            if msg.content.lower() != "everyone":
                 if not msg.role_mentions:
-                    await ctx.send("❌ No roles mentioned. Setup cancelled.")
+                    await ctx.send(f"{EMOJIS['error']} No roles mentioned. Configuration unchanged.")
                     return
-                allowed_roles = [role.id for role in msg.role_mentions]
-            
-            # Step 4: Configure additional settings
-            await ctx.send("Would you like to configure additional settings? (yes/no)")
-            msg = await self.bot.wait_for('message', check=channel_check, timeout=60)
-            
-            if msg.content.lower().startswith('y'):
-                # Configure auto reactions
-                await ctx.send("Enable automatic reaction controls? (yes/no)")
-                msg = await self.bot.wait_for('message', check=channel_check, timeout=60)
-                auto_reactions = msg.content.lower().startswith('y')
                 
-                # Configure job limits
-                await ctx.send("How many concurrent jobs should users be allowed? (1-5)")
-                msg = await self.bot.wait_for('message', check=channel_check, timeout=60)
-                try:
-                    max_jobs = max(1, min(5, int(msg.content)))
-                except ValueError:
-                    max_jobs = 3
-            else:
-                auto_reactions = True
-                max_jobs = 3
-            
-            # Save configuration
-            async with self.config.all() as settings:
-                settings["mj_channel_id"] = channel.id
-                settings["mj_server_id"] = ctx.guild.id
-                settings["mj_bot_id"] = mj_bot.id
-                settings["allowed_roles"] = allowed_roles
-                settings["auto_reactions"] = auto_reactions
-                settings["max_jobs_per_user"] = max_jobs
-                settings["is_configured"] = True
-            
-            await ctx.send("✅ MidJourney integration configured successfully!")
-            
+                async with self.config.all() as settings:
+                    settings["allowed_roles"] = [role.id for role in msg.role_mentions]
+                
+                role_list = ", ".join(role.name for role in msg.role_mentions)
+                await ctx.send(f"{EMOJIS['success']} MidJourney commands restricted to these roles: {role_list}")
+        
         except asyncio.TimeoutError:
             await ctx.send("Setup timed out. Please try again.")
 
-    @mjset.command(name="reactions")
-    @commands.admin_or_permissions(administrator=True)
-    async def toggle_reactions(self, ctx: commands.Context, enabled: bool = None):
-        """Toggle automatic reaction controls"""
-        if enabled is None:
-            current = await self.config.auto_reactions()
-            await ctx.send(f"Automatic reactions are currently {'enabled' if current else 'disabled'}")
+    @mjset.command(name="model")
+    @app_commands.describe(version="Model version (5.0, 5.1, 5.2, niji, turbo)")
+    async def set_default_model(self, ctx: commands.Context, version: str):
+        """Set the default model version."""
+        if version not in MODEL_VERSIONS:
+            await ctx.send(f"{EMOJIS['error']} Invalid version. Available options: {', '.join(MODEL_VERSIONS.keys())}")
             return
-            
-        await self.config.auto_reactions.set(enabled)
-        await ctx.send(f"✅ Automatic reactions {'enabled' if enabled else 'disabled'}")
+        
+        async with self.config.all() as settings:
+            settings["default_model"] = version
+        
+        await ctx.send(f"{EMOJIS['success']} Default model set to {version}!")
 
-    @commands.hybrid_command()
+    @commands.hybrid_command(name="imagine")
+    @app_commands.describe(
+        prompt="The prompt to generate an image from",
+        aspect="Aspect ratio (e.g., '1:1', '16:9', '2:3')",
+        stylize="Stylization value (0-1000)",
+        chaos="Chaos value (0-100)",
+        quality="Quality value (.25, .5, or 1)",
+        seed="Seed number for reproducible results",
+        version="MidJourney model version (5.0, 5.1, 5.2, niji, turbo)",
+        no_style="Whether to disable MJ's base stylization"
+    )
     @commands.cooldown(1, 60, commands.BucketType.user)
     async def imagine(
         self, 
@@ -449,198 +444,182 @@ class MJDiscord(commands.Cog):
         version: Optional[str] = None,
         no_style: Optional[bool] = False
     ):
-        """
-        Generate an image using MidJourney
-        
-        Parameters
-        ----------
-        prompt: str
-            The prompt to generate an image from
-        aspect: Optional[str]
-            Aspect ratio (e.g., '1:1', '16:9', '2:3')
-        stylize: Optional[int]
-            Stylization value (0-1000)
-        chaos: Optional[int]
-            Chaos value (0-100)
-        quality: Optional[str]
-            Quality value (.25, .5, or 1)
-        seed: Optional[str]
-            Seed number for reproducible results
-        version: Optional[str]
-            MidJourney model version (5.1, 5.2, or niji)
-        no_style: Optional[bool]
-            Whether to disable MJ's base stylization
-        """
-        # Apply cooldown from config
-        bucket = commands.CooldownMapping.from_cooldown(
-            1, await self.config.cooldown_minutes() * 60, commands.BucketType.user
-        )
-        if retry_after := bucket.get_bucket(ctx.message).update_rate_limit():
-            raise commands.CommandOnCooldown(bucket, retry_after, commands.BucketType.user)
-
+        """Generate an image using MidJourney."""
         settings = await self.config.all()
         
         if not settings["is_configured"]:
-            await ctx.send("❌ MidJourney integration not configured. Ask an admin to run `mjset setup`")
+            await ctx.send(f"{EMOJIS['error']} MidJourney API not configured. Ask an admin to run `mjset apikey`")
             return
         
         # Check if user has permission
         if settings["allowed_roles"] and not any(role.id in settings["allowed_roles"] for role in ctx.author.roles):
-            await ctx.send("❌ You don't have permission to use MidJourney commands.")
+            await ctx.send(f"{EMOJIS['error']} You don't have permission to use MidJourney commands.")
             return
         
         # Check concurrent jobs limit
-        active_jobs = len([req for req in self.active_requests.values() 
-                         if req.get("user_id") == ctx.author.id and req.get("waiting_response")])
-        if active_jobs >= settings["max_jobs_per_user"]:
-            await ctx.send(f"❌ You have too many active jobs. Please wait for them to complete (max: {settings['max_jobs_per_user']}).")
+        user_job_count = len(self.user_jobs.get(ctx.author.id, set()))
+        if user_job_count >= settings["max_jobs_per_user"]:
+            await ctx.send(f"{EMOJIS['error']} You have too many active jobs. Please wait for them to complete (max: {settings['max_jobs_per_user']}).")
             return
-
-        # Get the MidJourney channel
-        mj_channel = self.bot.get_channel(settings["mj_channel_id"])
-        if not mj_channel:
-            await ctx.send("❌ MidJourney channel not found. Please ask an admin to reconfigure.")
-            return
-
-        # Validate and build parameters
-        params = []
+        
+        # Validate parameters
+        params = {}
         
         # Validate aspect ratio
         if aspect:
             if aspect not in ASPECT_RATIOS:
-                await ctx.send(f"❌ Invalid aspect ratio. Available options: {', '.join(ASPECT_RATIOS)}")
+                await ctx.send(f"{EMOJIS['error']} Invalid aspect ratio. Available options: {', '.join(ASPECT_RATIOS)}")
                 return
-            params.append(f"--ar {aspect}")
+            params["aspect_ratio"] = aspect
         
         # Validate stylize
         if stylize is not None:
             if stylize not in STYLE_VALUES:
-                await ctx.send("❌ Stylize value must be between 0 and 1000.")
+                await ctx.send(f"{EMOJIS['error']} Stylize value must be between 0 and 1000.")
                 return
-            params.append(f"--stylize {stylize}")
+            params["stylize"] = stylize
         
         # Validate chaos
         if chaos is not None:
             if chaos not in CHAOS_VALUES:
-                await ctx.send("❌ Chaos value must be between 0 and 100.")
+                await ctx.send(f"{EMOJIS['error']} Chaos value must be between 0 and 100.")
                 return
-            params.append(f"--chaos {chaos}")
+            params["chaos"] = chaos
         
         # Validate quality
         if quality:
             if quality not in QUALITY_VALUES:
-                await ctx.send("❌ Quality must be .25, .5, or 1")
+                await ctx.send(f"{EMOJIS['error']} Quality must be .25, .5, or 1")
                 return
-            params.append(f"--quality {quality}")
+            params["quality"] = float(quality)
         
         # Validate seed
         if seed:
             if not SEED_PATTERN.match(seed):
-                await ctx.send("❌ Invalid seed number. Must be a number between 0-9999999999.")
+                await ctx.send(f"{EMOJIS['error']} Invalid seed number. Must be a number between 0-9999999999.")
                 return
-            params.append(f"--seed {seed}")
+            params["seed"] = int(seed)
         
         # Validate version
-        if version:
-            if version not in VERSION_VALUES:
-                await ctx.send(f"❌ Invalid version. Available options: {', '.join(VERSION_VALUES)}")
-                return
-            params.append(f"--v {version}")
+        version = version or settings["default_model"]
+        if version not in MODEL_VERSIONS:
+            await ctx.send(f"{EMOJIS['error']} Invalid version. Available options: {', '.join(MODEL_VERSIONS.keys())}")
+            return
+        params["model"] = MODEL_VERSIONS[version]
         
         # Add no-style parameter
         if no_style:
-            params.append("--no style")
+            params["no_style"] = True
         
-        # Build the final prompt
-        final_prompt = f"{prompt} {' '.join(params)}"
+        # Create progress message
+        embed = discord.Embed(
+            title=f"{EMOJIS['art']} Processing Image Generation",
+            description=get_progress_bar(0),
+            color=COLORS["processing"]
+        )
         
-        # Send the imagine command
-        try:
-            # Create embed for tracking
-            embed = discord.Embed(
-                title=f"{EMOJIS['art']} Processing Image Generation",
-                description=get_progress_bar(10),
-                color=COLORS["processing"]
-            )
+        # Format prompt nicely
+        formatted_prompt = box(prompt)
+        embed.add_field(
+            name=f"{EMOJIS['wand']} Prompt",
+            value=formatted_prompt if len(formatted_prompt) <= 1024 else f"{formatted_prompt[:1021]}...",
+            inline=False
+        )
+        
+        # Add parameters field if any
+        if params:
+            param_list = []
+            for key, value in params.items():
+                if key == "aspect_ratio":
+                    param_list.append(f"{EMOJIS['aspect']} Aspect: {value}")
+                elif key == "stylize":
+                    param_list.append(f"{EMOJIS['style']} Style: {value}")
+                elif key == "chaos":
+                    param_list.append(f"{EMOJIS['chaos']} Chaos: {value}")
+                elif key == "quality":
+                    param_list.append(f"{EMOJIS['quality']} Quality: {value}")
+                elif key == "seed":
+                    param_list.append(f"{EMOJIS['seed']} Seed: {value}")
+                elif key == "model":
+                    param_list.append(f"{EMOJIS['version']} Model: {value}")
             
-            # Format prompt nicely
-            formatted_prompt = box(prompt)
-            embed.add_field(
-                name=f"{EMOJIS['wand']} Prompt",
-                value=formatted_prompt if len(formatted_prompt) <= 1024 else f"{formatted_prompt[:1021]}...",
-                inline=False
-            )
-            
-            # Add parameters in a clean format
-            if params:
-                param_list = []
-                for param in params:
-                    if "--ar" in param:
-                        param_list.append(f"{EMOJIS['aspect']} {param}")
-                    elif "--stylize" in param:
-                        param_list.append(f"{EMOJIS['style']} {param}")
-                    elif "--chaos" in param:
-                        param_list.append(f"{EMOJIS['chaos']} {param}")
-                    elif "--quality" in param:
-                        param_list.append(f"{EMOJIS['quality']} {param}")
-                    elif "--seed" in param:
-                        param_list.append(f"{EMOJIS['seed']} {param}")
-                    elif "--v" in param:
-                        param_list.append(f"{EMOJIS['version']} {param}")
-                    else:
-                        param_list.append(param)
-                
+            if param_list:
                 embed.add_field(
                     name="Parameters",
                     value="\n".join(param_list),
                     inline=False
                 )
-            
-            embed.add_field(
-                name=f"{EMOJIS['info']} Status",
-                value=f"{EMOJIS['loading']} Initializing request...",
-                inline=False
-            )
-            
-            embed.set_footer(text="This may take a few minutes...")
-            
-            # Send progress message in the original channel
-            progress_msg = await ctx.send(embed=embed)
-            
-            # Send the actual command to MidJourney's channel
-            mj_msg = await mj_channel.send(f"/imagine prompt: {final_prompt}")
-            
-            # Store the request for tracking
-            self.active_requests[ctx.author.id] = {
-                "message": progress_msg,
-                "channel": ctx.channel,
-                "type": "imagine",
-                "prompt": final_prompt,
-                "waiting_response": True,
-                "timestamp": datetime.now()
-            }
-            
-            # Update progress message
-            embed.set_field_at(-1, name="Status", value="Request sent! Waiting for MidJourney...")
-            await progress_msg.edit(embed=embed)
-            
-        except discord.Forbidden:
-            await ctx.send("❌ I don't have permission to send messages in the MidJourney channel.")
-        except Exception as e:
-            await ctx.send(f"❌ An error occurred: {str(e)}")
         
-    @commands.hybrid_command()
+        embed.add_field(
+            name=f"{EMOJIS['info']} Status",
+            value=f"{EMOJIS['loading']} Initializing request...",
+            inline=False
+        )
+        
+        progress_msg = await ctx.send(embed=embed)
+        
+        # Send API request
+        try:
+            async with self.session.post("/imagine", json={
+                "prompt": prompt,
+                **params,
+                "webhook_url": settings.get("webhook_url")
+            }) as resp:
+                if resp.status != 200:
+                    error = await resp.text()
+                    await progress_msg.edit(
+                        embed=discord.Embed(
+                            title=f"{EMOJIS['error']} API Error",
+                            description=f"Error: {error}",
+                            color=COLORS["error"]
+                        )
+                    )
+                    return
+                
+                data = await resp.json()
+                job_id = data["job_id"]
+                
+                # Store job information
+                self.active_jobs[job_id] = {
+                    "user_id": ctx.author.id,
+                    "message": progress_msg,
+                    "channel": ctx.channel,
+                    "type": "imagine",
+                    "prompt": prompt,
+                    "timestamp": datetime.now()
+                }
+                
+                if ctx.author.id not in self.user_jobs:
+                    self.user_jobs[ctx.author.id] = set()
+                self.user_jobs[ctx.author.id].add(job_id)
+                
+                # Update progress message
+                embed.set_field_at(
+                    -1,
+                    name=f"{EMOJIS['info']} Status",
+                    value=f"{EMOJIS['loading']} Request sent! Processing...",
+                    inline=False
+                )
+                await progress_msg.edit(embed=embed)
+        
+        except Exception as e:
+            log.error(f"Error sending imagine request: {e}")
+            await progress_msg.edit(
+                embed=discord.Embed(
+                    title=f"{EMOJIS['error']} Error",
+                    description=f"An error occurred: {str(e)}",
+                    color=COLORS["error"]
+                )
+            )
+
+    @commands.hybrid_command(name="mjstatus")
+    @app_commands.describe()
     async def mjstatus(self, ctx: commands.Context):
-        """Check MidJourney integration status"""
+        """Check MidJourney integration status."""
         settings = await self.config.all()
         
         if not settings["is_configured"]:
-            await ctx.send("❌ MidJourney integration not configured.")
-            return
-        
-        mj_channel = self.bot.get_channel(settings["mj_channel_id"])
-        if not mj_channel:
-            await ctx.send("❌ MidJourney channel not found. Please ask an admin to reconfigure.")
+            await ctx.send(f"{EMOJIS['error']} MidJourney API not configured.")
             return
         
         # Check if user has permission
@@ -650,18 +629,23 @@ class MJDiscord(commands.Cog):
             return
         
         # Count active jobs
-        user_jobs = len([req for req in self.active_requests.values() 
-                        if req.get("user_id") == ctx.author.id and req.get("waiting_response")])
+        user_jobs = len(self.user_jobs.get(ctx.author.id, set()))
         
         embed = discord.Embed(
             title=f"{EMOJIS['info']} MidJourney Status",
             color=COLORS["brand"]
         )
         
-        # Add server status
+        # Add API status
         embed.add_field(
-            name=f"{EMOJIS['channel']} Active Channel",
-            value=mj_channel.mention
+            name=f"{EMOJIS['api']} API Status",
+            value=f"{EMOJIS['success']} Connected" if self.session and not self.session.closed else f"{EMOJIS['error']} Disconnected"
+        )
+        
+        # Add WebSocket status
+        embed.add_field(
+            name=f"{EMOJIS['link']} WebSocket",
+            value=f"{EMOJIS['success']} Connected" if self.ws and not self.ws.closed else f"{EMOJIS['error']} Disconnected"
         )
         
         # Add job status with progress bar
@@ -673,28 +657,26 @@ class MJDiscord(commands.Cog):
             inline=False
         )
         
-        # Add feature status
-        features = []
-        features.append(f"{EMOJIS['success' if settings['auto_reactions'] else 'error']} Reaction Controls")
-        
+        # Add current model
         embed.add_field(
-            name="Features",
-            value="\n".join(features),
+            name=f"{EMOJIS['version']} Default Model",
+            value=settings["default_model"],
             inline=False
         )
         
         # Add footer with refresh hint
         embed.set_footer(text="Use /mjstatus again to refresh")
+        
+        await ctx.send(embed=embed)
 
-        await ctx.send(embed=embed) 
-
-    @commands.hybrid_command()
+    @commands.hybrid_command(name="mjhelp")
+    @app_commands.describe()
     async def mjhelp(self, ctx: commands.Context):
-        """Show detailed help for MidJourney commands and parameters"""
+        """Show detailed help for MidJourney commands and parameters."""
         embed = discord.Embed(
             title=f"{EMOJIS['help']} MidJourney Command Guide",
             description=(
-                f"{EMOJIS['info']} Generate amazing images using simple commands!\n"
+                f"{EMOJIS['info']} Generate amazing images using MidJourney's API!\n"
                 f"{EMOJIS['wand']} All parameters are optional - just start with a prompt!"
             ),
             color=COLORS["brand"]
@@ -732,9 +714,9 @@ class MJDiscord(commands.Cog):
             "Any number for consistent results\n"
             "Example: `--seed 123456`\n",
             
-            f"{EMOJIS['version']} **Version** (--v)\n"
-            f"Options: {', '.join(VERSION_VALUES)}\n"
-            "Example: `--v niji`\n"
+            f"{EMOJIS['version']} **Version** (--version)\n"
+            f"Options: {', '.join(MODEL_VERSIONS.keys())}\n"
+            "Example: `--version turbo`\n"
         ]
         
         embed.add_field(
@@ -746,9 +728,9 @@ class MJDiscord(commands.Cog):
         # Quick examples
         examples = [
             "🖼️ **Landscape:** `/imagine beautiful sunset over mountains --ar 16:9 --quality 1`",
-            "👤 **Portrait:** `/imagine professional headshot --ar 2:3 --v 5.2`",
+            "👤 **Portrait:** `/imagine professional headshot --ar 2:3 --version 5.2`",
             "🎨 **Artistic:** `/imagine abstract art --stylize 1000 --chaos 100`",
-            "📺 **Anime:** `/imagine cute anime character --v niji --stylize 800`"
+            "⚡ **Quick:** `/imagine cute anime character --version turbo`"
         ]
         
         embed.add_field(
@@ -757,19 +739,223 @@ class MJDiscord(commands.Cog):
             inline=False
         )
         
-        # Reaction controls with better formatting
-        controls = [
-            "1️⃣-4️⃣ - Upscale image to high resolution",
-            "🔄 - Create variations of the image"
-        ]
-        
-        embed.add_field(
-            name=f"{EMOJIS['info']} Reaction Controls",
-            value="\n".join(controls),
-            inline=False
-        )
-        
         # Add tips in footer
-        embed.set_footer(text="💡 Tip: Use --quality 1 for best results, but note it uses more of your MidJourney quota")
+        embed.set_footer(text="💡 Tip: Use the turbo model for faster results, or quality 1 for best results")
+        
+        await ctx.send(embed=embed)
 
-        await ctx.send(embed=embed) 
+    @commands.hybrid_command(name="favorites")
+    @app_commands.describe()
+    async def favorites(self, ctx: commands.Context):
+        """View your saved favorite images."""
+        async with self.config.user(ctx.author).favorites() as favorites:
+            if not favorites:
+                await ctx.send(f"{EMOJIS['info']} You haven't saved any favorites yet!")
+                return
+            
+            # Create embed pages for favorites
+            pages = []
+            for i, fav in enumerate(favorites, 1):
+                embed = discord.Embed(
+                    title=f"Favorite #{i}",
+                    color=COLORS["brand"]
+                )
+                embed.set_image(url=fav["image_url"])
+                embed.add_field(
+                    name="Prompt",
+                    value=box(fav["prompt"]),
+                    inline=False
+                )
+                if fav.get("parameters"):
+                    params = "\n".join(f"{k}: {v}" for k, v in fav["parameters"].items())
+                    embed.add_field(
+                        name="Parameters",
+                        value=box(params),
+                        inline=False
+                    )
+                embed.set_footer(text=f"Saved on {datetime.fromisoformat(fav['timestamp']).strftime('%Y-%m-%d %H:%M:%S')}")
+                pages.append(embed)
+            
+            # Show paginated favorites
+            await menu(ctx, pages, DEFAULT_CONTROLS)
+
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
+        """Handle reaction controls for image manipulation"""
+        if user.bot:
+            return
+            
+        message = reaction.message
+        if message.id not in self.active_controls:
+            return
+            
+        control_info = self.active_controls[message.id]
+        if user.id != control_info["user_id"]:
+            return
+            
+        emoji = str(reaction.emoji)
+        if emoji not in CONTROL_REACTIONS:
+            return
+            
+        # Remove user's reaction
+        await reaction.remove(user)
+        
+        action = CONTROL_REACTIONS[emoji]
+        
+        if action == "rerun":
+            await self.handle_rerun(message, control_info)
+        elif action == "upscale":
+            await self.handle_upscale_menu(message, control_info)
+        elif action == "vary":
+            await self.handle_variation_menu(message, control_info)
+        elif action == "save":
+            await self.handle_save(message, control_info)
+        elif action == "delete":
+            await message.delete()
+            self.active_controls.pop(message.id)
+        elif action.startswith("vary_"):
+            variation_num = int(action[-1])
+            await self.handle_specific_variation(message, control_info, variation_num)
+
+    async def handle_rerun(self, message: discord.Message, control_info: dict):
+        """Rerun the same prompt with the same parameters"""
+        embed = message.embeds[0]
+        embed.title = f"{EMOJIS['loading']} Rerunning Generation..."
+        await message.edit(embed=embed)
+        
+        # Create new job with same parameters
+        await self.create_image_job(
+            message.channel,
+            control_info["prompt"],
+            message,
+            control_info["user_id"],
+            control_info.get("parameters", {})
+        )
+
+    async def handle_upscale_menu(self, message: discord.Message, control_info: dict):
+        """Show upscale options menu"""
+        embed = message.embeds[0]
+        embed.title = f"{EMOJIS['quality']} Select Upscale Factor"
+        embed.description = "2️⃣ - 2x Upscale\n4️⃣ - 4x Upscale"
+        await message.edit(embed=embed)
+        
+        # Clear existing reactions and add upscale options
+        await message.clear_reactions()
+        for reaction in UPSCALE_REACTIONS.keys():
+            await message.add_reaction(reaction)
+        await message.add_reaction("❌")  # Cancel option
+
+    async def handle_variation_menu(self, message: discord.Message, control_info: dict):
+        """Show variation options menu"""
+        embed = message.embeds[0]
+        embed.title = f"{EMOJIS['chaos']} Select Variation Strength"
+        embed.description = (
+            "🔵 - Subtle Variations (30%)\n"
+            "🟢 - Moderate Variations (50%)\n"
+            "🟡 - Strong Variations (70%)"
+        )
+        await message.edit(embed=embed)
+        
+        # Clear existing reactions and add variation options
+        await message.clear_reactions()
+        for reaction in VARIATION_STRENGTH.keys():
+            await message.add_reaction(reaction)
+        await message.add_reaction("❌")  # Cancel option
+
+    async def handle_specific_variation(self, message: discord.Message, control_info: dict, variation_num: int):
+        """Handle creating a specific variation of the image"""
+        embed = message.embeds[0]
+        embed.title = f"{EMOJIS['loading']} Creating Variation {variation_num}..."
+        await message.edit(embed=embed)
+        
+        # Add variation parameters
+        params = control_info.get("parameters", {}).copy()
+        params["variation_index"] = variation_num
+        params["variation_strength"] = 0.5  # Default to moderate variation
+        
+        # Create new job with variation parameters
+        await self.create_image_job(
+            message.channel,
+            control_info["prompt"],
+            message,
+            control_info["user_id"],
+            params
+        )
+
+    async def handle_save(self, message: discord.Message, control_info: dict):
+        """Save the image to user's favorites"""
+        # Create favorites if not exists
+        async with self.config.user_from_id(control_info["user_id"]).favorites() as favorites:
+            favorites.append({
+                "prompt": control_info["prompt"],
+                "image_url": control_info["image_url"],
+                "parameters": control_info.get("parameters", {}),
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        # Confirm save
+        embed = message.embeds[0]
+        original_title = embed.title
+        embed.title = f"{EMOJIS['success']} Saved to Favorites!"
+        await message.edit(embed=embed)
+        
+        # Revert title after 2 seconds
+        await asyncio.sleep(2)
+        embed.title = original_title
+        await message.edit(embed=embed)
+
+    async def create_image_job(
+        self,
+        channel: discord.TextChannel,
+        prompt: str,
+        message: discord.Message,
+        user_id: int,
+        params: Dict[str, Any]
+    ) -> None:
+        """Create and manage a new image generation job."""
+        settings = await self.config.all()
+        
+        try:
+            async with self.session.post("/imagine", json={
+                "prompt": prompt,
+                **params,
+                "webhook_url": settings.get("webhook_url")
+            }) as resp:
+                if resp.status != 200:
+                    error = await resp.text()
+                    await message.edit(
+                        embed=discord.Embed(
+                            title=f"{EMOJIS['error']} API Error",
+                            description=f"Error: {error}",
+                            color=COLORS["error"]
+                        )
+                    )
+                    return
+                
+                data = await resp.json()
+                job_id = data["job_id"]
+                
+                # Store job information
+                self.active_jobs[job_id] = {
+                    "user_id": user_id,
+                    "message": message,
+                    "channel": channel,
+                    "type": "imagine",
+                    "prompt": prompt,
+                    "parameters": params,
+                    "timestamp": datetime.now()
+                }
+                
+                if user_id not in self.user_jobs:
+                    self.user_jobs[user_id] = set()
+                self.user_jobs[user_id].add(job_id)
+                
+        except Exception as e:
+            log.error(f"Error creating image job: {e}")
+            await message.edit(
+                embed=discord.Embed(
+                    title=f"{EMOJIS['error']} Error",
+                    description=f"An error occurred: {str(e)}",
+                    color=COLORS["error"]
+                )
+            ) 
