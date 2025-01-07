@@ -1,0 +1,1387 @@
+{
+    "abilities": {
+        "stealth": {
+            "name": "Stealth Attack",
+            "description": "A surprise attack that ignores defense",
+            "damage_multiplier": 1.4,
+            "effect": {
+                "ignore_defense": true,
+                "stealth_bonus": true
+            },
+            "cooldown": 3,
+            "animation": "🌑 → 💨 → 💥"
+        },
+        "night_vision": {
+            "name": "Night Stalker",
+            "description": "Increases accuracy and critical hit chance",
+            "effect": {
+                "accuracy_boost": 20,
+                "crit_chance": 15,
+                "status": "enhanced_vision",
+                "status_duration": 2
+            },
+            "cooldown": 3,
+            "animation": "👁️ → 🌙 → 🎯"
+        },
+        "sass": {
+            "name": "Ultimate Sass",
+            "description": "So sassy it hurts, lowers opponent's attack",
+            "effect": {
+                "attack_reduction": 20,
+                "emotional_damage": 10,
+                "status": "demoralized",
+                "status_duration": 2
+            },
+            "cooldown": 2,
+            "animation": "😒 → 💅 → 💔"
+        },
+        "judgmental_stare": {
+            "name": "Judgmental Stare",
+            "description": "Stares into your soul, may cause paralysis",
+            "effect": {
+                "paralysis_chance": 30,
+                "defense_reduction": 15,
+                "status": "paralyzed",
+                "status_duration": 1
+            },
+            "duration": 1,
+            "animation": "👀 → 😾 → ⚡"
+        },
+        "rainbow_blast": {
+            "name": "Rainbow Blast",
+            "description": "Unleashes the power of Nyan",
+            "damage_multiplier": 1.6,
+            "effect": {
+                "rainbow_damage": 15,
+                "speed_boost": 10,
+                "status": "dazzled",
+                "status_duration": 2
+            },
+            "cooldown": 4,
+            "animation": "🌈 → 🐱 → 💫"
+        },
+        "void_consumption": {
+            "name": "Void Consumption",
+            "description": "Absorbs opponent's attack power into the void",
+            "effect": {
+                "attack_steal": 15,
+                "darkness_damage": 10,
+                "status": "weakened",
+                "status_duration": 2
+            },
+            "cooldown": 4,
+            "animation": "⚫ → 🌀 → 🕳️"
+        },
+        "bread_mode": {
+            "name": "Bread Mode",
+            "description": "Transforms into bread, massively increasing defense",
+            "effect": {
+                "defense_boost": 40,
+                "speed_reduction": 25
+            },
+            "duration": 2,
+            "animation": "🐱 → 🍞 → 🛡️"
+        },
+        "conspiracy_theory": {
+            "name": "Conspiracy Theory",
+            "description": "Confuses the opponent with bizarre theories",
+            "effect": {
+                "confusion_chance": 50,
+                "accuracy_reduction": 25
+            },
+            "duration": 2,
+            "animation": "🤔 → 👽 → 🌀"
+        },
+        "meeting_disruption": {
+            "name": "Meeting Disruption",
+            "description": "You're not muted! Causes chaos",
+            "effect": {
+                "stun_chance": 40,
+                "attack_reduction": 20
+            },
+            "duration": 1,
+            "animation": "🎤 → 📢 → 😱"
+        },
+        "night_terror": {
+            "name": "3 AM Zoomies",
+            "description": "SPEED. CHAOS. DESTRUCTION.",
+            "effect": {
+                "speed_boost": 35,
+                "attack_boost": 25,
+                "accuracy_reduction": 30
+            },
+            "duration": 2,
+            "animation": "😴 → 💨 → 💥"
+        },
+        "rage_quit": {
+            "name": "Rage Quit",
+            "description": "Throws the keyboard in anger",
+            "damage_multiplier": 1.7,
+            "effect": {
+                "recoil_damage": 15
+            },
+            "cooldown": 4,
+            "animation": "😠 → ⌨️ → 💥"
+        },
+        "madness_inducing": {
+            "name": "Eldritch Knowledge",
+            "description": "Shares forbidden knowledge that breaks minds",
+            "effect": {
+                "confusion_chance": 80,
+                "attack_reduction": 30,
+                "defense_reduction": 30
+            },
+            "duration": 2,
+            "animation": "📚 → 👁️ → 🌀"
+        },
+        "box_fortress": {
+            "name": "Box Fortress",
+            "description": "Creates an impenetrable cardboard fortress",
+            "effect": {
+                "defense_boost": 75,
+                "movement_locked": true
+            },
+            "duration": 1,
+            "animation": "📦 → 🏰 → 🛡️"
+        },
+        "surprise_delivery": {
+            "name": "Prime Delivery",
+            "description": "Surprise attack from within a box",
+            "damage_multiplier": 1.4,
+            "effect": {
+                "surprise_factor": true,
+                "priority": true
+            },
+            "cooldown": 3,
+            "animation": "📦 → 💨 → 💥"
+        },
+        "musical_attack": {
+            "name": "Keyboard Solo",
+            "description": "Damages all opponents with sick beats",
+            "damage_multiplier": 1.2,
+            "effect": {
+                "aoe_damage": true,
+                "stun_chance": 25
+            },
+            "cooldown": 2,
+            "animation": "🎹 → 🎵 → 💫"
+        },
+        "money_making": {
+            "name": "Stonks",
+            "description": "Generates catnip through market manipulation",
+            "effect": {
+                "catnip_gain": 35,
+                "market_crash_damage": 20
+            },
+            "cooldown": 4,
+            "animation": "📈 → 💰 → 🌿"
+        },
+        "meme_power": {
+            "name": "Power of Memes",
+            "description": "Channels the collective power of cat memes",
+            "damage_multiplier": 1.7,
+            "effect": {
+                "viral_boost": 35,
+                "confusion_chance": 45
+            },
+            "cooldown": 4,
+            "animation": "😺 → 🤣 → 💫"
+        },
+        "zero_gravity": {
+            "name": "Zero Gravity Zone",
+            "description": "Creates a zero-gravity field that disorients opponents",
+            "effect": {
+                "accuracy_reduction": 30,
+                "speed_reduction": 25,
+                "float_duration": 2
+            },
+            "duration": 2,
+            "animation": "🌍 → 🚀 → 💫"
+        },
+        "pixel_blast": {
+            "name": "8-Bit Blast",
+            "description": "Unleashes retro gaming energy",
+            "damage_multiplier": 1.4,
+            "effect": {
+                "pixelate_chance": 35,
+                "glitch_damage": 20
+            },
+            "cooldown": 3,
+            "animation": "👾 → 🎮 → 💥"
+        },
+        "coffee_splash": {
+            "name": "Coffee Splash",
+            "description": "Hot coffee attack that may cause burn",
+            "damage_multiplier": 1.3,
+            "effect": {
+                "burn_chance": 40,
+                "speed_boost": 30
+            },
+            "cooldown": 2,
+            "animation": "☕ → 💨 → 🔥"
+        },
+        "bass_drop": {
+            "name": "Ultimate Bass Drop",
+            "description": "Sonic attack that stuns opponents",
+            "damage_multiplier": 1.3,
+            "effect": {
+                "stun_chance": 40,
+                "area_damage": true
+            },
+            "cooldown": 4,
+            "animation": "🎧 → 🎵 → 💥"
+        },
+        "blade_dance": {
+            "name": "Blade Dance",
+            "description": "Series of lightning-fast sword strikes",
+            "damage_multiplier": 1.6,
+            "hits": 3,
+            "effect": {
+                "bleed_chance": 25
+            },
+            "cooldown": 4,
+            "animation": "⚔️ → 💨 → 💢"
+        },
+        "debug_mode": {
+            "name": "Debug Mode",
+            "description": "Analyzes and exploits opponent's weaknesses",
+            "effect": {
+                "defense_reduction": 25,
+                "accuracy_boost": 35
+            },
+            "duration": 3,
+            "animation": "💻 → 🔍 → ⚡"
+        },
+        "pizza_toss": {
+            "name": "Pizza Toss",
+            "description": "Throws a spinning pizza of doom",
+            "damage_multiplier": 1.4,
+            "effect": {
+                "area_damage": true,
+                "slow_chance": 40
+            },
+            "cooldown": 3,
+            "animation": "🍕 → 💫 → 💥"
+        },
+        "thunder_strike": {
+            "name": "Thunder Strike",
+            "description": "Calls down lightning from Asgard",
+            "damage_multiplier": 1.8,
+            "effect": {
+                "paralyze_chance": 30,
+                "chain_lightning": true
+            },
+            "cooldown": 5,
+            "animation": "⚡ → 🌩️ → 💥"
+        },
+        "laser_eyes": {
+            "name": "Laser Eyes",
+            "description": "Fires precision laser beams",
+            "damage_multiplier": 1.7,
+            "effect": {
+                "burn_chance": 40,
+                "pierce_defense": true
+            },
+            "cooldown": 3,
+            "animation": "👁️ → 🔴 → 💥"
+        },
+        "paint_splash": {
+            "name": "Paint Splash",
+            "description": "Creates a colorful mess that confuses",
+            "damage_multiplier": 1.1,
+            "effect": {
+                "confusion_chance": 35,
+                "area_damage": true
+            },
+            "cooldown": 3,
+            "animation": "🎨 → 🌈 → 💫"
+        },
+        "wave_rider": {
+            "name": "Wave Rider",
+            "description": "Summons a massive wave",
+            "damage_multiplier": 1.3,
+            "effect": {
+                "knockback": true,
+                "speed_reduction": 30
+            },
+            "cooldown": 4,
+            "animation": "🌊 → 🏄 → 💨"
+        },
+        "spectral_slash": {
+            "name": "Spectral Slash",
+            "description": "Ghost attack that passes through defense",
+            "damage_multiplier": 1.5,
+            "effect": {
+                "ignore_defense": true,
+                "fear_chance": 30
+            },
+            "cooldown": 3,
+            "animation": "👻 → 💨 → 💥"
+        },
+        "elegance": {
+            "name": "Elegant Grace",
+            "description": "A graceful move that boosts defense and dodge chance",
+            "effect": {
+                "defense_boost": 25,
+                "dodge_chance": 20
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "👑 → ✨ → 💫"
+        },
+        "invention": {
+            "name": "Mad Invention",
+            "description": "Creates an unpredictable gadget with random effects",
+            "effect": {
+                "random_effect": true,
+                "bonus_damage": 20
+            },
+            "cooldown": 4,
+            "animation": "🔧 → 💡 → 💥"
+        },
+        "sailing": {
+            "name": "Sea Legs",
+            "description": "Increases balance and dodge chance",
+            "effect": {
+                "dodge_chance": 25,
+                "speed_boost": 15
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "🌊 → ⛵ → 💨"
+        },
+        "treasure_finding": {
+            "name": "Treasure Hunt",
+            "description": "Finds hidden treasures that provide buffs",
+            "effect": {
+                "random_buff": true,
+                "catnip_bonus": 15
+            },
+            "cooldown": 4,
+            "animation": "🗺️ → 💎 → ✨"
+        },
+        "food_magic": {
+            "name": "Culinary Magic",
+            "description": "Creates magical food that heals and buffs",
+            "effect": {
+                "heal": 25,
+                "random_buff": true
+            },
+            "cooldown": 3,
+            "animation": "🍳 → ✨ → 🍖"
+        },
+        "protection": {
+            "name": "Protective Aura",
+            "description": "Creates a shield that reduces damage",
+            "effect": {
+                "damage_reduction": 30,
+                "status": "protected"
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🛡️ → ✨ → 💫"
+        },
+        "bravery": {
+            "name": "Brave Heart",
+            "description": "Increases attack and removes fear effects",
+            "effect": {
+                "attack_boost": 25,
+                "remove_fear": true
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "⚔️ → 💪 → ✨"
+        },
+        "teleportation": {
+            "name": "Dimensional Hop",
+            "description": "Teleports to a new position and increases dodge",
+            "effect": {
+                "teleport": true,
+                "dodge_chance": 30
+            },
+            "cooldown": 4,
+            "animation": "💫 → 🌀 → ✨"
+        },
+        "mind_reading": {
+            "name": "Mind Scan",
+            "description": "Reads opponent's mind to predict attacks",
+            "effect": {
+                "dodge_chance": 25,
+                "accuracy_boost": 20
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "🧠 → 👁️ → ✨"
+        },
+        "entertainment": {
+            "name": "Showtime",
+            "description": "Puts on a dazzling performance that confuses enemies",
+            "effect": {
+                "confusion_chance": 30,
+                "dodge_boost": 20
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "🎭 → ⭐ → 💫"
+        },
+        "shadow_control": {
+            "name": "Shadow Mastery",
+            "description": "Controls shadows to attack and defend",
+            "damage_multiplier": 1.6,
+            "effect": {
+                "stealth_chance": 40,
+                "defense_boost": 20
+            },
+            "cooldown": 4,
+            "animation": "⚫ → 👤 → 🌑"
+        },
+        "supreme_stealth": {
+            "name": "Supreme Shadow",
+            "description": "Ultimate ninja technique of invisibility",
+            "effect": {
+                "guaranteed_stealth": true,
+                "crit_chance": 50
+            },
+            "duration": 1,
+            "cooldown": 5,
+            "animation": "🌑 → 👻 → 💨"
+        },
+        "carb_loading": {
+            "name": "Carb Power",
+            "description": "Gains strength from bread essence",
+            "effect": {
+                "defense_boost": 35,
+                "heal": 20
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "🍞 → 💪 → ✨"
+        },
+        "tin_foil_hat": {
+            "name": "Conspiracy Shield",
+            "description": "Protects against mind control with aluminum",
+            "effect": {
+                "status_immunity": true,
+                "defense_boost": 15
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🎩 → 🛡️ → ✨"
+        },
+        "filter_malfunction": {
+            "name": "Filter Chaos",
+            "description": "Causes random filter effects that confuse",
+            "effect": {
+                "confusion_chance": 40,
+                "accuracy_reduction": 20
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "👨‍⚖️ → 🎭 → 💫"
+        },
+        "chaos_creation": {
+            "name": "Pure Chaos",
+            "description": "Creates absolute mayhem",
+            "effect": {
+                "random_status": true,
+                "area_damage": true,
+                "confusion_chance": 35
+            },
+            "cooldown": 4,
+            "animation": "😼 → 💫 → 💥"
+        },
+        "keyboard_smash": {
+            "name": "Keyboard Fury",
+            "description": "Smashes keyboard in gamer rage",
+            "damage_multiplier": 1.5,
+            "effect": {
+                "stun_chance": 30,
+                "area_damage": true
+            },
+            "cooldown": 3,
+            "animation": "😠 → ⌨️ → 💥"
+        },
+        "reality_warping": {
+            "name": "Reality Bend",
+            "description": "Warps reality itself for devastating effects",
+            "damage_multiplier": 1.8,
+            "effect": {
+                "random_status": true,
+                "defense_pierce": true,
+                "confusion_chance": 50
+            },
+            "cooldown": 5,
+            "animation": "🌀 → 🎲 → 💫"
+        },
+        "keyboard_cat_legacy": {
+            "name": "Legacy of Keys",
+            "description": "Channels the power of the original keyboard cat",
+            "damage_multiplier": 1.6,
+            "effect": {
+                "area_damage": true,
+                "inspiration_boost": 30,
+                "viral_fame": true
+            },
+            "cooldown": 4,
+            "animation": "🎹 → 👑 → ✨"
+        },
+        "space_walk": {
+            "name": "Space Walk",
+            "description": "Floats through space, avoiding attacks",
+            "effect": {
+                "dodge_chance": 40,
+                "gravity_immunity": true,
+                "cosmic_protection": true
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🚀 → 🌠 → 💫"
+        },
+        "glitch_teleport": {
+            "name": "Glitch Jump",
+            "description": "Exploits reality glitches to teleport",
+            "effect": {
+                "teleport": true,
+                "glitch_damage": 25,
+                "confusion_chance": 30
+            },
+            "cooldown": 3,
+            "animation": "👾 → 📺 → 💫"
+        },
+        "retro_power": {
+            "name": "8-Bit Power",
+            "description": "Harnesses classic gaming energy",
+            "effect": {
+                "attack_boost": 30,
+                "pixelate_chance": 40,
+                "invincibility_frames": true
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🎮 → 👾 → ⭐"
+        },
+        "espresso_shot": {
+            "name": "Espresso Shot",
+            "description": "Quick burst of caffeinated energy",
+            "damage_multiplier": 1.3,
+            "effect": {
+                "speed_boost": 40,
+                "accuracy_reduction": 15
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "☕ → ⚡ → 💨"
+        },
+        "bean_barrier": {
+            "name": "Coffee Bean Shield",
+            "description": "Creates a barrier of energized coffee beans",
+            "effect": {
+                "defense_boost": 30,
+                "speed_boost": 15,
+                "reflect_damage": 10
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "☕ → 🛡️ → ✨"
+        },
+        "rhythm_combo": {
+            "name": "Rhythm Combo",
+            "description": "Chain of musical attacks in perfect rhythm",
+            "damage_multiplier": 1.4,
+            "effect": {
+                "multi_hit": 3,
+                "combo_bonus": true,
+                "stun_chance": 20
+            },
+            "cooldown": 3,
+            "animation": "🎵 → 🎶 → 💫"
+        },
+        "sonic_purr": {
+            "name": "Sonic Purr",
+            "description": "Soothing purr that heals allies and damages enemies",
+            "effect": {
+                "heal": 30,
+                "area_damage": true,
+                "calm_effect": true
+            },
+            "cooldown": 4,
+            "animation": "😺 → 💝 → ✨"
+        },
+        "honor_strike": {
+            "name": "Honor Strike",
+            "description": "A powerful strike fueled by honor and discipline",
+            "damage_multiplier": 1.7,
+            "effect": {
+                "accuracy_boost": 30,
+                "ignore_evasion": true
+            },
+            "cooldown": 3,
+            "animation": "⚔️ → 🎯 → ✨"
+        },
+        "system_crash": {
+            "name": "System Crash",
+            "description": "Causes opponent's systems to malfunction",
+            "effect": {
+                "stun_chance": 35,
+                "defense_reduction": 25,
+                "glitch_damage": 20
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "💻 → 💥 → ⚡"
+        },
+        "firewall": {
+            "name": "Firewall",
+            "description": "Digital barrier that blocks attacks",
+            "effect": {
+                "defense_boost": 35,
+                "reflect_damage": 15,
+                "status_immunity": true
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🛡️ → 🔥 → 💻"
+        },
+        "marinara_splash": {
+            "name": "Marinara Splash",
+            "description": "Hot sauce attack that burns and slows",
+            "damage_multiplier": 1.3,
+            "effect": {
+                "burn_damage": 15,
+                "speed_reduction": 20,
+                "area_damage": true
+            },
+            "cooldown": 3,
+            "animation": "🍅 → 💦 → 🔥"
+        },
+        "cheese_shield": {
+            "name": "Mozzarella Shield",
+            "description": "Stretchy cheese barrier that absorbs damage",
+            "effect": {
+                "defense_boost": 30,
+                "sticky_effect": true,
+                "heal": 15
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🧀 → 🛡️ → ✨"
+        },
+        "viking_rage": {
+            "name": "Nordic Fury",
+            "description": "Channel the fury of ancient viking cats",
+            "damage_multiplier": 1.6,
+            "effect": {
+                "attack_boost": 30,
+                "defense_reduction": 15,
+                "fear_aura": true
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "⚔️ → 😠 → ⚡"
+        },
+        "nordic_blessing": {
+            "name": "Odin's Blessing",
+            "description": "Divine protection from the Cat-halls of Valhalla",
+            "effect": {
+                "defense_boost": 25,
+                "status_immunity": true,
+                "thunder_shield": true
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🛡️ → ⚡ → ✨"
+        },
+        "rocket_paws": {
+            "name": "Rocket Boost",
+            "description": "Activates jet-powered paw boosters",
+            "damage_multiplier": 1.4,
+            "effect": {
+                "speed_boost": 35,
+                "burn_trail": true,
+                "multi_hit": 2
+            },
+            "cooldown": 3,
+            "animation": "🚀 → 💨 → 💥"
+        },
+        "system_override": {
+            "name": "System Override",
+            "description": "Takes control of opponent's systems",
+            "effect": {
+                "control_chance": 40,
+                "system_damage": 25,
+                "defense_pierce": true
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "💻 → 🔓 → ⚡"
+        },
+        "artistic_fury": {
+            "name": "Artistic Rampage",
+            "description": "Unleashes a storm of paint and creativity",
+            "damage_multiplier": 1.5,
+            "effect": {
+                "area_damage": true,
+                "blind_chance": 30,
+                "color_explosion": true
+            },
+            "cooldown": 4,
+            "animation": "🎨 → 🌈 → 💥"
+        },
+        "gallery_defense": {
+            "name": "Gallery Shield",
+            "description": "Creates protective barrier of artwork",
+            "effect": {
+                "defense_boost": 35,
+                "inspiration_boost": 20,
+                "reflect_damage": 15
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "🖼️ → 🛡️ → ✨"
+        },
+        "surf_strike": {
+            "name": "Surf Strike",
+            "description": "Rides a wave into battle",
+            "damage_multiplier": 1.4,
+            "effect": {
+                "knockback": true,
+                "speed_boost": 25,
+                "area_damage": true
+            },
+            "cooldown": 3,
+            "animation": "🏄 → 🌊 → 💨"
+        },
+        "beach_vibes": {
+            "name": "Chill Vibes",
+            "description": "Relaxing aura that calms and heals",
+            "effect": {
+                "heal": 20,
+                "stress_reduction": true,
+                "defense_boost": 15
+            },
+            "duration": 3,
+            "cooldown": 4,
+            "animation": "🏖️ → 😎 → ✨"
+        },
+        "haunting_howl": {
+            "name": "Spectral Howl",
+            "description": "A ghostly wail that terrifies enemies",
+            "effect": {
+                "fear_chance": 40,
+                "attack_reduction": 25,
+                "area_effect": true
+            },
+            "cooldown": 4,
+            "animation": "👻 → 😱 → 💨"
+        },
+        "nine_lives": {
+            "name": "Nine Lives",
+            "description": "Resurrects with partial HP when defeated",
+            "effect": {
+                "revival_hp": 30,
+                "temporary_invulnerability": true
+            },
+            "cooldown": 8,
+            "animation": "💀 → ✨ → 😺"
+        },
+        "mutation": {
+            "name": "Unstable Mutation",
+            "description": "Transforms into a powerful mutant form",
+            "effect": {
+                "random_stat_boost": 40,
+                "random_stat_penalty": 20,
+                "appearance_change": true
+            },
+            "duration": 3,
+            "cooldown": 5,
+            "animation": "🧬 → 🔮 → 👾"
+        },
+        "smoke_bomb": {
+            "name": "Ninja Smoke",
+            "description": "Vanishes in a cloud of smoke",
+            "effect": {
+                "stealth": true,
+                "dodge_boost": 40,
+                "area_confusion": true
+            },
+            "duration": 1,
+            "cooldown": 3,
+            "animation": "💨 → 🌫️ → 👥"
+        },
+        "catnip_storm": {
+            "name": "Catnip Tempest",
+            "description": "Creates a storm of magical catnip",
+            "effect": {
+                "confusion_chance": 45,
+                "random_buff": true,
+                "area_effect": true
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🌿 → 🌪️ → ✨"
+        },
+        "protective_purr": {
+            "name": "Guardian's Purr",
+            "description": "Soothing purr that creates a protective aura",
+            "effect": {
+                "defense_boost": 30,
+                "heal_over_time": 15,
+                "status_cure": true
+            },
+            "duration": 3,
+            "cooldown": 4,
+            "animation": "😺 → 💝 → 🛡️"
+        },
+        "rejuvenating_nap": {
+            "name": "Power Nap",
+            "description": "Quick nap that restores health and energy",
+            "effect": {
+                "heal": 40,
+                "status_cure": true,
+                "energy_restore": true
+            },
+            "cooldown": 5,
+            "animation": "😴 → ✨ → 💪"
+        },
+        "plunder": {
+            "name": "Pirate's Plunder",
+            "description": "Steals opponent's buffs and treasures",
+            "effect": {
+                "buff_steal": true,
+                "catnip_steal": 20,
+                "bonus_loot": true
+            },
+            "cooldown": 4,
+            "animation": "🏴‍☠️ → 💰 → ✨"
+        },
+        "system_reboot": {
+            "name": "Emergency Reboot",
+            "description": "Reboots systems to restore functionality",
+            "effect": {
+                "heal": 35,
+                "status_cure": true,
+                "defense_boost": 20
+            },
+            "cooldown": 5,
+            "animation": "💻 → 🔄 → ✨"
+        },
+        "spicy_surprise": {
+            "name": "Spicy Special",
+            "description": "Unleashes an unexpectedly spicy attack",
+            "damage_multiplier": 1.4,
+            "effect": {
+                "burn_chance": 35,
+                "confusion_chance": 25
+            },
+            "cooldown": 3,
+            "animation": "🌶️ → 🔥 → 💫"
+        },
+        "magnifying_glass": {
+            "name": "Detective's Lens",
+            "description": "Reveals weaknesses and improves accuracy",
+            "effect": {
+                "accuracy_boost": 35,
+                "defense_reduction": 20,
+                "critical_chance": 15
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "🔍 → 👁️ → ✨"
+        },
+        "hide": {
+            "name": "Shadow Hide",
+            "description": "Basic stealth technique",
+            "effect": {
+                "stealth": true,
+                "dodge_chance": 25
+            },
+            "duration": 1,
+            "cooldown": 3,
+            "animation": "😺 → 🌑 → 👥"
+        },
+        "bite": {
+            "name": "Basic Bite",
+            "description": "Simple but effective bite attack",
+            "damage_multiplier": 1.2,
+            "effect": {
+                "bleed_chance": 20
+            },
+            "cooldown": 2,
+            "animation": "😾 → 🦷 → 💢"
+        },
+        "judgment": {
+            "name": "Divine Judgment",
+            "description": "Calls down holy light to smite enemies",
+            "damage_multiplier": 1.8,
+            "effect": {
+                "holy_damage": true,
+                "purify_effect": true,
+                "stun_chance": 30
+            },
+            "cooldown": 5,
+            "animation": "🙏 → ⚡ → ✨"
+        },
+        "haymaker": {
+            "name": "Feline Haymaker",
+            "description": "Powerful boxing punch with knockout potential",
+            "damage_multiplier": 1.6,
+            "effect": {
+                "stun_chance": 35,
+                "defense_pierce": 20
+            },
+            "cooldown": 4,
+            "animation": "🥊 → 💫 → 💥"
+        },
+        "chi_strike": {
+            "name": "Chi Strike",
+            "description": "Channels inner energy for a balanced attack",
+            "damage_multiplier": 1.4,
+            "effect": {
+                "balance_boost": true,
+                "heal": 15,
+                "status_cure": true
+            },
+            "cooldown": 3,
+            "animation": "🧘 → ⭐ → 💫"
+        },
+        "system_overload": {
+            "name": "System Overload",
+            "description": "Overclocks all systems for maximum power",
+            "damage_multiplier": 1.7,
+            "effect": {
+                "all_stats_boost": 25,
+                "self_damage": 10,
+                "overheat_chance": true
+            },
+            "duration": 2,
+            "cooldown": 5,
+            "animation": "💻 → ⚡ → 💥"
+        },
+        "haunting_meow": {
+            "name": "Spectral Meow",
+            "description": "Ghostly meow that chills to the bone",
+            "effect": {
+                "fear_chance": 35,
+                "speed_reduction": 20,
+                "spirit_damage": true
+            },
+            "cooldown": 3,
+            "animation": "👻 → 😱 → 💨"
+        },
+        "healing_purr": {
+            "name": "Healing Purr",
+            "description": "A soothing purr that heals allies",
+            "effect": {
+                "heal": 30,
+                "heal_over_time": 10,
+                "area_heal": true
+            },
+            "cooldown": 4,
+            "animation": "😺 → 💝 → ✨"
+        },
+        "deduce": {
+            "name": "Deduction",
+            "description": "Analyzes opponent for weaknesses",
+            "effect": {
+                "defense_reduction": 20,
+                "accuracy_boost": 25,
+                "critical_chance": 15
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "🔍 → 💭 → ✨"
+        },
+        "potion_brewing": {
+            "name": "Magic Potion",
+            "description": "Brews a magical potion with random effects",
+            "effect": {
+                "random_buff": true,
+                "heal_chance": 40,
+                "status_effect_chance": 30
+            },
+            "cooldown": 4,
+            "animation": "🧪 → 🌟 → ✨"
+        },
+        "charm": {
+            "name": "Royal Charm",
+            "description": "Charms opponents with royal grace",
+            "effect": {
+                "attack_reduction": 25,
+                "confusion_chance": 30,
+                "status": "charmed"
+            },
+            "duration": 2,
+            "cooldown": 3,
+            "animation": "👑 → 💖 → ✨"
+        },
+        "shadow_strike": {
+            "name": "Shadow Strike",
+            "description": "Strikes from the shadows for bonus damage",
+            "damage_multiplier": 1.5,
+            "effect": {
+                "stealth_bonus": true,
+                "critical_chance": 25
+            },
+            "cooldown": 3,
+            "animation": "🌑 → 💥 → ⚔️"
+        },
+        "quick_strike": {
+            "name": "Quick Strike",
+            "description": "A swift attack with high priority",
+            "damage_multiplier": 1.2,
+            "effect": {
+                "priority": true,
+                "speed_boost": 20
+            },
+            "cooldown": 2,
+            "animation": "⚡ → 💨 → 💥"
+        },
+        "meteor_shower": {
+            "name": "Meteor Shower",
+            "description": "Calls down cosmic rocks from space",
+            "damage_multiplier": 1.6,
+            "effect": {
+                "area_damage": true,
+                "burn_chance": 30,
+                "knockback": true
+            },
+            "cooldown": 5,
+            "animation": "☄️ → 🌠 → 💥"
+        },
+        "arcane_blast": {
+            "name": "Arcane Blast",
+            "description": "Pure magical energy attack",
+            "damage_multiplier": 1.5,
+            "effect": {
+                "magic_pierce": true,
+                "stun_chance": 25
+            },
+            "cooldown": 3,
+            "animation": "✨ → 🌟 → 💫"
+        },
+        "cooking": {
+            "name": "Master Chef",
+            "description": "Creates delicious food that buffs allies",
+            "effect": {
+                "heal": 25,
+                "attack_boost": 15,
+                "defense_boost": 15
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🍳 → 🍖 → ✨"
+        },
+        "laser_beam": {
+            "name": "Laser Beam",
+            "description": "Fires a concentrated beam of energy",
+            "damage_multiplier": 1.7,
+            "effect": {
+                "pierce_defense": true,
+                "burn_chance": 35
+            },
+            "cooldown": 4,
+            "animation": "💻 → 🔴 → 💥"
+        },
+        "inner_peace": {
+            "name": "Inner Peace",
+            "description": "Achieves perfect balance and tranquility",
+            "effect": {
+                "status_cure": true,
+                "heal": 20,
+                "defense_boost": 25,
+                "meditation_shield": true
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🧘 → ✨ → 💫"
+        },
+        "magic": {
+            "name": "Arcane Magic",
+            "description": "Channels pure magical energy",
+            "damage_multiplier": 1.5,
+            "effect": {
+                "random_magic_effect": true,
+                "mana_boost": 30,
+                "spell_power": true
+            },
+            "cooldown": 3,
+            "animation": "🔮 → ✨ → 💫"
+        },
+        "phase_through": {
+            "name": "Phase Shift",
+            "description": "Temporarily phases out of reality",
+            "effect": {
+                "invulnerable": true,
+                "dodge_chance": 100,
+                "phase_damage": true
+            },
+            "duration": 1,
+            "cooldown": 5,
+            "animation": "👻 → 🌀 → ✨"
+        },
+        "quick_jab": {
+            "name": "Quick Jab",
+            "description": "Fast boxing punch with high accuracy",
+            "damage_multiplier": 1.1,
+            "effect": {
+                "priority": true,
+                "accuracy_boost": 30,
+                "combo_point": true
+            },
+            "cooldown": 2,
+            "animation": "🥊 → 💨 → 💥"
+        },
+        "chemical_spill": {
+            "name": "Chemical Accident",
+            "description": "Spills dangerous chemicals that cause chaos",
+            "effect": {
+                "area_damage": true,
+                "poison_chance": 40,
+                "mutation_chance": 20,
+                "slipping_hazard": true
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🧪 → ☣️ → 💦"
+        },
+        "viral_fame": {
+            "name": "Viral Sensation",
+            "description": "Harnesses the power of internet fame",
+            "effect": {
+                "attack_boost": 30,
+                "inspiration_aura": true,
+                "area_effect": true
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "📱 → 🌟 → 💫"
+        },
+        "market_manipulation": {
+            "name": "Market Crash",
+            "description": "Manipulates the catnip market for profit and damage",
+            "damage_multiplier": 1.4,
+            "effect": {
+                "catnip_steal": 30,
+                "economic_damage": true,
+                "confusion_chance": 25
+            },
+            "cooldown": 4,
+            "animation": "📈 → 📉 → 💰"
+        },
+        "music": {
+            "name": "Musical Mastery",
+            "description": "Creates harmonious melodies that buff allies",
+            "effect": {
+                "inspiration_boost": 25,
+                "speed_boost": 20,
+                "heal_over_time": 10
+            },
+            "duration": 3,
+            "cooldown": 4,
+            "animation": "🎵 → 🎶 → ✨"
+        },
+        "shield_bash": {
+            "name": "Shield Slam",
+            "description": "Offensive shield attack that stuns",
+            "damage_multiplier": 1.3,
+            "effect": {
+                "stun_chance": 30,
+                "defense_boost": 20,
+                "knockback": true
+            },
+            "cooldown": 3,
+            "animation": "🛡️ → 💥 → 💫"
+        },
+        "existential_crisis": {
+            "name": "Existential Dread",
+            "description": "Shares the void of existence with enemies",
+            "effect": {
+                "fear_chance": 45,
+                "attack_reduction": 30,
+                "confusion_chance": 25
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🤔 → 🌌 → 😱"
+        },
+        "experiment": {
+            "name": "Mad Science",
+            "description": "Conducts a dangerous experiment with random results",
+            "effect": {
+                "random_effect": true,
+                "mutation_chance": 30,
+                "area_damage": true
+            },
+            "cooldown": 4,
+            "animation": "🧪 → ⚡ → 💥"
+        },
+        "food_fight": {
+            "name": "Food Fight",
+            "description": "Throws various food items at opponents",
+            "damage_multiplier": 1.3,
+            "effect": {
+                "area_damage": true,
+                "slow_chance": 25,
+                "confusion_chance": 20
+            },
+            "cooldown": 3,
+            "animation": "🍕 → 🍖 → 💫"
+        },
+        "space_flight": {
+            "name": "Cosmic Flight",
+            "description": "Takes to the stars for an aerial attack",
+            "damage_multiplier": 1.5,
+            "effect": {
+                "dodge_boost": 30,
+                "gravity_immunity": true,
+                "cosmic_damage": true
+            },
+            "duration": 2,
+            "cooldown": 4,
+            "animation": "🚀 → 🌠 → 💫"
+        },
+        "cannon_ball": {
+            "name": "Cannon Shot",
+            "description": "Fires self from a pirate cannon",
+            "damage_multiplier": 1.8,
+            "effect": {
+                "area_damage": true,
+                "knockback": true,
+                "stun_chance": 25
+            },
+            "cooldown": 5,
+            "animation": "💣 → 💨 → 💥"
+        },
+        "divine_shield": {
+            "name": "Divine Protection",
+            "description": "Blessed shield of holy light",
+            "effect": {
+                "invulnerability": true,
+                "holy_aura": true,
+                "heal": 20
+            },
+            "duration": 1,
+            "cooldown": 5,
+            "animation": "🙏 → 🛡️ → ✨"
+        },
+        "scratch": {
+            "name": "Basic Scratch",
+            "description": "A simple but effective claw attack",
+            "damage_multiplier": 1.1,
+            "effect": {
+                "bleed_chance": 15,
+                "combo_point": true
+            },
+            "cooldown": 2,
+            "animation": "🐱 → 💅 → 💢"
+        },
+        "rocket_paw": {
+            "name": "Rocket Paw",
+            "description": "Launches a rocket-powered punch",
+            "damage_multiplier": 1.5,
+            "effect": {
+                "knockback": true,
+                "burn_chance": 25,
+                "speed_boost": 20
+            },
+            "cooldown": 3,
+            "animation": "🚀 → 👊 → 💥"
+        }
+    },
+    "status_effects": {
+        "enhanced_vision": {
+            "name": "Enhanced Vision",
+            "description": "Increased accuracy and crit chance",
+            "effects": {
+                "accuracy": 20,
+                "crit_chance": 15
+            },
+            "duration": 2
+        },
+        "demoralized": {
+            "name": "Demoralized",
+            "description": "Reduced attack power",
+            "effects": {
+                "attack": -25
+            },
+            "duration": 2
+        },
+        "paralyzed": {
+            "name": "Paralyzed",
+            "description": "May skip turn and reduced speed",
+            "effects": {
+                "skip_turn_chance": 25,
+                "speed": -15
+            },
+            "duration": 2
+        },
+        "dazzled": {
+            "name": "Dazzled",
+            "description": "Reduced accuracy and defense",
+            "effects": {
+                "accuracy": -15,
+                "defense": -15
+            },
+            "duration": 2
+        },
+        "weakened": {
+            "name": "Weakened",
+            "description": "Reduced attack power",
+            "effects": {
+                "attack": -20
+            },
+            "duration": 2
+        },
+        "poisoned": {
+            "name": "Poisoned",
+            "description": "Takes damage over time",
+            "effects": {
+                "dot_damage": 10
+            },
+            "duration": 4
+        },
+        "bleeding": {
+            "name": "Bleeding",
+            "description": "Takes damage when moving",
+            "effects": {
+                "movement_damage": 8
+            },
+            "duration": 2
+        },
+        "stunned": {
+            "name": "Stunned",
+            "description": "Skip next turn",
+            "effects": {
+                "skip_turn": true
+            },
+            "duration": 1
+        },
+        "enraged": {
+            "name": "Enraged",
+            "description": "Increased attack but reduced accuracy",
+            "effects": {
+                "attack": 25,
+                "accuracy": -15
+            },
+            "duration": 2
+        },
+        "protected": {
+            "name": "Protected",
+            "description": "Increased defense",
+            "effects": {
+                "defense": 25
+            },
+            "duration": 2
+        },
+        "charmed": {
+            "name": "Charmed",
+            "description": "Under the influence of royal charm",
+            "effects": {
+                "attack": -20,
+                "confusion_chance": 25,
+                "cannot_attack_source": true
+            },
+            "duration": 2
+        }
+    }
+}

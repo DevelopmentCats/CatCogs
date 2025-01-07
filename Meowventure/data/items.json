@@ -1,0 +1,384 @@
+{
+    "equipment": {
+        "weapons": {
+            "laser_pointer": {
+                "name": "Tactical Laser Pointer",
+                "description": "A high-precision targeting device",
+                "price": 300,
+                "stats": {"attack": 10, "accuracy": 15},
+                "rarity": "uncommon",
+                "slot": "weapon",
+                "emoji": "🔴"
+            },
+            "yarn_ball": {
+                "name": "Enchanted Yarn Ball",
+                "description": "Imbued with magical string energy",
+                "price": 300,
+                "stats": {"attack": 8, "defense": 8, "speed": 8},
+                "rarity": "uncommon",
+                "slot": "weapon",
+                "emoji": "🧶"
+            },
+            "pixel_sword": {
+                "name": "8-Bit Blade",
+                "description": "A sword from the golden age of gaming",
+                "price": 600,
+                "stats": {"attack": 20, "speed": 5},
+                "rarity": "rare",
+                "slot": "weapon",
+                "emoji": "⚔️"
+            },
+            "ghost_scythe": {
+                "name": "Spectral Scythe",
+                "description": "Passes through physical defenses",
+                "price": 1000,
+                "stats": {"attack": 30, "ignore_defense": true},
+                "rarity": "epic",
+                "slot": "weapon",
+                "emoji": "👻"
+            },
+            "coffee_scepter": {
+                "name": "Barista's Scepter",
+                "description": "Channels the power of caffeine",
+                "price": 450,
+                "stats": {"attack": 20, "speed": 15},
+                "rarity": "rare",
+                "slot": "weapon",
+                "emoji": "☕"
+            },
+            "tesla_claws": {
+                "name": "Tesla Claws",
+                "description": "Electric-enhanced battle claws",
+                "price": 1000,
+                "stats": {"attack": 40, "speed": 10},
+                "rarity": "epic",
+                "slot": "weapon",
+                "emoji": "⚡"
+            },
+            "fish_sword": {
+                "name": "Tuna Blade",
+                "description": "The legendary sword forged from immortal tuna",
+                "price": 800,
+                "stats": {"attack": 30, "speed": -5},
+                "rarity": "epic",
+                "slot": "weapon",
+                "emoji": "🐟"
+            },
+            "catnip_staff": {
+                "name": "Staff of Catnip",
+                "description": "Channels pure catnip energy",
+                "price": 1000,
+                "stats": {"attack": 25, "speed": 10},
+                "rarity": "epic",
+                "slot": "weapon",
+                "emoji": "🌿"
+            }
+        },
+        "armor": {
+            "cardboard_armor": {
+                "name": "Cardboard Box Armor",
+                "description": "If I fits, I sits, and I'm protected",
+                "price": 200,
+                "stats": {"defense": 12, "speed": -5},
+                "rarity": "common",
+                "slot": "armor",
+                "emoji": "📦"
+            },
+            "space_suit": {
+                "name": "Feline Space Suit",
+                "description": "Purr-fect for space exploration",
+                "price": 800,
+                "stats": {"defense": 20, "speed": 10},
+                "rarity": "epic",
+                "slot": "armor",
+                "emoji": "👨‍🚀"
+            },
+            "samurai_armor": {
+                "name": "Meowrai Armor",
+                "description": "Ancient feline battle armor",
+                "price": 600,
+                "stats": {"defense": 25, "attack": 5},
+                "rarity": "rare",
+                "slot": "armor",
+                "emoji": "🎽"
+            },
+            "dj_vest": {
+                "name": "Bass-Proof Vest",
+                "description": "Protects against sonic attacks",
+                "price": 400,
+                "stats": {"defense": 20, "speed": 15},
+                "rarity": "rare",
+                "slot": "armor",
+                "emoji": "🎧"
+            },
+            "lab_coat": {
+                "name": "Mad Scientist's Lab Coat",
+                "description": "Pockets full of mysterious experiments",
+                "price": 500,
+                "stats": {"defense": 15, "attack": 20},
+                "rarity": "rare",
+                "slot": "armor",
+                "emoji": "🥼"
+            },
+            "ninja_vest": {
+                "name": "Stealth Vest",
+                "description": "Made from the finest invisible threads",
+                "price": 400,
+                "stats": {"defense": 20, "speed": 15},
+                "rarity": "rare",
+                "slot": "armor",
+                "emoji": "🕵️‍♀️"
+            },
+            "royal_cape": {
+                "name": "Royal Cape of Floof",
+                "description": "Majestic and protective",
+                "price": 600,
+                "stats": {"defense": 25, "attack": 10},
+                "rarity": "epic",
+                "slot": "armor",
+                "emoji": "👑"
+            },
+            "quantum_collar": {
+                "name": "Quantum Collar",
+                "description": "Exists in multiple dimensions simultaneously",
+                "price": 1200,
+                "stats": {"defense": 30, "speed": 20},
+                "rarity": "legendary",
+                "slot": "armor",
+                "emoji": "🔮"
+            }
+        },
+        "accessories": {
+            "lucky_bell": {
+                "name": "Lucky Golden Bell",
+                "description": "Brings fortune in battle",
+                "price": 400,
+                "stats": {"crit_chance": 10},
+                "rarity": "uncommon",
+                "slot": "accessory",
+                "emoji": "🔔"
+            },
+            "pixel_glasses": {
+                "name": "Retro Shades",
+                "description": "Enhances pixelated powers",
+                "price": 400,
+                "stats": {"attack": 15, "accuracy": 20},
+                "rarity": "rare",
+                "slot": "accessory",
+                "emoji": "😎"
+            },
+            "viking_helm": {
+                "name": "Helm of Pawgard",
+                "description": "Grants the strength of Viking cats",
+                "price": 600,
+                "stats": {"attack": 20, "defense": 15},
+                "rarity": "epic",
+                "slot": "accessory",
+                "emoji": "⛑️"
+            },
+            "ghost_amulet": {
+                "name": "Spectral Amulet",
+                "description": "Enhances ghostly abilities",
+                "price": 700,
+                "stats": {"defense": 25, "ethereal": 30},
+                "rarity": "epic",
+                "slot": "accessory",
+                "emoji": "📿"
+            },
+            "tech_visor": {
+                "name": "Cybernetic Visor",
+                "description": "Advanced targeting system",
+                "price": 800,
+                "stats": {"accuracy": 30, "attack": 15},
+                "rarity": "epic",
+                "slot": "accessory",
+                "emoji": "🕶️"
+            },
+            "catnip_amulet": {
+                "name": "Catnip Amulet",
+                "description": "Ancient artifact of feline power",
+                "price": 1000,
+                "stats": {"all_stats": 10},
+                "rarity": "epic",
+                "slot": "accessory",
+                "emoji": "📿"
+            },
+            "infinity_bowtie": {
+                "name": "Infinity Bowtie",
+                "description": "Contains the power of the cosmos",
+                "price": 1000,
+                "stats": {"attack": 15, "defense": 15, "speed": 15},
+                "rarity": "legendary",
+                "slot": "accessory",
+                "emoji": "🕳️"
+            }
+        }
+    },
+    "battle_items": {
+        "healing": {
+            "small_milk": {
+                "name": "Small Milk Bottle",
+                "description": "Restores a small amount of HP",
+                "price": 100,
+                "effect": {"heal": 30},
+                "rarity": "common",
+                "emoji": "🥛"
+            },
+            "large_milk": {
+                "name": "Large Milk Bottle",
+                "description": "Restores a large amount of HP",
+                "price": 250,
+                "effect": {"heal": 80},
+                "rarity": "rare",
+                "emoji": "🥛"
+            },
+            "energy_drink": {
+                "name": "Feline Energy Drink",
+                "description": "Restores 40 HP and boosts speed",
+                "price": 75,
+                "effect": {"heal": 40, "speed_boost": 15},
+                "rarity": "uncommon",
+                "emoji": "🥤"
+            },
+            "sushi_roll": {
+                "name": "Magic Sushi Roll",
+                "description": "Restores 60 HP and attack",
+                "price": 100,
+                "effect": {"heal": 60, "attack_boost": 10},
+                "rarity": "rare",
+                "emoji": "🍱"
+            },
+            "tuna_sandwich": {
+                "name": "Tuna Sandwich",
+                "description": "Restores 50 HP",
+                "price": 100,
+                "effect": {"heal": 50},
+                "rarity": "uncommon",
+                "emoji": "🍞"
+            },
+            "golden_milk": {
+                "name": "Golden Milk",
+                "description": "Restores 100 HP and increases defense",
+                "price": 300,
+                "effect": {"heal": 100, "defense_boost": 10},
+                "rarity": "rare",
+                "emoji": "💛"
+            }
+        },
+        "status": {
+            "catnip": {
+                "name": "Battle Catnip",
+                "description": "Temporarily increases all stats",
+                "price": 300,
+                "effect": {
+                    "all_stats": 15,
+                    "duration": 3
+                },
+                "rarity": "uncommon",
+                "emoji": "🌿"
+            },
+            "energy_drink": {
+                "name": "Feline Energy Drink",
+                "description": "Increases speed and attack",
+                "price": 200,
+                "effect": {
+                    "speed": 20,
+                    "attack": 15,
+                    "duration": 2
+                },
+                "rarity": "uncommon",
+                "emoji": "⚡"
+            },
+            "catnip_powder": {
+                "name": "Catnip Powder",
+                "description": "Temporarily increases attack",
+                "price": 75,
+                "effect": {"attack_boost": 15},
+                "rarity": "common",
+                "emoji": "🌿"
+            },
+            "pixel_potion": {
+                "name": "8-Bit Potion",
+                "description": "Grants retro gaming powers",
+                "price": 150,
+                "effect": {"all_stats_boost": 15, "glitch_chance": 20},
+                "rarity": "rare",
+                "emoji": "🧪"
+            },
+            "ghost_essence": {
+                "name": "Ghost Essence",
+                "description": "Temporarily grants intangibility",
+                "price": 200,
+                "effect": {"dodge_chance": 50},
+                "rarity": "epic",
+                "emoji": "👻"
+            },
+            "red_dot": {
+                "name": "Mysterious Red Dot",
+                "description": "Temporarily increases speed",
+                "price": 75,
+                "effect": {"speed_boost": 20},
+                "rarity": "common",
+                "emoji": "🔴"
+            },
+            "battle_treats": {
+                "name": "Battle Treats",
+                "description": "Increases all stats",
+                "price": 200,
+                "effect": {"all_stats_boost": 10},
+                "rarity": "rare",
+                "emoji": "🍰"
+            }
+        },
+        "special": {
+            "time_yarn": {
+                "name": "Temporal Yarn Ball",
+                "description": "Rewinds time by one turn",
+                "price": 300,
+                "effect": {"time_rewind": true},
+                "rarity": "epic",
+                "emoji": "⏰"
+            },
+            "bass_bomb": {
+                "name": "Bass Bomb",
+                "description": "Creates a sonic explosion",
+                "price": 200,
+                "effect": {"damage": 50, "stun_chance": 40},
+                "rarity": "rare",
+                "emoji": "💣"
+            },
+            "quantum_box": {
+                "name": "Quantum Box",
+                "description": "You're both in and out of the box",
+                "price": 400,
+                "effect": {"invulnerable": true, "duration": 1},
+                "rarity": "legendary",
+                "emoji": "📦"
+            },
+            "mouse_decoy": {
+                "name": "Mechanical Mouse",
+                "description": "Confuses the opponent, lowering their accuracy",
+                "price": 150,
+                "effect": {"accuracy_down": 30},
+                "rarity": "uncommon",
+                "emoji": "🐭"
+            },
+            "catnip_bomb": {
+                "name": "Catnip Bomb",
+                "description": "Deals area damage and may cause confusion",
+                "price": 250,
+                "effect": {"damage": 40, "confusion_chance": 50},
+                "rarity": "rare",
+                "emoji": "💥"
+            },
+            "rainbow_yarn": {
+                "name": "Rainbow Yarn",
+                "description": "Unleashes a powerful rainbow attack",
+                "price": 500,
+                "effect": {"damage": 75, "speed_down": 20},
+                "rarity": "epic",
+                "emoji": "🌈"
+            }
+        }
+    }
+}
