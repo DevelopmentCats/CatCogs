@@ -940,7 +940,7 @@ class RobustEventsCog(commands.Cog):
             embed = await self.create_event_info_embed(ctx.guild, event_id, self.guild_events[ctx.guild.id][event_id])
             await ctx.send(
                 embed=self.success_embed(_("Event updated successfully! Here are the new details:")),
-                embed=embed
+                view=EventInfoView(self, event_id, role.id if role else None)
             )
         else:
             await ctx.send(embed=self.error_embed(_("Failed to update event")))
