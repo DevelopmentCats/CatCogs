@@ -1,13 +1,12 @@
 from typing import Optional, List
 import discord
-from redbot.core import commands, Config, checks
+from redbot.core import commands, Config, checks, app_commands
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, humanize_list, pagify
 from redbot.core.utils.menus import menu, DEFAULT_CONTROLS
 from datetime import datetime, timedelta
 import asyncio
 import logging
-from discord import app_commands
 
 log = logging.getLogger("red.gatekeeper")
 
