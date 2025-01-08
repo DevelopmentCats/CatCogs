@@ -1,0 +1,21 @@
+{
+    "author": ["DeveloperCats"],
+    "install_msg": "Thank you for installing Meowventure! Use `[p]help Meowventure` to get started with your cat collecting adventure! 🐱",
+    "name": "Meowventure",
+    "short": "A cat collection and battle game for Discord!",
+    "description": "Collect unique cats, train them, battle other players, and go on patrols in this engaging Discord cat game! Features include cat collecting, battling, patrol teams, leveling system, and more!",
+    "tags": [
+        "fun",
+        "games",
+        "rpg",
+        "cats",
+        "pets",
+        "battle"
+    ],
+    "requirements": [],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG",
+    "end_user_data_statement": "This cog stores user data for game progression including owned cats, resources, battle statistics, and achievements. Users can request data deletion through Discord's data privacy tools."
+} 
