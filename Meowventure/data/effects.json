@@ -1,0 +1,249 @@
+{
+    "schema_version": "1.0",
+    "last_updated": "2024-01-17",
+    "effects": {
+        "damage_over_time": {
+            "bleeding": {
+                "id": "bleeding",
+                "name": "Bleeding",
+                "description": "Taking damage over time from wounds",
+                "type": "damage_over_time",
+                "category": "debuff",
+                "stackable": true,
+                "max_stacks": 3,
+                "effects": {
+                    "damage_per_tick": {
+                        "base": 15,
+                        "scaling": {
+                            "attack": 0.2
+                        }
+                    }
+                },
+                "tick_timing": "end_of_turn",
+                "visuals": {
+                    "icon": "🩸",
+                    "color": "#FF0000",
+                    "animation": "bleeding_effect",
+                    "particle_effect": "blood_drip"
+                }
+            },
+            "burning": {
+                "id": "burning",
+                "name": "Burning",
+                "description": "Taking fire damage over time",
+                "type": "damage_over_time",
+                "category": "debuff",
+                "stackable": true,
+                "max_stacks": 2,
+                "effects": {
+                    "damage_per_tick": {
+                        "base": 20,
+                        "scaling": {
+                            "attack": 0.25
+                        }
+                    }
+                },
+                "tick_timing": "start_of_turn",
+                "visuals": {
+                    "icon": "🔥",
+                    "color": "#FFA500",
+                    "animation": "burning_effect",
+                    "particle_effect": "flame_wisps"
+                }
+            }
+        },
+        "stat_modifiers": {
+            "attack_up": {
+                "id": "attack_up",
+                "name": "Attack Up",
+                "description": "Increased attack power",
+                "type": "stat_modifier",
+                "category": "buff",
+                "stackable": false,
+                "effects": {
+                    "stats": {
+                        "attack": 1.25
+                    }
+                },
+                "visuals": {
+                    "icon": "⚔️",
+                    "color": "#FF4444",
+                    "animation": "power_up",
+                    "particle_effect": "red_sparkles"
+                }
+            },
+            "defense_up": {
+                "id": "defense_up",
+                "name": "Defense Up",
+                "description": "Increased defense",
+                "type": "stat_modifier",
+                "category": "buff",
+                "stackable": false,
+                "effects": {
+                    "stats": {
+                        "defense": 1.25
+                    }
+                },
+                "visuals": {
+                    "icon": "🛡️",
+                    "color": "#4444FF",
+                    "animation": "shield_up",
+                    "particle_effect": "blue_sparkles"
+                }
+            },
+            "speed_up": {
+                "id": "speed_up",
+                "name": "Speed Up",
+                "description": "Increased speed",
+                "type": "stat_modifier",
+                "category": "buff",
+                "stackable": false,
+                "effects": {
+                    "stats": {
+                        "speed": 1.2
+                    }
+                },
+                "visuals": {
+                    "icon": "⚡",
+                    "color": "#FFFF00",
+                    "animation": "speed_lines",
+                    "particle_effect": "yellow_trail"
+                }
+            }
+        },
+        "status_conditions": {
+            "blind": {
+                "id": "blind",
+                "name": "Blind",
+                "description": "Reduced accuracy",
+                "type": "status",
+                "category": "debuff",
+                "stackable": false,
+                "effects": {
+                    "stats": {
+                        "accuracy": -50
+                    }
+                },
+                "visuals": {
+                    "icon": "👁️",
+                    "color": "#666666",
+                    "animation": "vision_blur",
+                    "particle_effect": "dark_swirls"
+                }
+            },
+            "stun": {
+                "id": "stun",
+                "name": "Stunned",
+                "description": "Unable to take actions",
+                "type": "status",
+                "category": "debuff",
+                "stackable": false,
+                "effects": {
+                    "status": "cannot_act"
+                },
+                "visuals": {
+                    "icon": "💫",
+                    "color": "#FFD700",
+                    "animation": "stun_stars",
+                    "particle_effect": "spinning_stars"
+                }
+            },
+            "stealth": {
+                "id": "stealth",
+                "name": "Stealth",
+                "description": "Cannot be targeted by enemies",
+                "type": "status",
+                "category": "buff",
+                "stackable": false,
+                "effects": {
+                    "status": "untargetable",
+                    "combat": {
+                        "next_attack_multiplier": 1.5
+                    }
+                },
+                "visuals": {
+                    "icon": "👻",
+                    "color": "#8A2BE2",
+                    "animation": "fade_out",
+                    "particle_effect": "shadow_mist"
+                }
+            }
+        },
+        "special_states": {
+            "sunlight_charged": {
+                "id": "sunlight_charged",
+                "name": "Sunlight Charged",
+                "description": "Empowered by solar energy",
+                "type": "special",
+                "category": "buff",
+                "stackable": false,
+                "effects": {
+                    "ability_modifier": {
+                        "light_abilities": {
+                            "power": 1.3,
+                            "energy_cost": 0.8
+                        }
+                    },
+                    "stats": {
+                        "energy_regen": 1.5
+                    }
+                },
+                "visuals": {
+                    "icon": "☀️",
+                    "color": "#FFD700",
+                    "animation": "solar_aura",
+                    "particle_effect": "sun_rays"
+                }
+            },
+            "nature_empowered": {
+                "id": "nature_empowered",
+                "name": "Nature Empowered",
+                "description": "Connected with natural energy",
+                "type": "special",
+                "category": "buff",
+                "stackable": false,
+                "effects": {
+                    "healing_received": 1.2,
+                    "stats": {
+                        "speed": 1.1,
+                        "defense": 1.1
+                    }
+                },
+                "visuals": {
+                    "icon": "🌿",
+                    "color": "#32CD32",
+                    "animation": "nature_surge",
+                    "particle_effect": "leaf_swirl"
+                }
+            }
+        }
+    },
+    "effect_categories": {
+        "buff": {
+            "description": "Positive effects that enhance the cat",
+            "max_concurrent": 5,
+            "display_priority": 1
+        },
+        "debuff": {
+            "description": "Negative effects that hinder the cat",
+            "max_concurrent": 5,
+            "display_priority": 2
+        }
+    },
+    "effect_interactions": {
+        "cleanse_rules": {
+            "buff": ["dispel", "purge"],
+            "debuff": ["cleanse", "purify"]
+        },
+        "immunity_rules": {
+            "stun": ["stun_immunity"],
+            "blind": ["blind_immunity"],
+            "damage_over_time": ["dot_immunity"]
+        },
+        "stack_rules": {
+            "refresh": ["attack_up", "defense_up", "speed_up"],
+            "add": ["bleeding", "burning"],
+            "replace": ["stun", "blind", "stealth"]
+        }
+    }
+}

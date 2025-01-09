@@ -1,0 +1,209 @@
+{
+    "schema_version": "1.0",
+    "last_updated": "2024-01-17",
+    "cats": {
+        "001": {
+            "id": "001",
+            "name": "Whiskers",
+            "title": "The Curious",
+            "description": "A playful cat with an insatiable curiosity for battle",
+            "rarity": "common",
+            "affinity": "nature",
+            "base_stats": {
+                "hp": 100,
+                "attack": 15,
+                "defense": 12,
+                "speed": 18,
+                "crit_rate": 5,
+                "crit_damage": 150
+            },
+            "growth_rates": {
+                "hp": 10,
+                "attack": 2.5,
+                "defense": 1.8,
+                "speed": 2.2
+            },
+            "abilities": [
+                "scratch_fury",
+                "nature_pounce"
+            ],
+            "passive": "curious_nature",
+            "personality": {
+                "type": "curious",
+                "battle_style": "aggressive",
+                "likes": ["fish", "toys"],
+                "dislikes": ["water", "loud_noises"]
+            },
+            "evolution": {
+                "stage": 1,
+                "max_stage": 3,
+                "next_form": "002",
+                "requirements": {
+                    "level": 20,
+                    "items": ["nature_shard", "evolution_treat"],
+                    "cost": {
+                        "fish": 1000
+                    }
+                }
+            },
+            "visuals": {
+                "emoji": "🐱",
+                "color": "#7ACC66",
+                "battle_sprite": "whiskers_battle.png",
+                "profile_image": "whiskers_profile.png"
+            }
+        },
+        "002": {
+            "id": "002",
+            "name": "Shadowpaw",
+            "title": "The Mysterious",
+            "description": "A sleek black cat that moves like a shadow",
+            "rarity": "rare",
+            "affinity": "dark",
+            "base_stats": {
+                "hp": 120,
+                "attack": 22,
+                "defense": 15,
+                "speed": 25,
+                "crit_rate": 8,
+                "crit_damage": 175
+            },
+            "growth_rates": {
+                "hp": 12,
+                "attack": 3.2,
+                "defense": 2.0,
+                "speed": 3.0
+            },
+            "abilities": [
+                "shadow_strike",
+                "night_prowl"
+            ],
+            "passive": "stealth_master",
+            "personality": {
+                "type": "mysterious",
+                "battle_style": "strategic",
+                "likes": ["darkness", "stealth"],
+                "dislikes": ["bright_lights", "noise"]
+            },
+            "evolution": {
+                "stage": 1,
+                "max_stage": 3,
+                "next_form": "003",
+                "requirements": {
+                    "level": 25,
+                    "items": ["dark_shard", "evolution_treat"],
+                    "cost": {
+                        "fish": 2000
+                    }
+                }
+            },
+            "visuals": {
+                "emoji": "🐈‍⬛",
+                "color": "#534C64",
+                "battle_sprite": "shadowpaw_battle.png",
+                "profile_image": "shadowpaw_profile.png"
+            }
+        },
+        "L001": {
+            "id": "L001",
+            "name": "Solar",
+            "title": "The Radiant",
+            "description": "A legendary cat blessed by the sun itself",
+            "rarity": "legendary",
+            "affinity": "light",
+            "base_stats": {
+                "hp": 200,
+                "attack": 35,
+                "defense": 28,
+                "speed": 30,
+                "crit_rate": 10,
+                "crit_damage": 200
+            },
+            "growth_rates": {
+                "hp": 20,
+                "attack": 4.5,
+                "defense": 3.8,
+                "speed": 3.5
+            },
+            "abilities": [
+                "solar_flare",
+                "radiant_blessing",
+                "sunlight_beam"
+            ],
+            "passive": "sun_blessed",
+            "personality": {
+                "type": "noble",
+                "battle_style": "balanced",
+                "likes": ["sunlight", "heights"],
+                "dislikes": ["darkness", "rain"]
+            },
+            "evolution": {
+                "stage": 1,
+                "max_stage": 2,
+                "next_form": "L002",
+                "requirements": {
+                    "level": 50,
+                    "items": ["legendary_shard", "sun_crystal"],
+                    "cost": {
+                        "fish": 10000,
+                        "gems": 100
+                    }
+                }
+            },
+            "visuals": {
+                "emoji": "⭐🐱",
+                "color": "#FFD700",
+                "battle_sprite": "solar_battle.png",
+                "profile_image": "solar_profile.png"
+            }
+        }
+    },
+    "rarity_rates": {
+        "common": 70,
+        "uncommon": 20,
+        "rare": 7,
+        "epic": 2.5,
+        "legendary": 0.5
+    },
+    "affinity_relationships": {
+        "fire": {
+            "strong_against": ["nature"],
+            "weak_against": ["water"]
+        },
+        "water": {
+            "strong_against": ["fire"],
+            "weak_against": ["nature"]
+        },
+        "nature": {
+            "strong_against": ["water"],
+            "weak_against": ["fire"]
+        },
+        "light": {
+            "strong_against": ["dark"],
+            "weak_against": []
+        },
+        "dark": {
+            "strong_against": ["light"],
+            "weak_against": []
+        }
+    },
+    "personality_traits": {
+        "curious": {
+            "battle_modifiers": {
+                "crit_rate": 1.1,
+                "defense": 0.9
+            }
+        },
+        "mysterious": {
+            "battle_modifiers": {
+                "speed": 1.1,
+                "attack": 1.05
+            }
+        },
+        "noble": {
+            "battle_modifiers": {
+                "all_stats": 1.05
+            }
+        }
+    }
+}

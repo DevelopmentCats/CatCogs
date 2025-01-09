@@ -1,0 +1,227 @@
+{
+    "schema_version": "1.0",
+    "last_updated": "2024-01-17",
+    "shop_categories": {
+        "daily_deals": {
+            "name": "Daily Deals",
+            "description": "Special offers that refresh daily!",
+            "refresh_rate": "daily",
+            "max_items": 5,
+            "icon": "🎁",
+            "background_color": "#FFD700",
+            "discount_range": {
+                "min": 10,
+                "max": 50
+            }
+        },
+        "general_store": {
+            "name": "General Store",
+            "description": "Basic supplies for every cat trainer!",
+            "refresh_rate": "never",
+            "icon": "🏪",
+            "background_color": "#87CEEB"
+        },
+        "premium_shop": {
+            "name": "Premium Shop",
+            "description": "Exclusive items for dedicated trainers!",
+            "refresh_rate": "weekly",
+            "icon": "💎",
+            "background_color": "#FF69B4"
+        },
+        "seasonal_shop": {
+            "name": "Seasonal Specials",
+            "description": "Limited time seasonal items!",
+            "refresh_rate": "seasonal",
+            "icon": "🌺",
+            "background_color": "#98FB98"
+        }
+    },
+    "permanent_stock": {
+        "general_store": {
+            "consumables": {
+                "basic_treat": {
+                    "item_id": "basic_treat",
+                    "price": {
+                        "fish": 100
+                    },
+                    "stock": -1,
+                    "limit_per_day": 10
+                },
+                "healing_milk": {
+                    "item_id": "healing_milk",
+                    "price": {
+                        "fish": 300
+                    },
+                    "stock": -1,
+                    "limit_per_day": 5
+                },
+                "energy_snack": {
+                    "item_id": "energy_snack",
+                    "price": {
+                        "fish": 200
+                    },
+                    "stock": -1,
+                    "limit_per_day": 5
+                }
+            },
+            "basic_equipment": {
+                "training_collar": {
+                    "item_id": "training_collar",
+                    "price": {
+                        "fish": 2000
+                    },
+                    "stock": -1,
+                    "limit_per_day": 1
+                }
+            }
+        },
+        "premium_shop": {
+            "special_items": {
+                "premium_ticket": {
+                    "item_id": "premium_ticket",
+                    "price": {
+                        "gems": 100
+                    },
+                    "stock": -1,
+                    "limit_per_day": 1
+                }
+            }
+        }
+    },
+    "rotating_stock": {
+        "daily_deals": {
+            "pool": {
+                "discounted_treats": {
+                    "item_id": "premium_treat",
+                    "base_price": {
+                        "fish": 500
+                    },
+                    "weight": 100,
+                    "possible_discounts": [10, 20, 30]
+                },
+                "discounted_milk": {
+                    "item_id": "stat_boost_milk",
+                    "base_price": {
+                        "fish": 600
+                    },
+                    "weight": 80,
+                    "possible_discounts": [15, 25, 35]
+                }
+            }
+        },
+        "seasonal_shop": {
+            "spring": {
+                "cherry_collar": {
+                    "item_id": "cherry_collar",
+                    "price": {
+                        "gems": 50
+                    },
+                    "duration": "spring"
+                }
+            },
+            "summer": {
+                "beach_bell": {
+                    "item_id": "beach_bell",
+                    "price": {
+                        "gems": 50
+                    },
+                    "duration": "summer"
+                }
+            }
+        }
+    },
+    "bundle_deals": {
+        "starter_pack": {
+            "name": "Starter Pack",
+            "description": "Perfect for new trainers!",
+            "price": {
+                "gems": 100
+            },
+            "items": {
+                "premium_treat": 5,
+                "healing_milk": 3,
+                "training_collar": 1,
+                "normal_ticket": 10
+            },
+            "bonus_items": {
+                "premium_ticket": 1
+            },
+            "savings": "60% OFF!",
+            "limit": "one_time",
+            "icon": "🎮"
+        },
+        "battle_pack": {
+            "name": "Battle Pack",
+            "description": "Essential items for serious battles!",
+            "price": {
+                "fish": 5000
+            },
+            "items": {
+                "healing_milk": 10,
+                "energy_snack": 10,
+                "stat_boost_milk": 5
+            },
+            "savings": "30% OFF!",
+            "limit": "weekly",
+            "icon": "⚔️"
+        }
+    },
+    "currency_shop": {
+        "gem_packages": {
+            "small_gems": {
+                "name": "Small Gem Pack",
+                "amount": 100,
+                "price": {
+                    "usd": 0.99
+                },
+                "bonus": 0,
+                "icon": "💎"
+            },
+            "medium_gems": {
+                "name": "Medium Gem Pack",
+                "amount": 500,
+                "price": {
+                    "usd": 4.99
+                },
+                "bonus": 50,
+                "icon": "💎💎"
+            },
+            "large_gems": {
+                "name": "Large Gem Pack",
+                "amount": 1000,
+                "price": {
+                    "usd": 9.99
+                },
+                "bonus": 150,
+                "icon": "💎💎💎"
+            }
+        },
+        "fish_packages": {
+            "fish_gems": {
+                "name": "Fish Pack",
+                "amount": 10000,
+                "price": {
+                    "gems": 100
+                },
+                "icon": "🐟"
+            }
+        }
+    },
+    "shop_settings": {
+        "daily_reset_time": "00:00 UTC",
+        "weekly_reset_day": "monday",
+        "seasonal_dates": {
+            "spring": {"start": "03-20", "end": "06-20"},
+            "summer": {"start": "06-21", "end": "09-22"},
+            "autumn": {"start": "09-23", "end": "12-20"},
+            "winter": {"start": "12-21", "end": "03-19"}
+        },
+        "currency_conversion": {
+            "fish_to_gems": 100
+        },
+        "inventory_limits": {
+            "max_items_per_type": 999,
+            "max_premium_currency": 100000
+        }
+    }
+}
