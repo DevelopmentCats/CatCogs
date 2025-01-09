@@ -1,0 +1,645 @@
+{
+    "schema_version": "1.0",
+    "last_updated": "2024-01-17",
+    "items": {
+        "consumables": {
+            "treats": {
+                "basic_treat": {
+                    "id": "basic_treat",
+                    "name": "Basic Treat",
+                    "description": "A tasty treat that gives a small amount of EXP",
+                    "rarity": "common",
+                    "category": "exp_item",
+                    "effects": {
+                        "exp_gain": 100
+                    },
+                    "max_stack": 99,
+                    "sell_price": {
+                        "fish": 50
+                    },
+                    "visuals": {
+                        "icon": "🍪",
+                        "color": "#CD853F",
+                        "use_animation": "treat_sparkle"
+                    }
+                },
+                "premium_treat": {
+                    "id": "premium_treat",
+                    "name": "Premium Treat",
+                    "description": "A high-quality treat that gives significant EXP",
+                    "rarity": "rare",
+                    "category": "exp_item",
+                    "effects": {
+                        "exp_gain": 500
+                    },
+                    "max_stack": 99,
+                    "sell_price": {
+                        "fish": 250
+                    },
+                    "visuals": {
+                        "icon": "🍖",
+                        "color": "#FFD700",
+                        "use_animation": "premium_treat_sparkle"
+                    }
+                },
+                "energy_snack": {
+                    "id": "energy_snack",
+                    "name": "Energy Snack",
+                    "description": "Restores energy during battle",
+                    "rarity": "common",
+                    "category": "battle_item",
+                    "effects": {
+                        "energy_restore": 50
+                    },
+                    "max_stack": 20,
+                    "sell_price": {
+                        "fish": 100
+                    },
+                    "visuals": {
+                        "icon": "🐟",
+                        "color": "#87CEEB",
+                        "use_animation": "energy_restore"
+                    }
+                }
+            },
+            "potions": {
+                "healing_milk": {
+                    "id": "healing_milk",
+                    "name": "Healing Milk",
+                    "description": "Restores HP during battle",
+                    "rarity": "common",
+                    "category": "battle_item",
+                    "effects": {
+                        "heal": {
+                            "base": 100,
+                            "scaling": {
+                                "max_hp": 0.3
+                            }
+                        }
+                    },
+                    "max_stack": 10,
+                    "sell_price": {
+                        "fish": 150
+                    },
+                    "visuals": {
+                        "icon": "🥛",
+                        "color": "#FFFFFF",
+                        "use_animation": "healing_sparkle"
+                    }
+                },
+                "stat_boost_milk": {
+                    "id": "stat_boost_milk",
+                    "name": "Power Milk",
+                    "description": "Temporarily boosts all stats",
+                    "rarity": "uncommon",
+                    "category": "battle_item",
+                    "effects": {
+                        "buff": {
+                            "all_stats": 1.2,
+                            "duration": 3
+                        }
+                    },
+                    "max_stack": 5,
+                    "sell_price": {
+                        "fish": 300
+                    },
+                    "visuals": {
+                        "icon": "🌈",
+                        "color": "#FF69B4",
+                        "use_animation": "rainbow_sparkle"
+                    }
+                }
+            }
+        },
+        "equipment": {
+            "collars": {
+                "training_collar": {
+                    "id": "training_collar",
+                    "name": "Training Collar",
+                    "description": "Increases EXP gain",
+                    "rarity": "common",
+                    "category": "collar",
+                    "effects": {
+                        "exp_bonus": 1.1
+                    },
+                    "equippable": true,
+                    "sell_price": {
+                        "fish": 1000
+                    },
+                    "visuals": {
+                        "icon": "📿",
+                        "color": "#4169E1",
+                        "equip_animation": "collar_equip"
+                    }
+                },
+                "lucky_collar": {
+                    "id": "lucky_collar",
+                    "name": "Lucky Collar",
+                    "description": "Increases item drop rates",
+                    "rarity": "rare",
+                    "category": "collar",
+                    "effects": {
+                        "drop_rate": 1.2
+                    },
+                    "equippable": true,
+                    "sell_price": {
+                        "fish": 2500
+                    },
+                    "visuals": {
+                        "icon": "🎭",
+                        "color": "#FFD700",
+                        "equip_animation": "lucky_sparkle"
+                    }
+                }
+            },
+            "accessories": {
+                "power_bell": {
+                    "id": "power_bell",
+                    "name": "Power Bell",
+                    "description": "Increases attack power",
+                    "rarity": "uncommon",
+                    "category": "accessory",
+                    "effects": {
+                        "stats": {
+                            "attack": 1.15
+                        }
+                    },
+                    "equippable": true,
+                    "sell_price": {
+                        "fish": 1500
+                    },
+                    "visuals": {
+                        "icon": "🔔",
+                        "color": "#FF4444",
+                        "equip_animation": "bell_ring"
+                    }
+                },
+                "defense_charm": {
+                    "id": "defense_charm",
+                    "name": "Defense Charm",
+                    "description": "Increases defense and reduces damage taken",
+                    "rarity": "rare",
+                    "category": "accessory",
+                    "effects": {
+                        "stats": {
+                            "defense": 1.2
+                        },
+                        "damage_reduction": 0.1
+                    },
+                    "equippable": true,
+                    "sell_price": {
+                        "fish": 2500
+                    },
+                    "visuals": {
+                        "icon": "🪬",
+                        "color": "#4169E1",
+                        "equip_animation": "charm_glow"
+                    }
+                }
+            },
+            "armor": {
+                "leather_vest": {
+                    "id": "leather_vest",
+                    "name": "Leather Vest",
+                    "description": "Basic protective gear",
+                    "rarity": "common",
+                    "category": "armor",
+                    "effects": {
+                        "stats": {
+                            "defense": 1.1,
+                            "speed": 0.9
+                        }
+                    },
+                    "equippable": true,
+                    "sell_price": {
+                        "fish": 1000
+                    },
+                    "visuals": {
+                        "icon": "🧥",
+                        "color": "#8B4513",
+                        "equip_animation": "vest_equip"
+                    }
+                },
+                "chainmail": {
+                    "id": "chainmail",
+                    "name": "Chainmail",
+                    "description": "Heavy armor with great protection",
+                    "rarity": "rare",
+                    "category": "armor",
+                    "effects": {
+                        "stats": {
+                            "defense": 1.3,
+                            "speed": 0.8
+                        }
+                    },
+                    "equippable": true,
+                    "sell_price": {
+                        "fish": 4000
+                    },
+                    "visuals": {
+                        "icon": "🛡️",
+                        "color": "#808080",
+                        "equip_animation": "chainmail_equip"
+                    }
+                }
+            },
+            "weapons": {
+                "claw_gauntlet": {
+                    "id": "claw_gauntlet",
+                    "name": "Claw Gauntlet",
+                    "description": "Enhances claw attacks",
+                    "rarity": "uncommon",
+                    "category": "weapon",
+                    "effects": {
+                        "stats": {
+                            "attack": 1.2
+                        },
+                        "ability_bonus": {
+                            "claw_abilities": {
+                                "power": 1.1
+                            }
+                        }
+                    },
+                    "equippable": true,
+                    "sell_price": {
+                        "fish": 3000
+                    },
+                    "visuals": {
+                        "icon": "✋",
+                        "color": "#FFA500",
+                        "equip_animation": "gauntlet_equip"
+                    }
+                },
+                "nature_staff": {
+                    "id": "nature_staff",
+                    "name": "Nature Staff",
+                    "description": "Enhances nature abilities",
+                    "rarity": "rare",
+                    "category": "weapon",
+                    "effects": {
+                        "stats": {
+                            "attack": 1.15
+                        },
+                        "ability_bonus": {
+                            "nature_abilities": {
+                                "power": 1.2,
+                                "energy_cost": 0.9
+                            }
+                        }
+                    },
+                    "equippable": true,
+                    "sell_price": {
+                        "fish": 5000
+                    },
+                    "visuals": {
+                        "icon": "🌿",
+                        "color": "#32CD32",
+                        "equip_animation": "staff_equip"
+                    }
+                }
+            }
+        },
+        "evolution_items": {
+            "nature_shard": {
+                "id": "nature_shard",
+                "name": "Nature Shard",
+                "description": "Required for evolving nature-type cats",
+                "rarity": "rare",
+                "category": "evolution_material",
+                "max_stack": 50,
+                "sell_price": {
+                    "fish": 1000
+                },
+                "visuals": {
+                    "icon": "🌱",
+                    "color": "#32CD32",
+                    "use_animation": "nature_evolve"
+                }
+            },
+            "water_shard": {
+                "id": "water_shard",
+                "name": "Water Shard",
+                "description": "Required for evolving water-type cats",
+                "rarity": "rare",
+                "category": "evolution_material",
+                "max_stack": 50,
+                "sell_price": {
+                    "fish": 1000
+                },
+                "visuals": {
+                    "icon": "💧",
+                    "color": "#1E90FF",
+                    "use_animation": "water_evolve"
+                }
+            },
+            "fire_shard": {
+                "id": "fire_shard",
+                "name": "Fire Shard",
+                "description": "Required for evolving fire-type cats",
+                "rarity": "rare",
+                "category": "evolution_material",
+                "max_stack": 50,
+                "sell_price": {
+                    "fish": 1000
+                },
+                "visuals": {
+                    "icon": "🔥",
+                    "color": "#FF4500",
+                    "use_animation": "fire_evolve"
+                }
+            },
+            "dark_shard": {
+                "id": "dark_shard",
+                "name": "Dark Shard",
+                "description": "Required for evolving dark-type cats",
+                "rarity": "rare",
+                "category": "evolution_material",
+                "max_stack": 50,
+                "sell_price": {
+                    "fish": 1000
+                },
+                "visuals": {
+                    "icon": "🌑",
+                    "color": "#483D8B",
+                    "use_animation": "dark_evolve"
+                }
+            }
+        },
+        "crafting_materials": {
+            "leather": {
+                "id": "leather",
+                "name": "Leather",
+                "description": "Basic material for crafting armor",
+                "rarity": "common",
+                "category": "crafting_material",
+                "max_stack": 99,
+                "sell_price": {
+                    "fish": 50
+                },
+                "visuals": {
+                    "icon": "🧶",
+                    "color": "#8B4513",
+                    "use_animation": "material_sparkle"
+                }
+            },
+            "iron_ingot": {
+                "id": "iron_ingot",
+                "name": "Iron Ingot",
+                "description": "Refined metal for crafting weapons and armor",
+                "rarity": "uncommon",
+                "category": "crafting_material",
+                "max_stack": 99,
+                "sell_price": {
+                    "fish": 100
+                },
+                "visuals": {
+                    "icon": "🪙",
+                    "color": "#808080",
+                    "use_animation": "metal_sparkle"
+                }
+            },
+            "magic_crystal": {
+                "id": "magic_crystal",
+                "name": "Magic Crystal",
+                "description": "Infused with magical energy for crafting",
+                "rarity": "rare",
+                "category": "crafting_material",
+                "max_stack": 50,
+                "sell_price": {
+                    "fish": 250
+                },
+                "visuals": {
+                    "icon": "💎",
+                    "color": "#8A2BE2",
+                    "use_animation": "crystal_sparkle"
+                }
+            }
+        },
+        "enhancement_materials": {
+            "sharpening_stone": {
+                "id": "sharpening_stone",
+                "name": "Sharpening Stone",
+                "description": "Used to enhance weapon damage",
+                "rarity": "common",
+                "category": "enhancement_material",
+                "max_stack": 50,
+                "sell_price": {
+                    "fish": 100
+                },
+                "visuals": {
+                    "icon": "🪨",
+                    "color": "#696969",
+                    "use_animation": "stone_sparkle"
+                }
+            },
+            "reinforcement_plate": {
+                "id": "reinforcement_plate",
+                "name": "Reinforcement Plate",
+                "description": "Used to enhance armor defense",
+                "rarity": "uncommon",
+                "category": "enhancement_material",
+                "max_stack": 50,
+                "sell_price": {
+                    "fish": 200
+                },
+                "visuals": {
+                    "icon": "🛡️",
+                    "color": "#808080",
+                    "use_animation": "plate_sparkle"
+                }
+            },
+            "enchanted_dust": {
+                "id": "enchanted_dust",
+                "name": "Enchanted Dust",
+                "description": "Used to enhance magical properties",
+                "rarity": "rare",
+                "category": "enhancement_material",
+                "max_stack": 50,
+                "sell_price": {
+                    "fish": 300
+                },
+                "visuals": {
+                    "icon": "✨",
+                    "color": "#FFD700",
+                    "use_animation": "dust_sparkle"
+                }
+            }
+        },
+        "special_items": {
+            "summoning": {
+                "normal_ticket": {
+                    "id": "normal_ticket",
+                    "name": "Normal Summon Ticket",
+                    "description": "Summons a random cat (higher chance for common cats)",
+                    "rarity": "common",
+                    "category": "summon_item",
+                    "max_stack": 99,
+                    "sell_price": {
+                        "fish": 500
+                    },
+                    "visuals": {
+                        "icon": "🎫",
+                        "color": "#B8860B",
+                        "use_animation": "normal_summon"
+                    }
+                },
+                "affinity_ticket": {
+                    "id": "affinity_ticket",
+                    "name": "Affinity Summon Ticket",
+                    "description": "Summons a random cat of specific affinity",
+                    "rarity": "rare",
+                    "category": "summon_item",
+                    "max_stack": 10,
+                    "sell_price": {
+                        "gems": 75
+                    },
+                    "visuals": {
+                        "icon": "🎟️",
+                        "color": "#8A2BE2",
+                        "use_animation": "affinity_summon"
+                    }
+                },
+                "premium_ticket": {
+                    "id": "premium_ticket",
+                    "name": "Premium Summon Ticket",
+                    "description": "Summons a random cat (guaranteed rare or better)",
+                    "rarity": "rare",
+                    "category": "summon_item",
+                    "max_stack": 10,
+                    "sell_price": {
+                        "gems": 50
+                    },
+                    "visuals": {
+                        "icon": "🎟️",
+                        "color": "#FFD700",
+                        "use_animation": "premium_summon"
+                    }
+                }
+            }
+        }
+    },
+    "crafting_recipes": {
+        "leather_vest": {
+            "id": "leather_vest",
+            "name": "Leather Vest",
+            "description": "Basic protective gear",
+            "category": "armor",
+            "materials": {
+                "leather": 5,
+                "thread": 3
+            },
+            "time": 300,
+            "success_rate": 90,
+            "visuals": {
+                "icon": "🧥",
+                "color": "#8B4513"
+            }
+        },
+        "claw_gauntlet": {
+            "id": "claw_gauntlet",
+            "name": "Claw Gauntlet",
+            "description": "Enhances claw attacks",
+            "category": "weapon",
+            "materials": {
+                "leather": 3,
+                "iron_ingot": 2,
+                "sharpening_stone": 1
+            },
+            "time": 600,
+            "success_rate": 80,
+            "visuals": {
+                "icon": "✋",
+                "color": "#FFA500"
+            }
+        },
+        "nature_staff": {
+            "id": "nature_staff",
+            "name": "Nature Staff",
+            "description": "Enhances nature abilities",
+            "category": "weapon",
+            "materials": {
+                "wood": 5,
+                "magic_crystal": 2,
+                "enchanted_dust": 1
+            },
+            "time": 900,
+            "success_rate": 75,
+            "visuals": {
+                "icon": "🌿",
+                "color": "#32CD32"
+            }
+        }
+    },
+    "enhancement_levels": {
+        "weapons": {
+            "max_level": 10,
+            "stats_per_level": {
+                "attack": 0.05,
+                "crit_rate": 0.5
+            },
+            "materials_per_level": {
+                "sharpening_stone": 1,
+                "enchanted_dust": 0.5
+            }
+        },
+        "armor": {
+            "max_level": 10,
+            "stats_per_level": {
+                "defense": 0.05,
+                "hp": 0.03
+            },
+            "materials_per_level": {
+                "reinforcement_plate": 1,
+                "enchanted_dust": 0.5
+            }
+        },
+        "accessories": {
+            "max_level": 5,
+            "stats_per_level": {
+                "all_stats": 0.03
+            },
+            "materials_per_level": {
+                "enchanted_dust": 1
+            }
+        }
+    },
+    "item_categories": {
+        "exp_item": {
+            "description": "Items that provide experience points",
+            "usable_in_battle": false,
+            "stackable": true
+        },
+        "battle_item": {
+            "description": "Items that can be used during battle",
+            "usable_in_battle": true,
+            "stackable": true
+        },
+        "evolution_material": {
+            "description": "Materials used for evolving cats",
+            "usable_in_battle": false,
+            "stackable": true
+        },
+        "collar": {
+            "description": "Equipment that provides passive bonuses",
+            "equip_slot": "collar",
+            "stackable": false
+        },
+        "accessory": {
+            "description": "Additional equipment for extra effects",
+            "equip_slot": "accessory",
+            "stackable": false
+        },
+        "summon_item": {
+            "description": "Items used for summoning new cats",
+            "usable_in_battle": false,
+            "stackable": true
+        }
+    },
+    "rarity_colors": {
+        "common": "#B8B8B8",
+        "uncommon": "#00FF00",
+        "rare": "#0000FF",
+        "epic": "#800080",
+        "legendary": "#FFD700"
+    }
+}

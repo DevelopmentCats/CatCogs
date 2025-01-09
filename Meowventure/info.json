@@ -1,0 +1,12 @@
+{
+    "name": "Meowventure",
+    "author": ["DeveloperCats"],
+    "short": "A fun adventure game for Discord",
+    "description": "Meowventure is a text-based adventure game where players can explore, battle, and collect cats!",
+    "install_msg": "Thanks for installing Meowventure! Use `[p]meowventure` to start your adventure.",
+    "requirements": ["discord.py", "redbot"],
+    "tags": ["game", "adventure", "cats", "fun"],
+    "type": "COG",
+    "min_bot_version": "3.5.0",
+    "end_user_data_statement": "This cog does not persistently store data or metadata about users."
+}

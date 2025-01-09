@@ -1,0 +1,416 @@
+{
+    "schema_version": "2.0",
+    "last_updated": "2024-01-18",
+    "abilities": {
+        "scratch_fury": {
+            "id": "scratch_fury",
+            "name": "Scratch Fury",
+            "description": "A rapid series of claw attacks that can hit multiple times",
+            "type": "physical",
+            "affinity": "normal",
+            "target": "single",
+            "effects": {
+                "damage": {
+                    "base_power": 30,
+                    "hits": {"min": 2, "max": 4},
+                    "scaling": {
+                        "attack": 0.7
+                    },
+                    "type_effectiveness": {
+                        "strong_against": ["dark"],
+                        "weak_against": ["steel"]
+                    }
+                },
+                "chance_effects": [
+                    {
+                        "effect": "bleeding",
+                        "chance": 30,
+                        "duration": 2,
+                        "stackable": true
+                    }
+                ],
+                "cooldown_interaction": {
+                    "reduces_cooldown": {
+                        "ability_id": "feral_rage",
+                        "amount": 1
+                    }
+                }
+            },
+            "cooldown": 3,
+            "energy_cost": 25,
+            "animation_key": "scratch_fury_anim",
+            "sound_effect": "scratch_fury.mp3",
+            "visuals": {
+                "icon": "🗡️",
+                "color": "#FF4444"
+            }
+        },
+        "nature_pounce": {
+            "id": "nature_pounce",
+            "name": "Nature Pounce",
+            "description": "A nature-infused leap attack that can boost speed",
+            "type": "physical",
+            "affinity": "nature",
+            "target": "single",
+            "effects": {
+                "damage": {
+                    "base_power": 65,
+                    "scaling": {
+                        "attack": 1.0,
+                        "speed": 0.3
+                    },
+                    "type_effectiveness": {
+                        "strong_against": ["water", "earth"],
+                        "weak_against": ["fire"]
+                    }
+                },
+                "self_effects": [
+                    {
+                        "effect": "speed_up",
+                        "value": 20,
+                        "duration": 2,
+                        "synergy": {
+                            "with_effect": "sunlight_charged",
+                            "bonus": 1.5
+                        }
+                    }
+                ],
+                "terrain_interaction": {
+                    "grassy_terrain": {
+                        "damage_bonus": 1.3,
+                        "healing": 10
+                    }
+                }
+            },
+            "cooldown": 4,
+            "energy_cost": 30,
+            "animation_key": "nature_pounce_anim",
+            "sound_effect": "nature_pounce.mp3",
+            "visuals": {
+                "icon": "🌿",
+                "color": "#7ACC66"
+            }
+        },
+        "shadow_strike": {
+            "id": "shadow_strike",
+            "name": "Shadow Strike",
+            "description": "A swift strike from the shadows with high critical rate",
+            "type": "physical",
+            "affinity": "dark",
+            "target": "single",
+            "effects": {
+                "damage": {
+                    "base_power": 75,
+                    "scaling": {
+                        "attack": 1.2
+                    },
+                    "crit_rate_bonus": 25,
+                    "type_effectiveness": {
+                        "strong_against": ["light", "psychic"],
+                        "weak_against": ["fairy"]
+                    }
+                },
+                "chance_effects": [
+                    {
+                        "effect": "blind",
+                        "chance": 40,
+                        "duration": 1,
+                        "synergy": {
+                            "with_effect": "stealth",
+                            "bonus": 1.3
+                        }
+                    }
+                ],
+                "stealth_interaction": {
+                    "stealth_bonus": 1.5
+                }
+            },
+            "cooldown": 4,
+            "energy_cost": 35,
+            "animation_key": "shadow_strike_anim",
+            "sound_effect": "shadow_strike.mp3",
+            "visuals": {
+                "icon": "🌑",
+                "color": "#534C64"
+            }
+        },
+        "night_prowl": {
+            "id": "night_prowl",
+            "name": "Night Prowl",
+            "description": "Enter stealth mode and prepare for a powerful attack",
+            "type": "status",
+            "affinity": "dark",
+            "target": "self",
+            "effects": {
+                "self_effects": [
+                    {
+                        "effect": "stealth",
+                        "duration": 1,
+                        "synergy": {
+                            "with_ability": "shadow_strike",
+                            "bonus": 1.5
+                        }
+                    },
+                    {
+                        "effect": "attack_up",
+                        "value": 50,
+                        "duration": 1,
+                        "stackable": true
+                    }
+                ],
+                "terrain_interaction": {
+                    "dark_terrain": {
+                        "duration_bonus": 1
+                    }
+                }
+            },
+            "cooldown": 5,
+            "energy_cost": 40,
+            "animation_key": "night_prowl_anim",
+            "sound_effect": "night_prowl.mp3",
+            "visuals": {
+                "icon": "👻",
+                "color": "#534C64"
+            }
+        },
+        "solar_flare": {
+            "id": "solar_flare",
+            "name": "Solar Flare",
+            "description": "A brilliant burst of solar energy that damages and blinds",
+            "type": "magical",
+            "affinity": "light",
+            "target": "aoe",
+            "effects": {
+                "damage": {
+                    "base_power": 85,
+                    "scaling": {
+                        "attack": 1.4
+                    },
+                    "type_effectiveness": {
+                        "strong_against": ["dark", "nature"],
+                        "weak_against": ["water"]
+                    }
+                },
+                "chance_effects": [
+                    {
+                        "effect": "blind",
+                        "chance": 50,
+                        "duration": 2,
+                        "synergy": {
+                            "with_effect": "sunlight_charged",
+                            "bonus": 1.5
+                        }
+                    }
+                ],
+                "terrain_interaction": {
+                    "sunny_terrain": {
+                        "damage_bonus": 1.5,
+                        "blind_chance_bonus": 20
+                    }
+                }
+            },
+            "cooldown": 5,
+            "energy_cost": 45,
+            "animation_key": "solar_flare_anim",
+            "sound_effect": "solar_flare.mp3",
+            "visuals": {
+                "icon": "☀️",
+                "color": "#FFD700"
+            }
+        },
+        "radiant_blessing": {
+            "id": "radiant_blessing",
+            "name": "Radiant Blessing",
+            "description": "Bathes allies in healing light and boosts their power",
+            "type": "support",
+            "affinity": "light",
+            "target": "all_allies",
+            "effects": {
+                "healing": {
+                    "base_power": 60,
+                    "scaling": {
+                        "attack": 0.5
+                    },
+                    "type_effectiveness": {
+                        "strong_against": ["dark"],
+                        "weak_against": ["none"]
+                    }
+                },
+                "ally_effects": [
+                    {
+                        "effect": "attack_up",
+                        "value": 25,
+                        "duration": 3,
+                        "synergy": {
+                            "with_effect": "sunlight_charged",
+                            "bonus": 1.3
+                        }
+                    },
+                    {
+                        "effect": "defense_up",
+                        "value": 25,
+                        "duration": 3,
+                        "stackable": true
+                    }
+                ],
+                "terrain_interaction": {
+                    "sunny_terrain": {
+                        "healing_bonus": 1.5,
+                        "duration_bonus": 1
+                    }
+                }
+            },
+            "cooldown": 6,
+            "energy_cost": 50,
+            "animation_key": "radiant_blessing_anim",
+            "sound_effect": "radiant_blessing.mp3",
+            "visuals": {
+                "icon": "✨",
+                "color": "#FFD700"
+            }
+        },
+        "sunlight_beam": {
+            "id": "sunlight_beam",
+            "name": "Sunlight Beam",
+            "description": "A concentrated beam of pure sunlight",
+            "type": "magical",
+            "affinity": "light",
+            "target": "single",
+            "effects": {
+                "damage": {
+                    "base_power": 100,
+                    "scaling": {
+                        "attack": 1.5
+                    },
+                    "type_effectiveness": {
+                        "strong_against": ["dark", "nature"],
+                        "weak_against": ["water"]
+                    }
+                },
+                "self_effects": [
+                    {
+                        "effect": "sunlight_charged",
+                        "duration": 3,
+                        "synergy": {
+                            "with_ability": "solar_flare",
+                            "bonus": 1.5
+                        }
+                    }
+                ],
+                "terrain_interaction": {
+                    "sunny_terrain": {
+                        "damage_bonus": 1.5,
+                        "duration_bonus": 1
+                    }
+                }
+            },
+            "cooldown": 7,
+            "energy_cost": 60,
+            "animation_key": "sunlight_beam_anim",
+            "sound_effect": "sunlight_beam.mp3",
+            "visuals": {
+                "icon": "🌟",
+                "color": "#FFD700"
+            }
+        }
+    },
+    "effect_types": {
+        "bleeding": {
+            "type": "damage_over_time",
+            "base_damage": 15,
+            "scaling": {"attack": 0.2},
+            "tick_rate": "end_of_turn",
+            "stackable": true,
+            "max_stacks": 3
+        },
+        "blind": {
+            "type": "debuff",
+            "stats_modified": {
+                "accuracy": -50
+            },
+            "stackable": false
+        },
+        "speed_up": {
+            "type": "buff",
+            "stats_modified": {
+                "speed": 1.2
+            },
+            "stackable": true,
+            "max_stacks": 2
+        },
+        "attack_up": {
+            "type": "buff",
+            "stats_modified": {
+                "attack": 1.25
+            },
+            "stackable": true,
+            "max_stacks": 3
+        },
+        "defense_up": {
+            "type": "buff",
+            "stats_modified": {
+                "defense": 1.25
+            },
+            "stackable": true,
+            "max_stacks": 3
+        },
+        "stealth": {
+            "type": "special",
+            "effects": {
+                "untargetable": true,
+                "next_attack_bonus": 1.5
+            },
+            "stackable": false
+        },
+        "sunlight_charged": {
+            "type": "special",
+            "effects": {
+                "light_ability_power": 1.3,
+                "energy_regen": 1.5
+            },
+            "stackable": false
+        }
+    },
+    "ability_types": {
+        "physical": {
+            "description": "Physical attacks that scale with Attack stat",
+            "default_accuracy": 95,
+            "defense_penetration": 0,
+            "energy_cost_multiplier": 0.8
+        },
+        "magical": {
+            "description": "Magical attacks that scale with Attack stat and ignore some Defense",
+            "defense_penetration": 30,
+            "default_accuracy": 90,
+            "energy_cost_multiplier": 1.0
+        },
+        "status": {
+            "description": "Status effects that don't deal direct damage",
+            "default_accuracy": 100,
+            "energy_cost_multiplier": 1.2
+        },
+        "support": {
+            "description": "Supportive abilities that help allies",
+            "default_accuracy": 100,
+            "energy_cost_multiplier": 1.5
+        }
+    },
+    "type_effectiveness": {
+        "normal": {
+            "strong_against": [],
+            "weak_against": ["steel"]
+        },
+        "nature": {
+            "strong_against": ["water", "earth"],
+            "weak_against": ["fire"]
+        },
+        "dark": {
+            "strong_against": ["light", "psychic"],
+            "weak_against": ["fairy"]
+        },
+        "light": {
+            "strong_against": ["dark", "nature"],
+            "weak_against": ["water"]
+        }
+    }
+}

@@ -1,0 +1,387 @@
+{
+    "schema_version": "2.0",
+    "last_updated": "2024-01-17",
+    "shop_categories": {
+        "daily_deals": {
+            "name": "Daily Deals",
+            "description": "Special offers that refresh daily!",
+            "refresh_rate": "daily",
+            "max_items": 5,
+            "icon": "🎁",
+            "background_color": "#FFD700",
+            "discount_range": {
+                "min": 10,
+                "max": 50
+            },
+            "reputation_bonus": {
+                "discount_increase": 0.1,
+                "max_discount": 60
+            }
+        },
+        "general_store": {
+            "name": "General Store",
+            "description": "Basic supplies for every cat trainer!",
+            "refresh_rate": "never",
+            "icon": "🏪",
+            "background_color": "#87CEEB",
+            "reputation_bonus": {
+                "price_reduction": 0.05,
+                "max_reduction": 20
+            }
+        },
+        "premium_shop": {
+            "name": "Premium Shop",
+            "description": "Exclusive items for dedicated trainers!",
+            "refresh_rate": "weekly",
+            "icon": "💎",
+            "background_color": "#FF69B4",
+            "reputation_bonus": {
+                "bonus_items": 0.1,
+                "max_bonus": 2
+            }
+        },
+        "seasonal_shop": {
+            "name": "Seasonal Specials",
+            "description": "Limited time seasonal items!",
+            "refresh_rate": "seasonal",
+            "icon": "🌺",
+            "background_color": "#98FB98",
+            "reputation_bonus": {
+                "early_access": true,
+                "exclusive_items": true
+            }
+        },
+        "crafting_supplies": {
+            "name": "Crafting Supplies",
+            "description": "Materials for crafting and enhancement",
+            "refresh_rate": "weekly",
+            "icon": "🛠️",
+            "background_color": "#D2B48C",
+            "reputation_bonus": {
+                "bulk_discount": 0.15,
+                "max_discount": 30
+            }
+        }
+    },
+    "permanent_stock": {
+        "general_store": {
+            "consumables": {
+                "basic_treat": {
+                    "item_id": "basic_treat",
+                    "price": {
+                        "fish": 100
+                    },
+                    "stock": -1,
+                    "limit_per_day": 10,
+                    "reputation_price": {
+                        "fish": 95
+                    }
+                },
+                "healing_milk": {
+                    "item_id": "healing_milk",
+                    "price": {
+                        "fish": 300
+                    },
+                    "stock": -1,
+                    "limit_per_day": 5,
+                    "reputation_price": {
+                        "fish": 285
+                    }
+                },
+                "energy_snack": {
+                    "item_id": "energy_snack",
+                    "price": {
+                        "fish": 200
+                    },
+                    "stock": -1,
+                    "limit_per_day": 5,
+                    "reputation_price": {
+                        "fish": 190
+                    }
+                }
+            },
+            "basic_equipment": {
+                "training_collar": {
+                    "item_id": "training_collar",
+                    "price": {
+                        "fish": 2000
+                    },
+                    "stock": -1,
+                    "limit_per_day": 1,
+                    "reputation_price": {
+                        "fish": 1900
+                    }
+                }
+            }
+        },
+        "premium_shop": {
+            "special_items": {
+                "premium_ticket": {
+                    "item_id": "premium_ticket",
+                    "price": {
+                        "gems": 100
+                    },
+                    "stock": -1,
+                    "limit_per_day": 1,
+                    "reputation_bonus": {
+                        "bonus_tickets": 0.1
+                    }
+                }
+            }
+        },
+        "crafting_supplies": {
+            "materials": {
+                "leather": {
+                    "item_id": "leather",
+                    "price": {
+                        "fish": 50
+                    },
+                    "stock": -1,
+                    "limit_per_day": 20,
+                    "bulk_discount": {
+                        "threshold": 10,
+                        "discount": 0.1
+                    }
+                },
+                "iron_ingot": {
+                    "item_id": "iron_ingot",
+                    "price": {
+                        "fish": 100
+                    },
+                    "stock": -1,
+                    "limit_per_day": 10,
+                    "bulk_discount": {
+                        "threshold": 5,
+                        "discount": 0.15
+                    }
+                },
+                "magic_crystal": {
+                    "item_id": "magic_crystal",
+                    "price": {
+                        "gems": 10
+                    },
+                    "stock": -1,
+                    "limit_per_day": 5,
+                    "bulk_discount": {
+                        "threshold": 3,
+                        "discount": 0.2
+                    }
+                }
+            }
+        }
+    },
+    "rotating_stock": {
+        "daily_deals": {
+            "pool": {
+                "discounted_treats": {
+                    "item_id": "premium_treat",
+                    "base_price": {
+                        "fish": 500
+                    },
+                    "weight": 100,
+                    "possible_discounts": [10, 20, 30],
+                    "reputation_bonus": {
+                        "additional_discount": 5
+                    }
+                },
+                "discounted_milk": {
+                    "item_id": "stat_boost_milk",
+                    "base_price": {
+                        "fish": 600
+                    },
+                    "weight": 80,
+                    "possible_discounts": [15, 25, 35],
+                    "reputation_bonus": {
+                        "additional_discount": 5
+                    }
+                },
+                "crafting_bundle": {
+                    "item_id": "crafting_bundle",
+                    "base_price": {
+                        "fish": 1000
+                    },
+                    "weight": 50,
+                    "possible_discounts": [20, 30, 40],
+                    "reputation_bonus": {
+                        "additional_items": 0.1
+                    }
+                }
+            }
+        },
+        "seasonal_shop": {
+            "spring": {
+                "cherry_collar": {
+                    "item_id": "cherry_collar",
+                    "price": {
+                        "gems": 50
+                    },
+                    "duration": "spring",
+                    "reputation_bonus": {
+                        "early_access_days": 3
+                    }
+                }
+            },
+            "summer": {
+                "beach_bell": {
+                    "item_id": "beach_bell",
+                    "price": {
+                        "gems": 50
+                    },
+                    "duration": "summer",
+                    "reputation_bonus": {
+                        "early_access_days": 3
+                    }
+                }
+            }
+        }
+    },
+    "bundle_deals": {
+        "starter_pack": {
+            "name": "Starter Pack",
+            "description": "Perfect for new trainers!",
+            "price": {
+                "gems": 100
+            },
+            "items": {
+                "premium_treat": 5,
+                "healing_milk": 3,
+                "training_collar": 1,
+                "normal_ticket": 10
+            },
+            "bonus_items": {
+                "premium_ticket": 1
+            },
+            "savings": "60% OFF!",
+            "limit": "one_time",
+            "icon": "🎮",
+            "reputation_bonus": {
+                "additional_items": 0.1
+            }
+        },
+        "battle_pack": {
+            "name": "Battle Pack",
+            "description": "Essential items for serious battles!",
+            "price": {
+                "fish": 5000
+            },
+            "items": {
+                "healing_milk": 10,
+                "energy_snack": 10,
+                "stat_boost_milk": 5
+            },
+            "savings": "30% OFF!",
+            "limit": "weekly",
+            "icon": "⚔️",
+            "reputation_bonus": {
+                "price_reduction": 0.05
+            }
+        },
+        "crafters_pack": {
+            "name": "Crafter's Pack",
+            "description": "Everything you need for crafting!",
+            "price": {
+                "fish": 3000
+            },
+            "items": {
+                "leather": 20,
+                "iron_ingot": 10,
+                "magic_crystal": 5
+            },
+            "savings": "25% OFF!",
+            "limit": "weekly",
+            "icon": "🛠️",
+            "reputation_bonus": {
+                "additional_items": 0.1
+            }
+        }
+    },
+    "currency_shop": {
+        "gem_packages": {
+            "small_gems": {
+                "name": "Small Gem Pack",
+                "amount": 100,
+                "price": {
+                    "usd": 0.99
+                },
+                "bonus": 0,
+                "icon": "💎",
+                "reputation_bonus": {
+                    "additional_gems": 0.05
+                }
+            },
+            "medium_gems": {
+                "name": "Medium Gem Pack",
+                "amount": 500,
+                "price": {
+                    "usd": 4.99
+                },
+                "bonus": 50,
+                "icon": "💎💎",
+                "reputation_bonus": {
+                    "additional_gems": 0.1
+                }
+            },
+            "large_gems": {
+                "name": "Large Gem Pack",
+                "amount": 1000,
+                "price": {
+                    "usd": 9.99
+                },
+                "bonus": 150,
+                "icon": "💎💎💎",
+                "reputation_bonus": {
+                    "additional_gems": 0.15
+                }
+            }
+        },
+        "fish_packages": {
+            "fish_gems": {
+                "name": "Fish Pack",
+                "amount": 10000,
+                "price": {
+                    "gems": 100
+                },
+                "icon": "🐟",
+                "reputation_bonus": {
+                    "additional_fish": 0.1
+                }
+            }
+        }
+    },
+    "shop_settings": {
+        "daily_reset_time": "00:00 UTC",
+        "weekly_reset_day": "monday",
+        "seasonal_dates": {
+            "spring": {"start": "03-20", "end": "06-20"},
+            "summer": {"start": "06-21", "end": "09-22"},
+            "autumn": {"start": "09-23", "end": "12-20"},
+            "winter": {"start": "12-21", "end": "03-19"}
+        },
+        "currency_conversion": {
+            "fish_to_gems": 100
+        },
+        "inventory_limits": {
+            "max_items_per_type": 999,
+            "max_premium_currency": 100000
+        },
+        "reputation_system": {
+            "levels": [
+                {"level": 1, "name": "Novice", "xp_required": 0},
+                {"level": 2, "name": "Regular", "xp_required": 100},
+                {"level": 3, "name": "Loyal", "xp_required": 500},
+                {"level": 4, "name": "VIP", "xp_required": 2000},
+                {"level": 5, "name": "Legend", "xp_required": 10000}
+            ],
+            "xp_per_purchase": {
+                "fish": 0.01,
+                "gems": 0.1
+            },
+            "daily_bonus": {
+                "login_streak": {
+                    "multiplier": 0.1,
+                    "max_streak": 7
+                }
+            }
+        }
+    }
+}
