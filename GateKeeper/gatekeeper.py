@@ -23,7 +23,51 @@ class GateKeeper(commands.Cog):
         self.config = Config.get_conf(
             self, identifier=2025010201, force_registration=True
         )
+        self.log_handlers = {}  # Store log handlers per guild
         self._setup_logger()
+        
+    def _setup_logger(self, guild: Optional[discord.Guild] = None):
+        """Configure the logger for this cog
+        
+        Args:
+            guild: The guild to configure logging for. If None, sets up base logger.
+        """
+        logger = logging.getLogger("red.gatekeeper")
+        logger.setLevel(logging.INFO)
+        
+        if guild:
+            # Create guild-specific handler
+            handler = logging.FileHandler(f"gatekeeper_{guild.id}.log")
+            handler.setLevel(logging.INFO)
+            
+            # Create formatter with guild info
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - guild:%(guild_id)s - %(message)s"
+            )
+            handler.setFormatter(formatter)
+            
+            # Add handler to logger and store reference
+            logger.addHandler(handler)
+            self.log_handlers[guild.id] = handler
+            
+            # Add guild_id to log records
+            old_factory = logging.getLogRecordFactory()
+            
+            def record_factory(*args, **kwargs):
+                record = old_factory(*args, **kwargs)
+                record.guild_id = guild.id
+                return record
+                
+            logging.setLogRecordFactory(record_factory)
+        else:
+            # Base logger configuration
+            handler = logging.FileHandler("gatekeeper_base.log")
+            handler.setLevel(logging.INFO)
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
         
         default_guild = {
             "enabled": False,
