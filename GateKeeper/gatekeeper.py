@@ -1626,7 +1626,7 @@ class GateKeeper(commands.Cog):
     @app_commands.describe(
         confirm="Type 'yes' to confirm setup"
     )
-    async def setup_gatekeeper(self, ctx: commands.Context):
+    async def setup_gatekeeper(self, ctx: commands.Context, confirm: str):
         """🔧 Interactive setup wizard for GateKeeper
         
         This command will guide you through setting up GateKeeper
