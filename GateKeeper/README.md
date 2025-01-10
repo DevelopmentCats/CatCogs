@@ -1,17 +1,9 @@
 # 🐾 GateKeeper - The Purrfect Security System 🛡️
 
 ```
-  _____________________________
- /                             \
-|    ____    ____    ____    ____|
-|   |    |  |    |  |    |  |    |
-|   |    |  |    |  |    |  |    |
-|   |____|  |____|  |____|  |____|
-|   __________________________   |
-|  |                          |  |
-|  |   🐱 GateKeeper 🛡️      |  |
-|  |__________________________|  |
- \_____________________________/
+╔════════════════════════════════╗
+║       🛡️ GateKeeper 🛡️       ║
+╚════════════════════════════════╝
 ```
 
 > "A security system so reliable, even cats would trust it!" 🐱
@@ -59,23 +51,23 @@
 ## 🎮 Commands
 
 ### 🛠️ Admin Commands
-- `[p]gatekeeper setup` - Run the setup wizard
-- `[p]gk settings` - View current settings
-- `[p]gk setvouch <amount>` - Set required vouches
-- `[p]gk setwelcomemsg <message>` - Customize welcome message
-- `[p]gk timeout <hours>` - Set verification timeout
-- `[p]supervouch <member> [reason]` - Instantly verify someone
-- `[p]gk massverify <members...>` - Verify multiple members
-- `[p]gk stats` - View verification statistics
-- `[p]gk blacklist <member>` - Ban from verification
+- `/gatekeeper setup` - Run the setup wizard
+- `/gk settings` - View current settings
+- `/gk setvouch <amount>` - Set required vouches
+- `/gk setwelcomemsg <message>` - Customize welcome message
+- `/gk timeout <hours>` - Set verification timeout
+- `/supervouch <member> [reason]` - Instantly verify someone
+- `/gk massverify <members...>` - Verify multiple members
+- `/gk stats` - View verification statistics
+- `/gk blacklist <member>` - Ban from verification
 
 ### 🛡️ Moderator Commands
-- `[p]vouch <member>` - Vouch for a new member
-- `[p]unvouch <member>` - Remove your vouch
-- `[p]vouchinfo [member]` - Check verification status
+- `/vouch <member>` - Vouch for a new member
+- `/unvouch <member>` - Remove your vouch
+- `/vouchinfo [member]` - Check verification status
 
 ### 👤 Member Commands
-- `[p]vouchinfo` - Check your verification progress
+- `/vouchinfo` - Check your verification progress
 
 ---
 

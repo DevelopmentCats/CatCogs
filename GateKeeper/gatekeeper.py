@@ -97,11 +97,19 @@ class GateKeeper(commands.Cog):
     async def cog_load(self):
         """Runs when cog is loaded"""
         try:
-            # This is the proper way to sync app commands for Red
-            await self.bot.tree.sync()
-            log.info("Successfully synced slash commands")
+            # Sync commands for the current guild if in a guild context
+            if self.bot.is_ready():
+                # This is the proper way to sync app commands for Red
+                await self.bot.tree.sync(guild=discord.Object(id=self.bot.guilds[0].id))
+                log.info(f"Successfully synced slash commands for guild {self.bot.guilds[0].id}")
         except Exception as e:
             log.error(f"Failed to sync slash commands: {e}")
+            # Try global sync as fallback
+            try:
+                await self.bot.tree.sync()
+                log.info("Successfully synced global slash commands")
+            except Exception as e2:
+                log.error(f"Failed global sync: {e2}")
 
     def cog_unload(self):
         """Cleanup on cog unload"""
@@ -1611,12 +1619,19 @@ class GateKeeper(commands.Cog):
                     content=f"❌ Failed to update channel permissions: {str(e)}"
                 )
 
-    @commands.hybrid_command(name="setup")
+    @_gatekeeper.command(name="setup")
     @commands.guild_only()
     @app_commands.guild_only()
     @checks.admin_or_permissions(administrator=True)
+    @app_commands.describe(
+        confirm="Type 'yes' to confirm setup"
+    )
     async def setup_gatekeeper(self, ctx: commands.Context):
-        """🔧 Interactive setup wizard for GateKeeper"""
+        """🔧 Interactive setup wizard for GateKeeper
+        
+        This command will guide you through setting up GateKeeper
+        with all necessary roles, channels, and permissions.
+        """
         if not ctx.guild:
             return
 
