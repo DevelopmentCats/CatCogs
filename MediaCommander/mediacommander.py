@@ -658,7 +658,7 @@ class MediaCommander(commands.Cog):
 
     @plex_group.command(name="libraries")
     async def plex_libraries(self, ctx: commands.Context):
-        """Show Plex libraries"""
+        """Show Plex libraries with detailed information"""
         if not await self._check_service_permission(ctx, 'plex'):
             return
         
@@ -674,27 +674,69 @@ class MediaCommander(commands.Cog):
                 return
             
             embed = discord.Embed(
-                title="📚 Plex Libraries",
+                title=f"📚 Plex Libraries ({len(libraries)} total)",
                 color=0xE5A00D
             )
             
-            for lib in libraries[:10]:  # Limit to 10 libraries
+            for lib in libraries[:12]:  # Limit to 12 libraries for clean display
                 name = lib.get('title', 'Unknown Library')
                 lib_type = lib.get('type', 'unknown')
-                count = lib.get('count', 'N/A')
+                refreshing = lib.get('refreshing', '0') == '1'
                 
+                # Get last scan information
+                scanned_at = lib.get('scannedAt', '')
+                updated_at = lib.get('updatedAt', '')
+                
+                # Format library type for display
+                type_display = {
+                    'movie': 'Movies',
+                    'show': 'TV Shows', 
+                    'artist': 'Music',
+                    'photo': 'Photos'
+                }.get(lib_type, lib_type.title())
+                
+                # Choose appropriate emoji
                 type_emoji = {
                     'movie': '🎬',
                     'show': '📺', 
-                    'music': '🎵',
+                    'artist': '🎵',
                     'photo': '📸'
                 }.get(lib_type, '📁')
                 
+                # Format scan status
+                if refreshing:
+                    scan_status = "🔄 Scanning..."
+                elif scanned_at:
+                    try:
+                        from datetime import datetime
+                        scan_time = datetime.fromtimestamp(int(scanned_at))
+                        scan_status = f"✅ Last scan: {scan_time.strftime('%m/%d/%y')}"
+                    except:
+                        scan_status = "✅ Scanned"
+                else:
+                    scan_status = "❓ Not scanned"
+                
+                # Get folder path if available
+                locations = lib.get('Location', [])
+                if isinstance(locations, dict):
+                    locations = [locations]
+                
+                folder_info = ""
+                if locations:
+                    folder_path = locations[0].get('path', '') if locations else ''
+                    if folder_path:
+                        # Show just the folder name, not full path
+                        folder_name = folder_path.split('/')[-1] if '/' in folder_path else folder_path
+                        folder_info = f"\n📁 {folder_name}"
+                
                 embed.add_field(
                     name=f"{type_emoji} {name}",
-                    value=f"Type: {lib_type.title()}\nItems: {count}",
+                    value=f"**Type:** {type_display}\n{scan_status}{folder_info}",
                     inline=True
                 )
+            
+            # Add helpful footer
+            embed.set_footer(text="Libraries can be refreshed from Plex Settings → Manage → Libraries")
             
             await ctx.send(embed=embed)
             
