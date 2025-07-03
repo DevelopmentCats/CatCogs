@@ -1831,14 +1831,14 @@ class MediaCommander(commands.Cog):
                                 except discord.Forbidden:
                                     pass  # Bot doesn't have manage messages permission
                                     
-                            except asyncio.TimeoutError:
-                                pass
-                            
-                            # Clean up reactions
-                            try:
-                                await message.clear_reactions()
-                            except discord.Forbidden:
-                                pass
+                        except asyncio.TimeoutError:
+                            pass
+                        
+                        # Clean up reactions
+                        try:
+                            await message.clear_reactions()
+                        except discord.Forbidden:
+                            pass
                 
         except Exception as e:
             log.error(f"Overseerr pending requests error: {e}")
@@ -2040,14 +2040,14 @@ class MediaCommander(commands.Cog):
                                 except discord.Forbidden:
                                     pass  # Bot doesn't have manage messages permission
                                     
-                            except asyncio.TimeoutError:
-                                pass
-                            
-                            # Clean up reactions
-                            try:
-                                await message.clear_reactions()
-                            except discord.Forbidden:
-                                pass
+                        except asyncio.TimeoutError:
+                            pass
+                        
+                        # Clean up reactions
+                        try:
+                            await message.clear_reactions()
+                        except discord.Forbidden:
+                            pass
                 
         except Exception as e:
             log.error(f"Lidarr search error: {e}")
