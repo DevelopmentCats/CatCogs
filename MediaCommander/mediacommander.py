@@ -483,7 +483,7 @@ class MediaCommander(commands.Cog):
 
     @plex_group.command(name="status")
     async def plex_status(self, ctx: commands.Context):
-        """Check Plex server status"""
+        """Check Plex server status and information"""
         if not await self._check_service_permission(ctx, 'plex'):
             return
         
@@ -494,8 +494,103 @@ class MediaCommander(commands.Cog):
         
         try:
             server_info = await client.get_server_info()
-            embed = MediaEmbedHelper.create_media_embed(server_info, 'plex', 'info')
+            
+            # Extract useful information from server response
+            server_name = server_info.get('friendlyName', 'Unknown Server')
+            version = server_info.get('version', 'Unknown')
+            platform = server_info.get('platform', 'Unknown')
+            platform_version = server_info.get('platformVersion', '')
+            
+            # MyPlex/Remote Access status
+            myplex_state = server_info.get('myPlexMappingState', 'unknown')
+            myplex_signin = server_info.get('myPlexSigninState', 'unknown') 
+            myplex_subscription = server_info.get('myPlexSubscription', '0') == '1'
+            myplex_username = server_info.get('myPlexUsername', 'Not configured')
+            
+            # Server capabilities
+            allow_sync = server_info.get('allowSync', '0') == '1'
+            allow_sharing = server_info.get('allowSharing', '0') == '1'
+            allow_camera_upload = server_info.get('allowCameraUpload', '0') == '1'
+            
+            # Transcoding info
+            active_transcodes = server_info.get('transcoderActiveVideoSessions', '0')
+            transcoder_video = server_info.get('transcoderVideo', '0') == '1'
+            transcoder_audio = server_info.get('transcoderAudio', '0') == '1'
+            
+            # Country and update info
+            country_code = server_info.get('countryCode', 'unknown').upper()
+            updated_at = server_info.get('updatedAt', '')
+            
+            # Create status embed
+            embed = discord.Embed(
+                title=f"🎭 {server_name}",
+                description="Plex Media Server Status",
+                color=0xE5A00D
+            )
+            
+            # Server Information
+            embed.add_field(
+                name="🖥️ Server Info",
+                value=f"**Version:** {version}\n**Platform:** {platform} {platform_version}\n**Country:** {country_code}",
+                inline=True
+            )
+            
+            # MyPlex Status
+            myplex_status = "✅ Connected" if myplex_state == "mapped" and myplex_signin == "ok" else "❌ Disconnected"
+            plex_pass = "✅ Plex Pass" if myplex_subscription else "❌ No Plex Pass"
+            
+            embed.add_field(
+                name="🌐 MyPlex Status", 
+                value=f"**Status:** {myplex_status}\n**Account:** {myplex_username}\n**Subscription:** {plex_pass}",
+                inline=True
+            )
+            
+            # Server Capabilities
+            sync_status = "✅" if allow_sync else "❌"
+            sharing_status = "✅" if allow_sharing else "❌" 
+            camera_status = "✅" if allow_camera_upload else "❌"
+            
+            embed.add_field(
+                name="⚙️ Capabilities",
+                value=f"**Sync:** {sync_status}\n**Sharing:** {sharing_status}\n**Camera Upload:** {camera_status}",
+                inline=True
+            )
+            
+            # Transcoding Status
+            video_transcoding = "✅ Available" if transcoder_video else "❌ Unavailable"
+            audio_transcoding = "✅ Available" if transcoder_audio else "❌ Unavailable"
+            
+            embed.add_field(
+                name="🎬 Transcoding",
+                value=f"**Video:** {video_transcoding}\n**Audio:** {audio_transcoding}\n**Active Sessions:** {active_transcodes}",
+                inline=True
+            )
+            
+            # Add machine identifier for debugging
+            machine_id = server_info.get('machineIdentifier', 'Unknown')
+            embed.add_field(
+                name="🔧 Technical",
+                value=f"**Machine ID:** `{machine_id[:16]}...`",
+                inline=True
+            )
+            
+            # Add timestamp if available
+            if updated_at:
+                try:
+                    from datetime import datetime
+                    timestamp = datetime.fromtimestamp(int(updated_at))
+                    embed.add_field(
+                        name="⏰ Last Update",
+                        value=timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                        inline=True
+                    )
+                except:
+                    pass
+            
+            embed.set_footer(text="🐱 MediaCommander • Server status retrieved successfully")
+            
             await ctx.send(embed=embed)
+            
         except Exception as e:
             log.error(f"Plex status error: {e}")
             await ctx.send(f"❌ Error getting Plex status: {str(e)}")
