@@ -211,17 +211,57 @@ class MediaEmbedHelper:
             return embed
         
         for i, session in enumerate(sessions[:5]):  # Limit to 5 sessions
-            user = session.get('user', 'Unknown User')
-            title = session.get('title', 'Unknown')
-            player = session.get('player', 'Unknown Device')
-            state = session.get('state', 'unknown')
+            # Extract user information from User object
+            user_info = session.get('User', {})
+            user = user_info.get('title', 'Unknown User') if isinstance(user_info, dict) else 'Unknown User'
+            
+            # Extract player/device information from Player object  
+            player_info = session.get('Player', {})
+            if isinstance(player_info, dict):
+                device = player_info.get('title', 'Unknown Device')
+                state = player_info.get('state', 'unknown')
+                platform = player_info.get('platform', '')
+                if platform and platform != device:
+                    device = f"{device} ({platform})"
+            else:
+                device = 'Unknown Device'
+                state = 'unknown'
+            
+            # Extract media title - build from show/season/episode structure
+            episode_title = session.get('title', '')
+            show_title = session.get('grandparentTitle', '')
+            season_title = session.get('parentTitle', '')
+            episode_number = session.get('index', '')
+            
+            # Build full media title
+            if show_title and season_title and episode_title:
+                if episode_number:
+                    title = f"{show_title} - {season_title} E{episode_number}: {episode_title}"
+                else:
+                    title = f"{show_title} - {season_title}: {episode_title}"
+            elif episode_title:
+                title = episode_title
+            else:
+                title = 'Unknown Media'
             
             field_name = f"👤 {user}"
-            field_value = f"**{title}**\n📱 {player} ({state})"
+            field_value = f"**{title}**\n📱 {device} ({state})"
             
-            if 'progress_percent' in session:
-                progress = session['progress_percent']
-                field_value += f"\n⏳ {progress}% complete"
+            # Add progress information if available
+            view_offset = session.get('viewOffset')
+            duration = session.get('duration')
+            if view_offset and duration:
+                try:
+                    progress = int((int(view_offset) / int(duration)) * 100)
+                    field_value += f"\n⏳ {progress}% complete"
+                except (ValueError, ZeroDivisionError):
+                    pass
+            
+            # Add session type if available
+            session_type = session.get('type', '')
+            if session_type:
+                type_emoji = {'movie': '🎬', 'episode': '📺', 'track': '🎵'}.get(session_type, '📺')
+                field_value = f"{type_emoji} {field_value[2:]}"  # Replace generic emoji
             
             embed.add_field(name=field_name, value=field_value, inline=False)
         

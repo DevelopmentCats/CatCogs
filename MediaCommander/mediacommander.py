@@ -539,9 +539,15 @@ class MediaCommander(commands.Cog):
             myplex_status = "✅ Connected" if myplex_state == "mapped" and myplex_signin == "ok" else "❌ Disconnected"
             plex_pass = "✅ Plex Pass" if myplex_subscription else "❌ No Plex Pass"
             
+            # Redact the MyPlex username (email) for privacy
+            if myplex_username and myplex_username != 'Not configured':
+                redacted_username = self._redact_email(myplex_username)
+            else:
+                redacted_username = myplex_username
+            
             embed.add_field(
                 name="🌐 MyPlex Status", 
-                value=f"**Status:** {myplex_status}\n**Account:** {myplex_username}\n**Subscription:** {plex_pass}",
+                value=f"**Status:** {myplex_status}\n**Account:** {redacted_username}\n**Subscription:** {plex_pass}",
                 inline=True
             )
             
