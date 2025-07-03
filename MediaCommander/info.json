@@ -1,0 +1,30 @@
+{
+    "name": "MediaCommander",
+    "short": "Comprehensive media server management cog",
+    "description": "A powerful Red cog that integrates with the full Arr stack (Plex, Sonarr, Radarr, Lidarr), Tautulli, Overseerr, and other media services. Provides role-based access for both server owners and users to manage media libraries, handle requests, monitor activity, and control access.",
+    "end_user_data_statement": "This cog stores server configuration, API keys, user mappings, and request history. No personal user data is shared with external services beyond what's necessary for media management functionality.",
+    "author": ["DevelopmentCats"],
+    "required_cogs": {},
+    "requirements": [
+        "aiohttp>=3.8.0",
+        "python-dateutil>=2.8.2",
+        "requests>=2.28.0"
+    ],
+    "tags": [
+        "media",
+        "plex",
+        "sonarr",
+        "radarr",
+        "lidarr",
+        "tautulli",
+        "overseerr",
+        "arr",
+        "entertainment",
+        "utility",
+        "admin"
+    ],
+    "min_bot_version": "3.5.0",
+    "hidden": false,
+    "disabled": false,
+    "type": "COG"
+} 
