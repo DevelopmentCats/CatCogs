@@ -618,48 +618,64 @@ class MediaCommander(commands.Cog):
                 await ctx.send("👥 No users found!")
                 return
             
-            embed = discord.Embed(
-                title="👥 Plex Users",
-                color=0xE5A00D
-            )
+            # Create paginated embeds for users
+            embeds = []
+            users_per_page = 12  # 12 users per page (3 columns x 4 rows looks good)
+            total_users = len(users)
             
-            for user in users[:15]:  # Limit to 15 users
-                # Extract user information from plex.tv API
-                display_name = user.get('title', user.get('username', 'Unknown User'))
-                email = user.get('email', '')
-                user_id = user.get('id', 'N/A')
-                restricted = user.get('restricted', '0') == '1'
-                home = user.get('home', '0') == '1'
-                all_libraries = user.get('allLibraries', '0') == '1'
-                num_libraries = user.get('numLibraries', '0')
+            for page_start in range(0, total_users, users_per_page):
+                page_users = users[page_start:page_start + users_per_page]
+                page_num = (page_start // users_per_page) + 1
+                total_pages = (total_users + users_per_page - 1) // users_per_page
                 
-                # Redact email for privacy
-                if email:
-                    redacted_email = self._redact_email(email)
-                else:
-                    redacted_email = 'No email available'
-                
-                # Determine access level based on plex.tv data
-                if home and restricted:
-                    access_level = "🏠 Home User (Restricted)"
-                elif home:
-                    access_level = "🏠 Home User (Full Access)"
-                elif all_libraries:
-                    access_level = "✅ Full Library Access"
-                elif num_libraries and num_libraries != '0':
-                    access_level = f"🔒 Partial Access ({num_libraries} libraries)"
-                elif restricted:
-                    access_level = "🔒 Restricted Access"
-                else:
-                    access_level = "👤 Shared User"
-                
-                embed.add_field(
-                    name=f"👤 {display_name}",
-                    value=f"Email: {redacted_email}\nAccess: {access_level}",
-                    inline=True
+                embed = discord.Embed(
+                    title=f"👥 Plex Users ({total_users} total) - Page {page_num}/{total_pages}",
+                    color=0xE5A00D
                 )
+                
+                for user in page_users:
+                    # Extract user information from plex.tv API
+                    display_name = user.get('title', user.get('username', 'Unknown User'))
+                    email = user.get('email', '')
+                    user_id = user.get('id', 'N/A')
+                    restricted = user.get('restricted', '0') == '1'
+                    home = user.get('home', '0') == '1'
+                    all_libraries = user.get('allLibraries', '0') == '1'
+                    num_libraries = user.get('numLibraries', '0')
+                    
+                    # Redact email for privacy
+                    if email:
+                        redacted_email = self._redact_email(email)
+                    else:
+                        redacted_email = 'No email available'
+                    
+                    # Determine access level based on plex.tv data
+                    if home and restricted:
+                        access_level = "🏠 Home User (Restricted)"
+                    elif home:
+                        access_level = "🏠 Home User (Full Access)"
+                    elif all_libraries:
+                        access_level = "✅ Full Library Access"
+                    elif num_libraries and num_libraries != '0':
+                        access_level = f"🔒 Partial Access ({num_libraries} libraries)"
+                    elif restricted:
+                        access_level = "🔒 Restricted Access"
+                    else:
+                        access_level = "👤 Shared User"
+                    
+                    embed.add_field(
+                        name=f"👤 {display_name}",
+                        value=f"Email: {redacted_email}\nAccess: {access_level}",
+                        inline=True
+                    )
+                
+                embeds.append(embed)
             
-            await ctx.send(embed=embed)
+            # Send paginated embeds
+            if len(embeds) == 1:
+                await ctx.send(embed=embeds[0])
+            else:
+                await menu(ctx, embeds, DEFAULT_CONTROLS)
             
         except Exception as e:
             log.error(f"Plex users error: {e}")
@@ -1821,7 +1837,7 @@ class MediaCommander(commands.Cog):
                     color=0xDDA22B
                 )
                 
-                for user in users[:10]:  # Limit to 10 users
+                for user in users: 
                     username = user.get('friendly_name', user.get('username', 'Unknown'))
                     plays = user.get('plays', 0)
                     last_seen = user.get('last_seen', 'Never')
