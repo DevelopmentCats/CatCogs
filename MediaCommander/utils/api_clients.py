@@ -36,9 +36,12 @@ class BaseAPIClient:
         
         try:
             async with session.request(method, url, **kwargs) as response:
-                if response.content_type == 'application/json':
+                response.raise_for_status()
+                content_type = response.content_type.lower()
+                
+                if 'application/json' in content_type:
                     return await response.json()
-                elif response.content_type in ['application/xml', 'text/xml']:
+                elif 'xml' in content_type:  # Handles text/xml, application/xml with or without charset
                     text = await response.text()
                     return self._parse_xml(text)
                 else:
@@ -60,26 +63,32 @@ class BaseAPIClient:
         """Convert XML element to dictionary"""
         result = {}
         
-        # Add attributes
+        # Add attributes to the result (Plex uses lots of attributes)
         if element.attrib:
             result.update(element.attrib)
             
-        # Add children
+        # Process children
+        children_by_tag = {}
         for child in element:
             child_data = self._xml_to_dict(child)
-            if child.tag in result:
-                if not isinstance(result[child.tag], list):
-                    result[child.tag] = [result[child.tag]]
-                result[child.tag].append(child_data)
+            
+            if child.tag in children_by_tag:
+                # Multiple children with same tag - convert to list
+                if not isinstance(children_by_tag[child.tag], list):
+                    children_by_tag[child.tag] = [children_by_tag[child.tag]]
+                children_by_tag[child.tag].append(child_data)
             else:
-                result[child.tag] = child_data
+                children_by_tag[child.tag] = child_data
+        
+        # Add children to result
+        result.update(children_by_tag)
                 
-        # Add text content
-        if element.text and element.text.strip():
+        # Add text content if present and no children
+        if element.text and element.text.strip() and not children_by_tag:
             if result:
                 result['_text'] = element.text.strip()
             else:
-                result = element.text.strip()
+                return element.text.strip()
                 
         return result
         
@@ -97,17 +106,43 @@ class PlexClient(BaseAPIClient):
         
     async def get_server_info(self) -> Dict[str, Any]:
         """Get Plex server information"""
-        return await self._request('GET', '/')
+        response = await self._request('GET', '/')
+        
+        # The server info is in the MediaContainer attributes for Plex
+        if isinstance(response, dict):
+            return response
+        
+        return {}
         
     async def get_libraries(self) -> List[Dict[str, Any]]:
         """Get all libraries"""
         response = await self._request('GET', '/library/sections')
-        return response.get('MediaContainer', {}).get('Directory', [])
+        
+        # Handle the MediaContainer structure
+        if isinstance(response, dict) and 'Directory' in response:
+            directories = response['Directory']
+            # If it's a single directory, wrap it in a list
+            if isinstance(directories, dict):
+                return [directories]
+            elif isinstance(directories, list):
+                return directories
+        
+        return []
         
     async def get_users(self) -> List[Dict[str, Any]]:
         """Get all Plex users"""
         response = await self._request('GET', '/accounts')
-        return response.get('MediaContainer', {}).get('Account', [])
+        
+        # Handle the MediaContainer structure  
+        if isinstance(response, dict) and 'Account' in response:
+            accounts = response['Account']
+            # If it's a single account, wrap it in a list
+            if isinstance(accounts, dict):
+                return [accounts]
+            elif isinstance(accounts, list):
+                return accounts
+        
+        return []
         
     async def search_media(self, query: str, library_id: str = None) -> List[Dict[str, Any]]:
         """Search for media"""
@@ -115,12 +150,40 @@ class PlexClient(BaseAPIClient):
         if library_id:
             endpoint += f'&sectionId={library_id}'
         response = await self._request('GET', endpoint)
-        return response.get('MediaContainer', {}).get('Metadata', [])
+        
+        # Handle the MediaContainer structure
+        if isinstance(response, dict):
+            # Search results can be in various formats
+            results = []
+            for result_type in ['Metadata', 'Directory', 'Video', 'Audio', 'Photo']:
+                if result_type in response:
+                    result_data = response[result_type]
+                    if isinstance(result_data, dict):
+                        results.append(result_data)
+                    elif isinstance(result_data, list):
+                        results.extend(result_data)
+            return results
+        
+        return []
         
     async def get_sessions(self) -> List[Dict[str, Any]]:
         """Get active sessions"""
         response = await self._request('GET', '/status/sessions')
-        return response.get('MediaContainer', {}).get('Metadata', [])
+        
+        # Handle the MediaContainer structure
+        if isinstance(response, dict):
+            # Sessions can be Video, Audio, or Photo elements
+            sessions = []
+            for session_type in ['Video', 'Audio', 'Photo', 'Metadata']:
+                if session_type in response:
+                    session_data = response[session_type]
+                    if isinstance(session_data, dict):
+                        sessions.append(session_data)
+                    elif isinstance(session_data, list):
+                        sessions.extend(session_data)
+            return sessions
+        
+        return []
         
     async def invite_user(self, email: str, library_ids: List[str]) -> Dict[str, Any]:
         """Invite user to Plex"""
