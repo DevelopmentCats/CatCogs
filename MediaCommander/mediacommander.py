@@ -631,45 +631,51 @@ class MediaCommander(commands.Cog):
                 else:
                     # Use proper pagination with reaction removal
                     current_page = 0
+                    
+                    # Add page indicator to embed footer
+                    for i, embed in enumerate(embeds):
+                        embed.set_footer(text=f"Page {i+1} of {len(embeds)} • 🐱 MediaCommander")
+                    
                     message = await ctx.send(embed=embeds[current_page])
                     
-                    # Add reactions for navigation
-                    await start_adding_reactions(message, ["⬅️", "➡️", "❌"])
-                    
-                    def check(reaction, user):
-                        return (
-                            user == ctx.author 
-                            and reaction.message.id == message.id 
-                            and str(reaction.emoji) in ["⬅️", "➡️", "❌"]
-                        )
-                    
-                    try:
-                        while True:
-                            reaction, user = await self.bot.wait_for("reaction_add", check=check, timeout=60.0)
-                            
-                            if str(reaction.emoji) == "➡️" and current_page < len(embeds) - 1:
-                                current_page += 1
-                                await message.edit(embed=embeds[current_page])
-                            elif str(reaction.emoji) == "⬅️" and current_page > 0:
-                                current_page -= 1
-                                await message.edit(embed=embeds[current_page])
-                            elif str(reaction.emoji) == "❌":
-                                break
-                            
-                            # Remove user's reaction
-                            try:
-                                await message.remove_reaction(reaction.emoji, user)
-                            except discord.Forbidden:
-                                pass  # Bot doesn't have manage messages permission
+                    if len(embeds) > 1:
+                        # Add reactions for navigation (left, close, right)
+                        await start_adding_reactions(message, ["⬅️", "❌", "➡️"])
+                        
+                        def check(reaction, user):
+                            return (
+                                user == ctx.author 
+                                and reaction.message.id == message.id 
+                                and str(reaction.emoji) in ["⬅️", "❌", "➡️"]
+                            )
+                        
+                        try:
+                            while True:
+                                reaction, user = await self.bot.wait_for("reaction_add", check=check, timeout=60.0)
                                 
-                    except asyncio.TimeoutError:
-                        pass
-                    
-                    # Clean up reactions
-                    try:
-                        await message.clear_reactions()
-                    except discord.Forbidden:
-                        pass
+                                if str(reaction.emoji) == "➡️" and current_page < len(embeds) - 1:
+                                    current_page += 1
+                                    await message.edit(embed=embeds[current_page])
+                                elif str(reaction.emoji) == "⬅️" and current_page > 0:
+                                    current_page -= 1
+                                    await message.edit(embed=embeds[current_page])
+                                elif str(reaction.emoji) == "❌":
+                                    break
+                                
+                                # Remove user's reaction
+                                try:
+                                    await message.remove_reaction(reaction.emoji, user)
+                                except discord.Forbidden:
+                                    pass  # Bot doesn't have manage messages permission
+                                    
+                        except asyncio.TimeoutError:
+                            pass
+                        
+                        # Clean up reactions
+                        try:
+                            await message.clear_reactions()
+                        except discord.Forbidden:
+                            pass
                 
         except Exception as e:
             log.error(f"Plex search error: {e}")
@@ -857,18 +863,22 @@ class MediaCommander(commands.Cog):
             if len(embeds) == 1:
                 await ctx.send(embed=embeds[0])
             else:
+                # Add page indicators to embed footers
+                for i, embed in enumerate(embeds):
+                    embed.set_footer(text=f"Page {i+1} of {len(embeds)} • 🐱 MediaCommander")
+                
                 # Use proper pagination with reaction removal
                 current_page = 0
                 message = await ctx.send(embed=embeds[current_page])
                 
-                # Add reactions for navigation
-                await start_adding_reactions(message, ["⬅️", "➡️", "❌"])
+                # Add reactions for navigation (left, close, right)
+                await start_adding_reactions(message, ["⬅️", "❌", "➡️"])
                 
                 def check(reaction, user):
                     return (
                         user == ctx.author 
                         and reaction.message.id == message.id 
-                        and str(reaction.emoji) in ["⬅️", "➡️", "❌"]
+                        and str(reaction.emoji) in ["⬅️", "❌", "➡️"]
                     )
                 
                 try:
@@ -1289,45 +1299,51 @@ class MediaCommander(commands.Cog):
                 else:
                     # Use proper pagination with reaction removal
                     current_page = 0
+                    
+                    # Add page indicator to embed footer
+                    for i, embed in enumerate(embeds):
+                        embed.set_footer(text=f"Page {i+1} of {len(embeds)} • 🐱 MediaCommander")
+                    
                     message = await ctx.send(embed=embeds[current_page])
                     
-                    # Add reactions for navigation
-                    await start_adding_reactions(message, ["⬅️", "➡️", "❌"])
-                    
-                    def check(reaction, user):
-                        return (
-                            user == ctx.author 
-                            and reaction.message.id == message.id 
-                            and str(reaction.emoji) in ["⬅️", "➡️", "❌"]
-                        )
-                    
-                    try:
-                        while True:
-                            reaction, user = await self.bot.wait_for("reaction_add", check=check, timeout=60.0)
-                            
-                            if str(reaction.emoji) == "➡️" and current_page < len(embeds) - 1:
-                                current_page += 1
-                                await message.edit(embed=embeds[current_page])
-                            elif str(reaction.emoji) == "⬅️" and current_page > 0:
-                                current_page -= 1
-                                await message.edit(embed=embeds[current_page])
-                            elif str(reaction.emoji) == "❌":
-                                break
-                            
-                            # Remove user's reaction
-                            try:
-                                await message.remove_reaction(reaction.emoji, user)
-                            except discord.Forbidden:
-                                pass  # Bot doesn't have manage messages permission
+                    if len(embeds) > 1:
+                        # Add reactions for navigation (left, close, right)
+                        await start_adding_reactions(message, ["⬅️", "❌", "➡️"])
+                        
+                        def check(reaction, user):
+                            return (
+                                user == ctx.author 
+                                and reaction.message.id == message.id 
+                                and str(reaction.emoji) in ["⬅️", "❌", "➡️"]
+                            )
+                        
+                        try:
+                            while True:
+                                reaction, user = await self.bot.wait_for("reaction_add", check=check, timeout=60.0)
                                 
-                    except asyncio.TimeoutError:
-                        pass
-                    
-                    # Clean up reactions
-                    try:
-                        await message.clear_reactions()
-                    except discord.Forbidden:
-                        pass
+                                if str(reaction.emoji) == "➡️" and current_page < len(embeds) - 1:
+                                    current_page += 1
+                                    await message.edit(embed=embeds[current_page])
+                                elif str(reaction.emoji) == "⬅️" and current_page > 0:
+                                    current_page -= 1
+                                    await message.edit(embed=embeds[current_page])
+                                elif str(reaction.emoji) == "❌":
+                                    break
+                                
+                                # Remove user's reaction
+                                try:
+                                    await message.remove_reaction(reaction.emoji, user)
+                                except discord.Forbidden:
+                                    pass  # Bot doesn't have manage messages permission
+                                    
+                        except asyncio.TimeoutError:
+                            pass
+                        
+                        # Clean up reactions
+                        try:
+                            await message.clear_reactions()
+                        except discord.Forbidden:
+                            pass
                 
         except Exception as e:
             log.error(f"Sonarr search error: {e}")
@@ -1529,45 +1545,51 @@ class MediaCommander(commands.Cog):
                 else:
                     # Use proper pagination with reaction removal
                     current_page = 0
+                    
+                    # Add page indicator to embed footer
+                    for i, embed in enumerate(embeds):
+                        embed.set_footer(text=f"Page {i+1} of {len(embeds)} • 🐱 MediaCommander")
+                    
                     message = await ctx.send(embed=embeds[current_page])
                     
-                    # Add reactions for navigation
-                    await start_adding_reactions(message, ["⬅️", "➡️", "❌"])
-                    
-                    def check(reaction, user):
-                        return (
-                            user == ctx.author 
-                            and reaction.message.id == message.id 
-                            and str(reaction.emoji) in ["⬅️", "➡️", "❌"]
-                        )
-                    
-                    try:
-                        while True:
-                            reaction, user = await self.bot.wait_for("reaction_add", check=check, timeout=60.0)
-                            
-                            if str(reaction.emoji) == "➡️" and current_page < len(embeds) - 1:
-                                current_page += 1
-                                await message.edit(embed=embeds[current_page])
-                            elif str(reaction.emoji) == "⬅️" and current_page > 0:
-                                current_page -= 1
-                                await message.edit(embed=embeds[current_page])
-                            elif str(reaction.emoji) == "❌":
-                                break
-                            
-                            # Remove user's reaction
-                            try:
-                                await message.remove_reaction(reaction.emoji, user)
-                            except discord.Forbidden:
-                                pass  # Bot doesn't have manage messages permission
+                    if len(embeds) > 1:
+                        # Add reactions for navigation (left, close, right)
+                        await start_adding_reactions(message, ["⬅️", "❌", "➡️"])
+                        
+                        def check(reaction, user):
+                            return (
+                                user == ctx.author 
+                                and reaction.message.id == message.id 
+                                and str(reaction.emoji) in ["⬅️", "❌", "➡️"]
+                            )
+                        
+                        try:
+                            while True:
+                                reaction, user = await self.bot.wait_for("reaction_add", check=check, timeout=60.0)
                                 
-                    except asyncio.TimeoutError:
-                        pass
-                    
-                    # Clean up reactions
-                    try:
-                        await message.clear_reactions()
-                    except discord.Forbidden:
-                        pass
+                                if str(reaction.emoji) == "➡️" and current_page < len(embeds) - 1:
+                                    current_page += 1
+                                    await message.edit(embed=embeds[current_page])
+                                elif str(reaction.emoji) == "⬅️" and current_page > 0:
+                                    current_page -= 1
+                                    await message.edit(embed=embeds[current_page])
+                                elif str(reaction.emoji) == "❌":
+                                    break
+                                
+                                # Remove user's reaction
+                                try:
+                                    await message.remove_reaction(reaction.emoji, user)
+                                except discord.Forbidden:
+                                    pass  # Bot doesn't have manage messages permission
+                                    
+                        except asyncio.TimeoutError:
+                            pass
+                        
+                        # Clean up reactions
+                        try:
+                            await message.clear_reactions()
+                        except discord.Forbidden:
+                            pass
                 
         except Exception as e:
             log.error(f"Radarr search error: {e}")
@@ -1772,45 +1794,51 @@ class MediaCommander(commands.Cog):
                 else:
                     # Use proper pagination with reaction removal
                     current_page = 0
+                    
+                    # Add page indicator to embed footer
+                    for i, embed in enumerate(embeds):
+                        embed.set_footer(text=f"Page {i+1} of {len(embeds)} • 🐱 MediaCommander")
+                    
                     message = await ctx.send(embed=embeds[current_page])
                     
-                    # Add reactions for navigation
-                    await start_adding_reactions(message, ["⬅️", "➡️", "❌"])
-                    
-                    def check(reaction, user):
-                        return (
-                            user == ctx.author 
-                            and reaction.message.id == message.id 
-                            and str(reaction.emoji) in ["⬅️", "➡️", "❌"]
-                        )
-                    
-                    try:
-                        while True:
-                            reaction, user = await self.bot.wait_for("reaction_add", check=check, timeout=60.0)
-                            
-                            if str(reaction.emoji) == "➡️" and current_page < len(embeds) - 1:
-                                current_page += 1
-                                await message.edit(embed=embeds[current_page])
-                            elif str(reaction.emoji) == "⬅️" and current_page > 0:
-                                current_page -= 1
-                                await message.edit(embed=embeds[current_page])
-                            elif str(reaction.emoji) == "❌":
-                                break
-                            
-                            # Remove user's reaction
-                            try:
-                                await message.remove_reaction(reaction.emoji, user)
-                            except discord.Forbidden:
-                                pass  # Bot doesn't have manage messages permission
+                    if len(embeds) > 1:
+                        # Add reactions for navigation (left, close, right)
+                        await start_adding_reactions(message, ["⬅️", "❌", "➡️"])
+                        
+                        def check(reaction, user):
+                            return (
+                                user == ctx.author 
+                                and reaction.message.id == message.id 
+                                and str(reaction.emoji) in ["⬅️", "❌", "➡️"]
+                            )
+                        
+                        try:
+                            while True:
+                                reaction, user = await self.bot.wait_for("reaction_add", check=check, timeout=60.0)
                                 
-                    except asyncio.TimeoutError:
-                        pass
-                    
-                    # Clean up reactions
-                    try:
-                        await message.clear_reactions()
-                    except discord.Forbidden:
-                        pass
+                                if str(reaction.emoji) == "➡️" and current_page < len(embeds) - 1:
+                                    current_page += 1
+                                    await message.edit(embed=embeds[current_page])
+                                elif str(reaction.emoji) == "⬅️" and current_page > 0:
+                                    current_page -= 1
+                                    await message.edit(embed=embeds[current_page])
+                                elif str(reaction.emoji) == "❌":
+                                    break
+                                
+                                # Remove user's reaction
+                                try:
+                                    await message.remove_reaction(reaction.emoji, user)
+                                except discord.Forbidden:
+                                    pass  # Bot doesn't have manage messages permission
+                                    
+                            except asyncio.TimeoutError:
+                                pass
+                            
+                            # Clean up reactions
+                            try:
+                                await message.clear_reactions()
+                            except discord.Forbidden:
+                                pass
                 
         except Exception as e:
             log.error(f"Overseerr pending requests error: {e}")
@@ -1975,45 +2003,51 @@ class MediaCommander(commands.Cog):
                 else:
                     # Use proper pagination with reaction removal
                     current_page = 0
+                    
+                    # Add page indicator to embed footer
+                    for i, embed in enumerate(embeds):
+                        embed.set_footer(text=f"Page {i+1} of {len(embeds)} • 🐱 MediaCommander")
+                    
                     message = await ctx.send(embed=embeds[current_page])
                     
-                    # Add reactions for navigation
-                    await start_adding_reactions(message, ["⬅️", "➡️", "❌"])
-                    
-                    def check(reaction, user):
-                        return (
-                            user == ctx.author 
-                            and reaction.message.id == message.id 
-                            and str(reaction.emoji) in ["⬅️", "➡️", "❌"]
-                        )
-                    
-                    try:
-                        while True:
-                            reaction, user = await self.bot.wait_for("reaction_add", check=check, timeout=60.0)
-                            
-                            if str(reaction.emoji) == "➡️" and current_page < len(embeds) - 1:
-                                current_page += 1
-                                await message.edit(embed=embeds[current_page])
-                            elif str(reaction.emoji) == "⬅️" and current_page > 0:
-                                current_page -= 1
-                                await message.edit(embed=embeds[current_page])
-                            elif str(reaction.emoji) == "❌":
-                                break
-                            
-                            # Remove user's reaction
-                            try:
-                                await message.remove_reaction(reaction.emoji, user)
-                            except discord.Forbidden:
-                                pass  # Bot doesn't have manage messages permission
+                    if len(embeds) > 1:
+                        # Add reactions for navigation (left, close, right)
+                        await start_adding_reactions(message, ["⬅️", "❌", "➡️"])
+                        
+                        def check(reaction, user):
+                            return (
+                                user == ctx.author 
+                                and reaction.message.id == message.id 
+                                and str(reaction.emoji) in ["⬅️", "❌", "➡️"]
+                            )
+                        
+                        try:
+                            while True:
+                                reaction, user = await self.bot.wait_for("reaction_add", check=check, timeout=60.0)
                                 
-                    except asyncio.TimeoutError:
-                        pass
-                    
-                    # Clean up reactions
-                    try:
-                        await message.clear_reactions()
-                    except discord.Forbidden:
-                        pass
+                                if str(reaction.emoji) == "➡️" and current_page < len(embeds) - 1:
+                                    current_page += 1
+                                    await message.edit(embed=embeds[current_page])
+                                elif str(reaction.emoji) == "⬅️" and current_page > 0:
+                                    current_page -= 1
+                                    await message.edit(embed=embeds[current_page])
+                                elif str(reaction.emoji) == "❌":
+                                    break
+                                
+                                # Remove user's reaction
+                                try:
+                                    await message.remove_reaction(reaction.emoji, user)
+                                except discord.Forbidden:
+                                    pass  # Bot doesn't have manage messages permission
+                                    
+                            except asyncio.TimeoutError:
+                                pass
+                            
+                            # Clean up reactions
+                            try:
+                                await message.clear_reactions()
+                            except discord.Forbidden:
+                                pass
                 
         except Exception as e:
             log.error(f"Lidarr search error: {e}")
