@@ -624,15 +624,38 @@ class MediaCommander(commands.Cog):
             )
             
             for user in users[:15]:  # Limit to 15 users
-                username = user.get('username', user.get('title', 'Unknown'))
-                email = user.get('email', 'N/A')
-                restricted = user.get('restricted', False)
+                # Extract user information from plex.tv API
+                display_name = user.get('title', user.get('username', 'Unknown User'))
+                email = user.get('email', '')
+                user_id = user.get('id', 'N/A')
+                restricted = user.get('restricted', '0') == '1'
+                home = user.get('home', '0') == '1'
+                all_libraries = user.get('allLibraries', '0') == '1'
+                num_libraries = user.get('numLibraries', '0')
                 
-                status = "🔒 Restricted" if restricted else "✅ Full Access"
+                # Redact email for privacy
+                if email:
+                    redacted_email = self._redact_email(email)
+                else:
+                    redacted_email = 'No email available'
+                
+                # Determine access level based on plex.tv data
+                if home and restricted:
+                    access_level = "🏠 Home User (Restricted)"
+                elif home:
+                    access_level = "🏠 Home User (Full Access)"
+                elif all_libraries:
+                    access_level = "✅ Full Library Access"
+                elif num_libraries and num_libraries != '0':
+                    access_level = f"🔒 Partial Access ({num_libraries} libraries)"
+                elif restricted:
+                    access_level = "🔒 Restricted Access"
+                else:
+                    access_level = "👤 Shared User"
                 
                 embed.add_field(
-                    name=f"👤 {username}",
-                    value=f"Email: {email}\nStatus: {status}",
+                    name=f"👤 {display_name}",
+                    value=f"Email: {redacted_email}\nAccess: {access_level}",
                     inline=True
                 )
             

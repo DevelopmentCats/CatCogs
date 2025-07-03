@@ -130,7 +130,72 @@ class PlexClient(BaseAPIClient):
         return []
         
     async def get_users(self) -> List[Dict[str, Any]]:
-        """Get all Plex users"""
+        """Get all Plex users from plex.tv API"""
+        # First get server info to get our machine identifier
+        server_info = await self.get_server_info()
+        server_machine_id = server_info.get('machineIdentifier', '')
+        
+        # Use plex.tv API for detailed user information
+        session = await self._get_session()
+        headers = {
+            'X-Plex-Token': self.api_key,
+            'X-Plex-Client-Identifier': 'MediaCommander-Bot-12345'
+        }
+        
+        try:
+            async with session.request('GET', 'https://plex.tv/api/users', headers=headers) as response:
+                response.raise_for_status()
+                content_type = response.content_type.lower()
+                
+                if 'xml' in content_type:
+                    # plex.tv returns XML, not JSON
+                    text = await response.text()
+                    data = self._parse_xml(text)
+                    
+                    # Handle the MediaContainer structure
+                    if isinstance(data, dict) and 'User' in data:
+                        all_users = data['User']
+                        if isinstance(all_users, dict):
+                            all_users = [all_users]
+                        
+                        # Filter users who have access to our server
+                        server_users = []
+                        for user in all_users:
+                            # Check if user has access to our server
+                            servers = user.get('Server', [])
+                            if isinstance(servers, dict):
+                                servers = [servers]
+                            
+                            # Find if this user has access to our server
+                            has_access = False
+                            user_access_info = {}
+                            for server in servers:
+                                if server.get('machineIdentifier') == server_machine_id:
+                                    has_access = True
+                                    user_access_info = {
+                                        'allLibraries': server.get('allLibraries', '0'),
+                                        'numLibraries': server.get('numLibraries', '0'),
+                                        'owned': server.get('owned', '0')
+                                    }
+                                    break
+                            
+                            if has_access:
+                                # Add server access info to user data
+                                user.update(user_access_info)
+                                server_users.append(user)
+                        
+                        return server_users
+                    return []
+                else:
+                    # Fallback to local accounts if plex.tv fails
+                    return await self._get_local_accounts()
+        except Exception as e:
+            log.error(f"Failed to get users from plex.tv: {e}")
+            # Fallback to local accounts
+            return await self._get_local_accounts()
+    
+    async def _get_local_accounts(self) -> List[Dict[str, Any]]:
+        """Fallback method to get local account information"""
         response = await self._request('GET', '/accounts')
         
         # Handle the MediaContainer structure  
