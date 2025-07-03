@@ -660,7 +660,11 @@ class MediaCommander(commands.Cog):
                                     current_page -= 1
                                     await message.edit(embed=embeds[current_page])
                                 elif str(reaction.emoji) == "❌":
-                                    break
+                                    try:
+                                        await message.delete()
+                                    except discord.Forbidden:
+                                        await message.clear_reactions()
+                                    return
                                 
                                 # Remove user's reaction
                                 try:
@@ -892,7 +896,11 @@ class MediaCommander(commands.Cog):
                             current_page -= 1
                             await message.edit(embed=embeds[current_page])
                         elif str(reaction.emoji) == "❌":
-                            break
+                            try:
+                                await message.delete()
+                            except discord.Forbidden:
+                                await message.clear_reactions()
+                            return
                         
                         # Remove user's reaction
                         try:
@@ -1328,7 +1336,11 @@ class MediaCommander(commands.Cog):
                                     current_page -= 1
                                     await message.edit(embed=embeds[current_page])
                                 elif str(reaction.emoji) == "❌":
-                                    break
+                                    try:
+                                        await message.delete()
+                                    except discord.Forbidden:
+                                        await message.clear_reactions()
+                                    return
                                 
                                 # Remove user's reaction
                                 try:
@@ -1574,7 +1586,11 @@ class MediaCommander(commands.Cog):
                                     current_page -= 1
                                     await message.edit(embed=embeds[current_page])
                                 elif str(reaction.emoji) == "❌":
-                                    break
+                                    try:
+                                        await message.delete()
+                                    except discord.Forbidden:
+                                        await message.clear_reactions()
+                                    return
                                 
                                 # Remove user's reaction
                                 try:
@@ -1823,7 +1839,11 @@ class MediaCommander(commands.Cog):
                                     current_page -= 1
                                     await message.edit(embed=embeds[current_page])
                                 elif str(reaction.emoji) == "❌":
-                                    break
+                                    try:
+                                        await message.delete()
+                                    except discord.Forbidden:
+                                        await message.clear_reactions()
+                                    return
                                 
                                 # Remove user's reaction
                                 try:
@@ -2032,7 +2052,11 @@ class MediaCommander(commands.Cog):
                                     current_page -= 1
                                     await message.edit(embed=embeds[current_page])
                                 elif str(reaction.emoji) == "❌":
-                                    break
+                                    try:
+                                        await message.delete()
+                                    except discord.Forbidden:
+                                        await message.clear_reactions()
+                                    return
                                 
                                 # Remove user's reaction
                                 try:
