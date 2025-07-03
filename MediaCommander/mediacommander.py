@@ -159,16 +159,14 @@ class MediaCommander(commands.Cog):
     @commands.guild_only()
     async def mediacommander(self, ctx: commands.Context):
         """🎬 MediaCommander - Your Ultimate Media Management Companion"""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help()
+        pass
 
     # Configuration commands
     @mediacommander.group(name="config")
     @commands.is_owner()
     async def config_group(self, ctx: commands.Context):
         """⚙️ Configuration commands for MediaCommander"""
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help()
+        pass
 
     @config_group.command(name="setup")
     async def setup_service(self, ctx: commands.Context, service: str, url: str, key: str):
@@ -476,10 +474,7 @@ class MediaCommander(commands.Cog):
     @commands.guild_only()
     async def plex_group(self, ctx: commands.Context):
         """📺 Plex Media Server commands"""
-        if ctx.invoked_subcommand is None:
-            if not await self._check_service_permission(ctx, 'plex'):
-                return
-            await ctx.send_help()
+        pass
 
     @plex_group.command(name="status")
     async def plex_status(self, ctx: commands.Context):
@@ -1180,10 +1175,7 @@ class MediaCommander(commands.Cog):
     @commands.guild_only()
     async def sonarr_group(self, ctx: commands.Context):
         """📺 Sonarr TV Series commands"""
-        if ctx.invoked_subcommand is None:
-            if not await self._check_service_permission(ctx, 'sonarr'):
-                return
-            await ctx.send_help()
+        pass
 
     @sonarr_group.command(name="search")
     async def sonarr_search(self, ctx: commands.Context, *, query: str):
@@ -1380,10 +1372,7 @@ class MediaCommander(commands.Cog):
     @commands.guild_only()
     async def radarr_group(self, ctx: commands.Context):
         """🎬 Radarr Movie commands"""
-        if ctx.invoked_subcommand is None:
-            if not await self._check_service_permission(ctx, 'radarr'):
-                return
-            await ctx.send_help()
+        pass
 
     @radarr_group.command(name="search")
     async def radarr_search(self, ctx: commands.Context, *, query: str):
@@ -1581,10 +1570,7 @@ class MediaCommander(commands.Cog):
     @commands.guild_only()
     async def overseerr_group(self, ctx: commands.Context):
         """🎫 Overseerr Request Management commands"""
-        if ctx.invoked_subcommand is None:
-            if not await self._check_service_permission(ctx, 'overseerr'):
-                return
-            await ctx.send_help()
+        pass
 
     @overseerr_group.command(name="pending")
     async def overseerr_pending(self, ctx: commands.Context):
@@ -1732,10 +1718,7 @@ class MediaCommander(commands.Cog):
     @commands.guild_only()
     async def lidarr_group(self, ctx: commands.Context):
         """🎵 Lidarr Music Management commands"""
-        if ctx.invoked_subcommand is None:
-            if not await self._check_service_permission(ctx, 'lidarr'):
-                return
-            await ctx.send_help()
+        pass
 
     @lidarr_group.command(name="search")
     async def lidarr_search(self, ctx: commands.Context, search_type: str, *, query: str):
@@ -1883,10 +1866,7 @@ class MediaCommander(commands.Cog):
     @commands.guild_only()
     async def tautulli_group(self, ctx: commands.Context):
         """📊 Tautulli Analytics and Statistics commands"""
-        if ctx.invoked_subcommand is None:
-            if not await self._check_service_permission(ctx, 'tautulli'):
-                return
-            await ctx.send_help()
+        pass
 
     @tautulli_group.command(name="stats")
     async def tautulli_stats(self, ctx: commands.Context):
