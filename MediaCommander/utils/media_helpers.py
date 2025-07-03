@@ -245,7 +245,14 @@ class MediaEmbedHelper:
                 title = 'Unknown Media'
             
             field_name = f"👤 {user}"
-            field_value = f"**{title}**\n📱 {device} ({state})"
+            
+            # Add session type emoji if available
+            session_type = session.get('type', '')
+            if session_type:
+                type_emoji = {'movie': '🎬', 'episode': '📺', 'track': '🎵'}.get(session_type, '📺')
+                field_value = f"{type_emoji} **{title}**\n📱 {device} ({state})"
+            else:
+                field_value = f"**{title}**\n📱 {device} ({state})"
             
             # Add progress information if available
             view_offset = session.get('viewOffset')
@@ -256,12 +263,6 @@ class MediaEmbedHelper:
                     field_value += f"\n⏳ {progress}% complete"
                 except (ValueError, ZeroDivisionError):
                     pass
-            
-            # Add session type if available
-            session_type = session.get('type', '')
-            if session_type:
-                type_emoji = {'movie': '🎬', 'episode': '📺', 'track': '🎵'}.get(session_type, '📺')
-                field_value = f"{type_emoji} {field_value[2:]}"  # Replace generic emoji
             
             embed.add_field(name=field_name, value=field_value, inline=False)
         
