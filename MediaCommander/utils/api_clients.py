@@ -266,8 +266,14 @@ class PlexClient(BaseAPIClient):
             sections = []
             for lib_id in library_ids:
                 try:
-                    section = server.library.sectionByID(lib_id)
+                    # Convert string ID to integer for sectionByID
+                    section_id = int(lib_id)
+                    section = server.library.sectionByID(section_id)
                     sections.append(section)
+                    log.info(f"Successfully found library section {section_id}: {section.title}")
+                except ValueError as e:
+                    log.warning(f"Invalid library section ID format '{lib_id}': {e}")
+                    continue
                 except Exception as e:
                     log.warning(f"Could not find library section {lib_id}: {e}")
                     continue
