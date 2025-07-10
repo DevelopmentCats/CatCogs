@@ -1163,7 +1163,14 @@ class MediaCommander(commands.Cog):
                     return
                 
                 # Send the invitation
+                # Extract section IDs from the 'key' field (confirmed by Plex API schema)
                 library_ids = [str(lib.get('key', '')) for lib in selected_libraries]
+                library_ids = [id for id in library_ids if id]  # Remove empty strings
+                
+                if not library_ids:
+                    await ctx.send("❌ Could not extract valid library section IDs")
+                    return
+                
                 result = await client.invite_user(user_email, library_ids)
                 
                 # Handle the response from the enhanced invite_user method
@@ -1361,7 +1368,14 @@ class MediaCommander(commands.Cog):
                     pass
             
             # Send the invitation
+            # Extract section IDs from the 'key' field (confirmed by Plex API schema)
             library_ids = [str(lib.get('key', '')) for lib in selected_libraries]
+            library_ids = [id for id in library_ids if id]  # Remove empty strings
+            
+            if not library_ids:
+                await ctx.send("❌ Could not extract valid library section IDs")
+                return
+            
             result = await client.invite_user(email, library_ids)
             
             # Redact email for privacy protection
