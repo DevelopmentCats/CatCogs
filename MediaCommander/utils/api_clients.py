@@ -251,14 +251,49 @@ class PlexClient(BaseAPIClient):
         return []
         
     async def invite_user(self, email: str, library_ids: List[str]) -> Dict[str, Any]:
-        """Invite user to Plex"""
-        data = {
-            'friend': email,
-            'server_id': await self._get_server_id(),
-            'shared': 1,
-            'librarySectionIDs': ','.join(library_ids)
-        }
-        return await self._request('POST', '/api/v2/shared_servers', json=data)
+        """Invite user to Plex using python-plexapi's inviteFriend method"""
+        try:
+            from plexapi.myplex import MyPlexAccount
+            from plexapi.server import PlexServer
+            
+            # Create MyPlexAccount instance
+            account = MyPlexAccount(token=self.api_key)
+            
+            # Get the server instance
+            server = PlexServer(self.base_url, self.api_key)
+            
+            # Get library sections to share
+            sections = []
+            for lib_id in library_ids:
+                try:
+                    section = server.library.sectionByID(lib_id)
+                    sections.append(section)
+                except Exception as e:
+                    log.warning(f"Could not find library section {lib_id}: {e}")
+                    continue
+            
+            if not sections:
+                return {"error": "No valid library sections found"}
+            
+            # Use inviteFriend method from python-plexapi
+            result = account.inviteFriend(
+                user=email,
+                server=server,
+                sections=sections,
+                allowSync=False,  # Default to False for security
+                allowCameraUpload=False,
+                allowChannels=False
+            )
+            
+            return {
+                "success": True,
+                "message": f"Successfully invited {email} to Plex",
+                "sections_shared": [s.title for s in sections]
+            }
+            
+        except Exception as e:
+            log.error(f"Error inviting user via python-plexapi: {e}")
+            return {"error": str(e)}
         
     async def _get_server_id(self) -> str:
         """Get server machine identifier"""

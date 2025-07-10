@@ -1081,37 +1081,79 @@ class MediaCommander(commands.Cog):
                 library_ids = [str(lib.get('key', '')) for lib in selected_libraries]
                 result = await client.invite_user(user_email, library_ids)
                 
-                # Confirm to user
-                success_embed = discord.Embed(
-                    title="🎉 Plex Invitation Sent!",
-                    description=f"An invitation has been sent to **{user_email}**",
-                    color=0x00FF00
-                )
-                success_embed.add_field(
-                    name="📚 Libraries",
-                    value='\n'.join([f"🎬 {name}" for name in selected_names]),
-                    inline=False
-                )
-                await user.send(embed=success_embed)
-                
-                # Confirm to admin (with redacted email for security)
-                redacted_email = self._redact_email(user_email)
-                admin_embed = discord.Embed(
-                    title="✅ Invitation Completed",
-                    description=f"Successfully invited **{user.display_name}** ({redacted_email}) to Plex",
-                    color=0x00FF00
-                )
-                admin_embed.add_field(
-                    name="📚 Libraries",
-                    value=', '.join(selected_names),
-                    inline=False
-                )
-                admin_embed.add_field(
-                    name="🔒 Secure Process",
-                    value="Email was collected privately via DM and is now redacted for security",
-                    inline=False
-                )
-                await ctx.send(embed=admin_embed)
+                # Handle the response from the enhanced invite_user method
+                if result.get('success'):
+                    # Confirm to user
+                    success_embed = discord.Embed(
+                        title="🎉 Plex Invitation Sent!",
+                        description=f"An invitation has been sent to **{user_email}**",
+                        color=0x00FF00
+                    )
+                    
+                    # Use sections_shared from result if available, otherwise fall back to selected_names
+                    shared_sections = result.get('sections_shared', selected_names)
+                    success_embed.add_field(
+                        name="📚 Libraries",
+                        value='\n'.join([f"🎬 {name}" for name in shared_sections]),
+                        inline=False
+                    )
+                    
+
+                    
+                    await user.send(embed=success_embed)
+                    
+                    # Confirm to admin (with redacted email for security)
+                    redacted_email = self._redact_email(user_email)
+                    admin_embed = discord.Embed(
+                        title="✅ Invitation Completed",
+                        description=f"Successfully invited **{user.display_name}** ({redacted_email}) to Plex",
+                        color=0x00FF00
+                    )
+                    admin_embed.add_field(
+                        name="📚 Libraries",
+                        value=', '.join(shared_sections),
+                        inline=False
+                    )
+                    admin_embed.add_field(
+                        name="🔒 Secure Process",
+                        value="Email was collected privately via DM and is now redacted for security",
+                        inline=False
+                    )
+                    admin_embed.add_field(
+                        name="📋 Details",
+                        value=result.get('message', 'Invitation sent successfully'),
+                        inline=False
+                    )
+                    await ctx.send(embed=admin_embed)
+                else:
+                    # Handle invitation error
+                    error_message = result.get('error', 'Unknown error occurred')
+                    
+                    # Notify user of error
+                    error_embed = discord.Embed(
+                        title="❌ Invitation Failed",
+                        description="There was an error sending your Plex invitation.",
+                        color=0xFF0000
+                    )
+                    error_embed.add_field(
+                        name="Error Details",
+                        value=error_message,
+                        inline=False
+                    )
+                    await user.send(embed=error_embed)
+                    
+                    # Notify admin of error
+                    admin_error_embed = discord.Embed(
+                        title="❌ Invitation Failed",
+                        description=f"Failed to invite **{user.display_name}**",
+                        color=0xFF0000
+                    )
+                    admin_error_embed.add_field(
+                        name="Error Details",
+                        value=error_message,
+                        inline=False
+                    )
+                    await ctx.send(embed=admin_error_embed)
                 
             except discord.Forbidden:
                 await ctx.send(f"❌ Cannot send DM to **{user.display_name}**. They may have DMs disabled.")
@@ -1166,25 +1208,61 @@ class MediaCommander(commands.Cog):
             # Redact email for privacy protection
             redacted_email = self._redact_email(email)
             
-            embed = discord.Embed(
-                title="📧 Plex Invitation Sent",
-                description=f"Invited **{redacted_email}** to Plex",
-                color=0xE5A00D
-            )
-            
-            embed.add_field(
-                name="📚 Selected Libraries",
-                value=', '.join(selected_names),
-                inline=False
-            )
-            
-            embed.add_field(
-                name="🔒 Privacy Protection",
-                value="Email address has been redacted for security",
-                inline=False
-            )
-            
-            await ctx.send(embed=embed)
+            # Handle the response from the enhanced invite_user method
+            if result.get('success'):
+                # Use sections_shared from result if available, otherwise fall back to selected_names
+                shared_sections = result.get('sections_shared', selected_names)
+                
+                embed = discord.Embed(
+                    title="✅ Plex Invitation Sent",
+                    description=f"Successfully invited **{redacted_email}** to Plex",
+                    color=0x00FF00
+                )
+                
+                embed.add_field(
+                    name="📚 Selected Libraries",
+                    value=', '.join(shared_sections),
+                    inline=False
+                )
+                
+                embed.add_field(
+                    name="🔒 Privacy Protection",
+                    value="Email address has been redacted for security",
+                    inline=False
+                )
+                
+
+                
+                embed.add_field(
+                    name="📋 Details",
+                    value=result.get('message', 'Invitation sent successfully'),
+                    inline=False
+                )
+                
+                await ctx.send(embed=embed)
+            else:
+                # Handle invitation error
+                error_message = result.get('error', 'Unknown error occurred')
+                
+                embed = discord.Embed(
+                    title="❌ Plex Invitation Failed",
+                    description=f"Failed to invite **{redacted_email}** to Plex",
+                    color=0xFF0000
+                )
+                
+                embed.add_field(
+                    name="Error Details",
+                    value=error_message,
+                    inline=False
+                )
+                
+                embed.add_field(
+                    name="🔒 Privacy Protection",
+                    value="Email address has been redacted for security",
+                    inline=False
+                )
+                
+                await ctx.send(embed=embed)
             
         except asyncio.TimeoutError:
             await library_msg.delete()
