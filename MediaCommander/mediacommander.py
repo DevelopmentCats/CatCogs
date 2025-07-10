@@ -922,14 +922,12 @@ class MediaCommander(commands.Cog):
             await ctx.send(f"❌ Error getting Plex users: {str(e)}")
 
     @plex_group.command(name="invite")
-    async def plex_invite(self, ctx: commands.Context, target: str = None, email: str = None):
+    async def plex_invite(self, ctx: commands.Context, target: str = None):
         """Invite user to Plex with interactive library selection (Admin only)
         
-        Secure Method (Recommended):
+        Auto-detects input type:
         `[p]mc plex invite @user` - Bot DMs user for email privately
-        
-        Direct Method (Private channels only):
-        `[p]mc plex invite email user@email.com` - Direct email invitation
+        `[p]mc plex invite user@email.com` - Direct email invitation
         """
         if not await self._check_service_permission(ctx, 'plex', admin_required=True):
             return
@@ -946,54 +944,66 @@ class MediaCommander(commands.Cog):
                 await ctx.send("❌ No Plex libraries found!")
                 return
             
-            # Method 1: Direct email invitation
-            if target == "email" and email:
-                await self._direct_email_invite(ctx, client, email, libraries)
+            if not target:
+                # Show help if no arguments provided
+                embed = discord.Embed(
+                    title="🎭 Plex Invite Help",
+                    description="Auto-detects input type - no keywords needed!",
+                    color=0xE5A00D
+                )
+                
+                embed.add_field(
+                    name="🔒 Secure Method (Recommended)",
+                    value="`[p]mc plex invite @username`\nBot privately DMs user for email",
+                    inline=False
+                )
+                
+                embed.add_field(
+                    name="📧 Direct Method",
+                    value="`[p]mc plex invite user@email.com`\nDirect invitation with email redaction (use in private channels)",
+                    inline=False
+                )
+                
+                await ctx.send(embed=embed)
                 return
             
-            # Method 2: Secure user invitation via DM
-            if target and target.startswith('<@'):
+            # Auto-detect input type
+            import re
+            
+            # Check if it's an email address (contains @ and basic email pattern)
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if '@' in target and re.match(email_pattern, target):
+                # Direct email invitation
+                await self._direct_email_invite(ctx, client, target, libraries)
+                return
+            
+            # Check if it's a mention (starts with <@)
+            if target.startswith('<@'):
                 # Extract user ID from mention
                 user_id = target.strip('<@!>')
-                user = ctx.guild.get_member(int(user_id))
-                if not user:
-                    await ctx.send("❌ User not found in this server!")
-                    return
-                
-                await self._secure_user_invite(ctx, client, user, libraries)
-                return
-            
-            # Method 3: Try to parse as user mention or show help
-            if target:
                 try:
-                    # Try to convert target to a member
-                    converter = commands.MemberConverter()
-                    user = await converter.convert(ctx, target)
+                    user = ctx.guild.get_member(int(user_id))
+                    if not user:
+                        await ctx.send("❌ User not found in this server!")
+                        return
+                    
                     await self._secure_user_invite(ctx, client, user, libraries)
                     return
-                except commands.BadArgument:
-                    pass
+                except ValueError:
+                    await ctx.send("❌ Invalid user mention format!")
+                    return
             
-            # Show help if no valid arguments
-            embed = discord.Embed(
-                title="🎭 Plex Invite Help",
-                description="Choose your invitation method:",
-                color=0xE5A00D
-            )
-            
-            embed.add_field(
-                name="🔒 Secure Method (Recommended)",
-                value="`[p]mc plex invite @username`\nBot privately DMs user for email",
-                inline=False
-            )
-            
-            embed.add_field(
-                name="📧 Direct Method",
-                value="`[p]mc plex invite email user@email.com`\nDirect invitation with email redaction (use in private channels)",
-                inline=False
-            )
-            
-            await ctx.send(embed=embed)
+            # Try to parse as username/nickname/ID
+            try:
+                # Try to convert target to a member
+                converter = commands.MemberConverter()
+                user = await converter.convert(ctx, target)
+                await self._secure_user_invite(ctx, client, user, libraries)
+                return
+            except commands.BadArgument:
+                # If it's not a valid member and not an email, show error
+                await ctx.send(f"❌ '{target}' is not a valid user mention, username, or email address!")
+                return
             
         except Exception as e:
             log.error(f"Plex invite error: {e}")
@@ -1010,31 +1020,108 @@ class MediaCommander(commands.Cog):
         # Add reactions for library selection
         number_emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
         select_all_emoji = '✅'
+        confirm_emoji = '☑️'
         
         for i, lib in enumerate(libraries[:10]):  # Limit to 10 libraries
             await library_msg.add_reaction(number_emojis[i])
         
         await library_msg.add_reaction(select_all_emoji)
+        await library_msg.add_reaction(confirm_emoji)
+        
+        # Track selected libraries
+        selected_indices = set()
+        all_selected = False
+        
+        # Enhanced selection embed
+        async def update_selection_embed():
+            embed = discord.Embed(
+                title="📚 Library Selection",
+                description="Select libraries to share with the user:",
+                color=0xE5A00D
+            )
+            
+            if all_selected:
+                embed.add_field(
+                    name="Selected Libraries",
+                    value="🎬 **All Libraries**",
+                    inline=False
+                )
+            elif selected_indices:
+                selected_names = [libraries[i].get('title', 'Unknown') for i in selected_indices]
+                embed.add_field(
+                    name="Selected Libraries",
+                    value='\n'.join([f"🎬 {name}" for name in selected_names]),
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="Selected Libraries",
+                    value="*None selected*",
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="Instructions",
+                value="1️⃣-🔟 Toggle individual libraries\n✅ Select/deselect all\n☑️ Confirm selection",
+                inline=False
+            )
+            
+            return embed
         
         # Wait for admin's library selection
         def check_library_reaction(reaction, reaction_user):
             return (reaction_user == ctx.author and 
                    reaction.message.id == library_msg.id and
-                   str(reaction.emoji) in number_emojis[:len(libraries)] + [select_all_emoji])
+                   str(reaction.emoji) in number_emojis[:len(libraries)] + [select_all_emoji, confirm_emoji])
         
         try:
-            reaction, _ = await self.bot.wait_for('reaction_add', check=check_library_reaction, timeout=60.0)
-            
-            # Determine selected libraries
-            if str(reaction.emoji) == select_all_emoji:
-                selected_libraries = libraries
-                selected_names = [lib.get('title', 'Unknown') for lib in libraries]
-            else:
-                emoji_index = number_emojis.index(str(reaction.emoji))
-                selected_libraries = [libraries[emoji_index]]
-                selected_names = [libraries[emoji_index].get('title', 'Unknown')]
-            
-            await library_msg.delete()
+            while True:
+                reaction, _ = await self.bot.wait_for('reaction_add', check=check_library_reaction, timeout=120.0)
+                
+                if str(reaction.emoji) == confirm_emoji:
+                    # User confirmed selection
+                    if all_selected:
+                        selected_libraries = libraries
+                        selected_names = [lib.get('title', 'Unknown') for lib in libraries]
+                    elif selected_indices:
+                        selected_libraries = [libraries[i] for i in selected_indices]
+                        selected_names = [libraries[i].get('title', 'Unknown') for i in selected_indices]
+                    else:
+                        await ctx.send("❌ Please select at least one library before confirming.")
+                        continue
+                    
+                    await library_msg.delete()
+                    break
+                    
+                elif str(reaction.emoji) == select_all_emoji:
+                    # Toggle all libraries
+                    all_selected = not all_selected
+                    if all_selected:
+                        selected_indices.clear()
+                    
+                else:
+                    # Toggle individual library
+                    emoji_index = number_emojis.index(str(reaction.emoji))
+                    if emoji_index in selected_indices:
+                        selected_indices.remove(emoji_index)
+                    else:
+                        selected_indices.add(emoji_index)
+                    
+                    # If individual selection, turn off "all selected"
+                    all_selected = False
+                
+                # Update the embed to show current selection
+                try:
+                    await library_msg.edit(embed=await update_selection_embed())
+                except discord.NotFound:
+                    # Message was deleted, break out of loop
+                    return
+                
+                # Remove the user's reaction to allow re-selection
+                try:
+                    await library_msg.remove_reaction(reaction.emoji, ctx.author)
+                except discord.NotFound:
+                    pass
             
             # Send DM to user for email
             dm_embed = discord.Embed(
@@ -1175,31 +1262,108 @@ class MediaCommander(commands.Cog):
         # Add reactions for library selection
         number_emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
         select_all_emoji = '✅'
+        confirm_emoji = '☑️'
         
         for i, lib in enumerate(libraries[:10]):  # Limit to 10 libraries
             await library_msg.add_reaction(number_emojis[i])
         
         await library_msg.add_reaction(select_all_emoji)
+        await library_msg.add_reaction(confirm_emoji)
+        
+        # Track selected libraries
+        selected_indices = set()
+        all_selected = False
+        
+        # Enhanced selection embed
+        async def update_selection_embed():
+            embed = discord.Embed(
+                title="📚 Library Selection",
+                description="Select libraries to share with the user:",
+                color=0xE5A00D
+            )
+            
+            if all_selected:
+                embed.add_field(
+                    name="Selected Libraries",
+                    value="🎬 **All Libraries**",
+                    inline=False
+                )
+            elif selected_indices:
+                selected_names = [libraries[i].get('title', 'Unknown') for i in selected_indices]
+                embed.add_field(
+                    name="Selected Libraries",
+                    value='\n'.join([f"🎬 {name}" for name in selected_names]),
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="Selected Libraries",
+                    value="*None selected*",
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="Instructions",
+                value="1️⃣-🔟 Toggle individual libraries\n✅ Select/deselect all\n☑️ Confirm selection",
+                inline=False
+            )
+            
+            return embed
         
         # Wait for admin's library selection
         def check_library_reaction(reaction, user):
             return (user == ctx.author and 
                    reaction.message.id == library_msg.id and
-                   str(reaction.emoji) in number_emojis[:len(libraries)] + [select_all_emoji])
+                   str(reaction.emoji) in number_emojis[:len(libraries)] + [select_all_emoji, confirm_emoji])
         
         try:
-            reaction, _ = await self.bot.wait_for('reaction_add', check=check_library_reaction, timeout=60.0)
-            
-            # Determine selected libraries
-            if str(reaction.emoji) == select_all_emoji:
-                selected_libraries = libraries
-                selected_names = [lib.get('title', 'Unknown') for lib in libraries]
-            else:
-                emoji_index = number_emojis.index(str(reaction.emoji))
-                selected_libraries = [libraries[emoji_index]]
-                selected_names = [libraries[emoji_index].get('title', 'Unknown')]
-            
-            await library_msg.delete()
+            while True:
+                reaction, _ = await self.bot.wait_for('reaction_add', check=check_library_reaction, timeout=120.0)
+                
+                if str(reaction.emoji) == confirm_emoji:
+                    # User confirmed selection
+                    if all_selected:
+                        selected_libraries = libraries
+                        selected_names = [lib.get('title', 'Unknown') for lib in libraries]
+                    elif selected_indices:
+                        selected_libraries = [libraries[i] for i in selected_indices]
+                        selected_names = [libraries[i].get('title', 'Unknown') for i in selected_indices]
+                    else:
+                        await ctx.send("❌ Please select at least one library before confirming.")
+                        continue
+                    
+                    await library_msg.delete()
+                    break
+                    
+                elif str(reaction.emoji) == select_all_emoji:
+                    # Toggle all libraries
+                    all_selected = not all_selected
+                    if all_selected:
+                        selected_indices.clear()
+                    
+                else:
+                    # Toggle individual library
+                    emoji_index = number_emojis.index(str(reaction.emoji))
+                    if emoji_index in selected_indices:
+                        selected_indices.remove(emoji_index)
+                    else:
+                        selected_indices.add(emoji_index)
+                    
+                    # If individual selection, turn off "all selected"
+                    all_selected = False
+                
+                # Update the embed to show current selection
+                try:
+                    await library_msg.edit(embed=await update_selection_embed())
+                except discord.NotFound:
+                    # Message was deleted, break out of loop
+                    return
+                
+                # Remove the user's reaction to allow re-selection
+                try:
+                    await library_msg.remove_reaction(reaction.emoji, ctx.author)
+                except discord.NotFound:
+                    pass
             
             # Send the invitation
             library_ids = [str(lib.get('key', '')) for lib in selected_libraries]
