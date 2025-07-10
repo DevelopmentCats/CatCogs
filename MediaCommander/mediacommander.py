@@ -1719,39 +1719,46 @@ class MediaCommander(commands.Cog):
             await ctx.send("❌ Sonarr client not configured properly.")
             return
         
-        try:
-            from datetime import datetime, timedelta
-            start_date = datetime.now().strftime('%Y-%m-%d')
-            end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
-            
-            episodes = await client.get_calendar(start_date, end_date)
-            if not episodes:
-                await ctx.send(f"📅 No episodes scheduled for the next {days} days!")
-                return
-            
-            embed = discord.Embed(
-                title=f"📅 Upcoming Episodes ({days} days)",
-                color=0x35C5F4
-            )
-            
-            for episode in episodes[:10]:  # Limit to 10 episodes
-                series_title = episode.get('series', {}).get('title', 'Unknown Series')
-                episode_title = episode.get('title', 'Unknown Episode')
-                season = episode.get('seasonNumber', 'N/A')
-                episode_num = episode.get('episodeNumber', 'N/A')
-                air_date = episode.get('airDate', 'Unknown')
+        async with ctx.typing():
+            try:
+                from datetime import datetime, timedelta
+                start_date = datetime.now().strftime('%Y-%m-%d')
+                end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
                 
-                embed.add_field(
-                    name=f"{series_title} S{season}E{episode_num}",
-                    value=f"**{episode_title}**\nAirs: {air_date}",
-                    inline=False
+                # Get calendar episodes
+                episodes = await client.get_calendar(start_date, end_date)
+                if not episodes:
+                    await ctx.send(f"📅 No episodes scheduled for the next {days} days!")
+                    return
+                
+                # Get all series to build a lookup dictionary
+                series_list = await client.get_series()
+                series_lookup = {s['id']: s['title'] for s in series_list}
+                
+                embed = discord.Embed(
+                    title=f"📅 Upcoming Episodes ({days} days)",
+                    color=0x35C5F4
                 )
-            
-            await ctx.send(embed=embed)
-            
-        except Exception as e:
-            log.error(f"Sonarr calendar error: {e}")
-            await ctx.send(f"❌ Error getting calendar: {str(e)}")
+                
+                for episode in episodes[:10]:  # Limit to 10 episodes
+                    series_id = episode.get('seriesId')
+                    series_title = series_lookup.get(series_id, 'Unknown Series')
+                    episode_title = episode.get('title', 'Unknown Episode')
+                    season = episode.get('seasonNumber', 'N/A')
+                    episode_num = episode.get('episodeNumber', 'N/A')
+                    air_date = episode.get('airDate', 'Unknown')
+                    
+                    embed.add_field(
+                        name=f"{series_title} S{season}E{episode_num}",
+                        value=f"**{episode_title}**\nAirs: {air_date}",
+                        inline=False
+                    )
+                
+                await ctx.send(embed=embed)
+                
+            except Exception as e:
+                log.error(f"Sonarr calendar error: {e}")
+                await ctx.send(f"❌ Error getting calendar: {str(e)}")
 
     @sonarr_group.command(name="missing")
     async def sonarr_missing(self, ctx: commands.Context):
