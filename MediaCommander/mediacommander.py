@@ -1722,8 +1722,9 @@ class MediaCommander(commands.Cog):
         async with ctx.typing():
             try:
                 from datetime import datetime, timedelta
-                start_date = datetime.now().strftime('%Y-%m-%d')
-                end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
+                today = datetime.now().date()
+                start_date = today.strftime('%Y-%m-%d')
+                end_date = (today + timedelta(days=days-1)).strftime('%Y-%m-%d')
                 
                 # Get calendar episodes
                 episodes = await client.get_calendar(start_date, end_date)
