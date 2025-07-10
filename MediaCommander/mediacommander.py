@@ -1020,17 +1020,15 @@ class MediaCommander(commands.Cog):
         # Add reactions for library selection
         number_emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
         select_all_emoji = '✅'
-        confirm_emoji = '☑️'
+        confirm_emoji = '✅'  # Use same emoji for clarity
         
         for i, lib in enumerate(libraries[:10]):  # Limit to 10 libraries
             await library_msg.add_reaction(number_emojis[i])
         
         await library_msg.add_reaction(select_all_emoji)
-        await library_msg.add_reaction(confirm_emoji)
         
         # Track selected libraries
         selected_indices = set()
-        all_selected = False
         
         # Enhanced selection embed
         async def update_selection_embed():
@@ -1040,29 +1038,40 @@ class MediaCommander(commands.Cog):
                 color=0xE5A00D
             )
             
-            if all_selected:
-                embed.add_field(
-                    name="Selected Libraries",
-                    value="🎬 **All Libraries**",
-                    inline=False
-                )
-            elif selected_indices:
+            # Show available libraries with selection status
+            library_list = []
+            for i, lib in enumerate(libraries[:10]):
+                name = lib.get('title', 'Unknown Library')
+                lib_type = lib.get('type', 'unknown')
+                count = lib.get('count', 'N/A')
+                
+                type_emoji = {
+                    'movie': '🎬',
+                    'show': '📺', 
+                    'music': '🎵',
+                    'photo': '📸'
+                }.get(lib_type, '📁')
+                
+                status = "✅" if i in selected_indices else "⬜"
+                library_list.append(f"{number_emojis[i]} {status} {type_emoji} **{name}** ({count} items)")
+            
+            embed.add_field(
+                name="Available Libraries",
+                value='\n'.join(library_list),
+                inline=False
+            )
+            
+            if selected_indices:
                 selected_names = [libraries[i].get('title', 'Unknown') for i in selected_indices]
                 embed.add_field(
-                    name="Selected Libraries",
+                    name="Currently Selected",
                     value='\n'.join([f"🎬 {name}" for name in selected_names]),
-                    inline=False
-                )
-            else:
-                embed.add_field(
-                    name="Selected Libraries",
-                    value="*None selected*",
                     inline=False
                 )
             
             embed.add_field(
                 name="Instructions",
-                value="1️⃣-🔟 Toggle individual libraries\n✅ Select/deselect all\n☑️ Confirm selection",
+                value="1️⃣-🔟 Toggle individual libraries\n✅ **Select ALL and CONFIRM**",
                 inline=False
             )
             
@@ -1072,32 +1081,24 @@ class MediaCommander(commands.Cog):
         def check_library_reaction(reaction, reaction_user):
             return (reaction_user == ctx.author and 
                    reaction.message.id == library_msg.id and
-                   str(reaction.emoji) in number_emojis[:len(libraries)] + [select_all_emoji, confirm_emoji])
+                   str(reaction.emoji) in number_emojis[:len(libraries)] + [select_all_emoji])
         
         try:
             while True:
                 reaction, _ = await self.bot.wait_for('reaction_add', check=check_library_reaction, timeout=120.0)
                 
-                if str(reaction.emoji) == confirm_emoji:
-                    # User confirmed selection
-                    if all_selected:
-                        selected_libraries = libraries
-                        selected_names = [lib.get('title', 'Unknown') for lib in libraries]
-                    elif selected_indices:
+                if str(reaction.emoji) == select_all_emoji:
+                    # If nothing selected, select all. If something selected, confirm.
+                    if not selected_indices:
+                        # Select all libraries
+                        selected_indices = set(range(len(libraries)))
+                        await library_msg.edit(embed=await update_selection_embed())
+                    else:
+                        # Confirm selection
                         selected_libraries = [libraries[i] for i in selected_indices]
                         selected_names = [libraries[i].get('title', 'Unknown') for i in selected_indices]
-                    else:
-                        await ctx.send("❌ Please select at least one library before confirming.")
-                        continue
-                    
-                    await library_msg.delete()
-                    break
-                    
-                elif str(reaction.emoji) == select_all_emoji:
-                    # Toggle all libraries
-                    all_selected = not all_selected
-                    if all_selected:
-                        selected_indices.clear()
+                        await library_msg.delete()
+                        break
                     
                 else:
                     # Toggle individual library
@@ -1107,15 +1108,12 @@ class MediaCommander(commands.Cog):
                     else:
                         selected_indices.add(emoji_index)
                     
-                    # If individual selection, turn off "all selected"
-                    all_selected = False
-                
-                # Update the embed to show current selection
-                try:
-                    await library_msg.edit(embed=await update_selection_embed())
-                except discord.NotFound:
-                    # Message was deleted, break out of loop
-                    return
+                    # Update the embed to show current selection
+                    try:
+                        await library_msg.edit(embed=await update_selection_embed())
+                    except discord.NotFound:
+                        # Message was deleted, break out of loop
+                        return
                 
                 # Remove the user's reaction to allow re-selection
                 try:
@@ -1262,17 +1260,14 @@ class MediaCommander(commands.Cog):
         # Add reactions for library selection
         number_emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
         select_all_emoji = '✅'
-        confirm_emoji = '☑️'
         
         for i, lib in enumerate(libraries[:10]):  # Limit to 10 libraries
             await library_msg.add_reaction(number_emojis[i])
         
         await library_msg.add_reaction(select_all_emoji)
-        await library_msg.add_reaction(confirm_emoji)
         
         # Track selected libraries
         selected_indices = set()
-        all_selected = False
         
         # Enhanced selection embed
         async def update_selection_embed():
@@ -1282,29 +1277,40 @@ class MediaCommander(commands.Cog):
                 color=0xE5A00D
             )
             
-            if all_selected:
-                embed.add_field(
-                    name="Selected Libraries",
-                    value="🎬 **All Libraries**",
-                    inline=False
-                )
-            elif selected_indices:
+            # Show available libraries with selection status
+            library_list = []
+            for i, lib in enumerate(libraries[:10]):
+                name = lib.get('title', 'Unknown Library')
+                lib_type = lib.get('type', 'unknown')
+                count = lib.get('count', 'N/A')
+                
+                type_emoji = {
+                    'movie': '🎬',
+                    'show': '📺', 
+                    'music': '🎵',
+                    'photo': '📸'
+                }.get(lib_type, '📁')
+                
+                status = "✅" if i in selected_indices else "⬜"
+                library_list.append(f"{number_emojis[i]} {status} {type_emoji} **{name}** ({count} items)")
+            
+            embed.add_field(
+                name="Available Libraries",
+                value='\n'.join(library_list),
+                inline=False
+            )
+            
+            if selected_indices:
                 selected_names = [libraries[i].get('title', 'Unknown') for i in selected_indices]
                 embed.add_field(
-                    name="Selected Libraries",
+                    name="Currently Selected",
                     value='\n'.join([f"🎬 {name}" for name in selected_names]),
-                    inline=False
-                )
-            else:
-                embed.add_field(
-                    name="Selected Libraries",
-                    value="*None selected*",
                     inline=False
                 )
             
             embed.add_field(
                 name="Instructions",
-                value="1️⃣-🔟 Toggle individual libraries\n✅ Select/deselect all\n☑️ Confirm selection",
+                value="1️⃣-🔟 Toggle individual libraries\n✅ **Select ALL and CONFIRM**",
                 inline=False
             )
             
@@ -1314,32 +1320,24 @@ class MediaCommander(commands.Cog):
         def check_library_reaction(reaction, user):
             return (user == ctx.author and 
                    reaction.message.id == library_msg.id and
-                   str(reaction.emoji) in number_emojis[:len(libraries)] + [select_all_emoji, confirm_emoji])
+                   str(reaction.emoji) in number_emojis[:len(libraries)] + [select_all_emoji])
         
         try:
             while True:
                 reaction, _ = await self.bot.wait_for('reaction_add', check=check_library_reaction, timeout=120.0)
                 
-                if str(reaction.emoji) == confirm_emoji:
-                    # User confirmed selection
-                    if all_selected:
-                        selected_libraries = libraries
-                        selected_names = [lib.get('title', 'Unknown') for lib in libraries]
-                    elif selected_indices:
+                if str(reaction.emoji) == select_all_emoji:
+                    # If nothing selected, select all. If something selected, confirm.
+                    if not selected_indices:
+                        # Select all libraries
+                        selected_indices = set(range(len(libraries)))
+                        await library_msg.edit(embed=await update_selection_embed())
+                    else:
+                        # Confirm selection
                         selected_libraries = [libraries[i] for i in selected_indices]
                         selected_names = [libraries[i].get('title', 'Unknown') for i in selected_indices]
-                    else:
-                        await ctx.send("❌ Please select at least one library before confirming.")
-                        continue
-                    
-                    await library_msg.delete()
-                    break
-                    
-                elif str(reaction.emoji) == select_all_emoji:
-                    # Toggle all libraries
-                    all_selected = not all_selected
-                    if all_selected:
-                        selected_indices.clear()
+                        await library_msg.delete()
+                        break
                     
                 else:
                     # Toggle individual library
@@ -1349,15 +1347,12 @@ class MediaCommander(commands.Cog):
                     else:
                         selected_indices.add(emoji_index)
                     
-                    # If individual selection, turn off "all selected"
-                    all_selected = False
-                
-                # Update the embed to show current selection
-                try:
-                    await library_msg.edit(embed=await update_selection_embed())
-                except discord.NotFound:
-                    # Message was deleted, break out of loop
-                    return
+                    # Update the embed to show current selection
+                    try:
+                        await library_msg.edit(embed=await update_selection_embed())
+                    except discord.NotFound:
+                        # Message was deleted, break out of loop
+                        return
                 
                 # Remove the user's reaction to allow re-selection
                 try:
